@@ -449,3 +449,37 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .msg.cont .m-avatar { display: none; }
 .member .admin-chip { margin-left: 6px; }
 .member .m-meta b { display: flex; align-items: center; gap: 4px; }
+
+/* ======================================================================
+   v6: walkie-talkie
+   ====================================================================== */
+#walkieBtn.on { color: var(--on-brand); background: var(--brand); }
+.walkie { padding: 10px 16px 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--brand-soft), var(--surface)); }
+.wk-head { display: flex; align-items: center; gap: 10px; width: 100%; }
+.wk-head b { font-size: 15px; }
+.wk-head .muted { flex: 1; text-align: right; }
+.wk-head .icon-btn { width: 36px; height: 36px; }
+.wk-status { font-weight: 700; font-size: 15px; min-height: 22px; text-align: center; }
+.wk-status.live { color: var(--danger); }
+.wk-status.hearing { color: var(--brand); }
+.ptt { position: relative; width: 132px; height: 132px; border-radius: 50%; border: 0; background: var(--brand); color: var(--on-brand); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px; font-weight: 700; font-size: 13px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  box-shadow: 0 10px 30px -8px rgba(79, 70, 229, .6); transition: transform .12s, background .12s; }
+.ptt svg { width: 36px; height: 36px; }
+.ptt.talking { background: var(--danger); transform: scale(1.06); box-shadow: 0 10px 34px -6px rgba(220, 38, 38, .6); }
+.ptt.busy, .ptt:disabled { background: var(--surface-2); color: var(--muted); box-shadow: none; }
+.ptt-ring { position: absolute; inset: -8px; border-radius: 50%; border: 3px solid currentColor; opacity: 0; transform: scale(var(--lvl, 1)); transition: transform .08s; pointer-events: none; }
+.ptt.talking .ptt-ring { opacity: .45; color: var(--danger); }
+.walkie.hearing .ptt-ring { opacity: .4; color: var(--brand); animation: ring 1s ease-in-out infinite; }
+@keyframes ring { 50% { transform: scale(1.08); } }
+.wk-save { margin: 0; }
+.wk-hint { margin: 0; text-align: center; max-width: 36ch; }
+.walkie-banner { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 600; }
+.walkie-banner .grow { flex: 1; }
+.wb-wave { display: inline-flex; gap: 2px; align-items: center; height: 16px; }
+.wb-wave i { width: 3px; background: var(--danger); border-radius: 2px; animation: wave .9s ease-in-out infinite; }
+.wb-wave i:nth-child(2) { animation-delay: .15s; } .wb-wave i:nth-child(3) { animation-delay: .3s; }
+@keyframes wave { 0%, 100% { height: 4px; } 50% { height: 16px; } }
+.voice-tag { display: block; font-size: 11px; font-weight: 700; color: var(--brand); margin-bottom: 2px; }
+@media (min-width: 768px) { .ptt { width: 120px; height: 120px; } }

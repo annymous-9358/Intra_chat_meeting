@@ -24,6 +24,10 @@ A quick group chat app. Run it in two ways with the same code:
   opens that chat, and nothing is shown for the chat you're already looking at. Mute a group for 8 hours, 1 week or always.
 - **Installable app** (PWA): "Install" / "Add to Home Screen" gives an app icon, full-screen window and unread badge.
   On iPhone/iPad, notifications only work after adding to the Home Screen (iOS 16.4+).
+- **📻 Walkie-talkie**: open it from the chat header and **hold to talk** (or hold the Space bar on a computer).
+  Everyone with the walkie-talkie open hears you live (about 1–2 s behind), one person talks at a time, and people
+  who aren't listening see "X is talking — Listen". Each transmission is also saved in the chat as a 📻 voice message
+  (can be switched off), so others get a notification and can play it later. Turns are limited to 1 minute.
 - **Message actions**: press and hold (phone) or right-click / 😊 (desktop) a message for emoji reactions
   (👍 ❤️ 😂 😮 😢 🙏, one per person), Reply, Copy text, Message info (seen/delivered) and Delete for everyone
   (your own messages; group admins can delete any message in their group)

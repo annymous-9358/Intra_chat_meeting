@@ -352,7 +352,7 @@ async function openRoom(room, force) {
 }
 function leaveRoom() {
   session++; clearTimeout(pollTimer); ctrl?.abort(); polling = false;
-  stopLocation(); stopAllAudio();
+  stopLocation(); stopAllAudio(); closeWalkie();
   if (current) markRead(current, since);
   current = null; group = null; tellSW();
 }
@@ -390,7 +390,7 @@ async function poll(mySession) {
     const ack = {};
     if (since && since > acked.delivered) ack.delivered = since;
     if (since && !document.hidden && since > acked.read) ack.read = since;
-    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, xsince }, myCtrl.signal);
+    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, xsince, walkie: walkie.on, tsince: walkie.tsince ? walkie.tsince - 5000 : 0 }, myCtrl.signal);
     if (mySession !== session) return;
     if (ack.delivered) acked.delivered = ack.delivered;
     if (ack.read) { acked.read = ack.read; markRead(current, ack.read); }
@@ -405,6 +405,7 @@ async function poll(mySession) {
     }
     if (d.edits) { for (const [k, e] of Object.entries(d.edits)) { edits[k] = e; applyEdit(k); } }
     if (d.xt) xsince = d.xt;
+    if (d.talk) onTalk(d.talk, d.xt);
     // (ignore a mute state from a request that started before we changed it ourselves)
     if (typeof d.muteUntil === 'number' && pollStart > muteChangedAt && (mutes[current] || 0) !== d.muteUntil) { if (d.muteUntil) mutes[current] = d.muteUntil; else delete mutes[current]; store.setJson('ic-mutes', mutes); }
     setRooms(d.rooms);
@@ -447,6 +448,7 @@ function renderPresence(users) {
   $('chatSub').textContent = sub;
   if ($('app').classList.contains('info-open') && users.some(u => !(membersCache.list || []).some(m => m.uid === u.uid))) loadMembers();   // someone new joined
   presenceCache = users;
+  renderWalkie();
   if ($('app').classList.contains('info-open')) renderInfo();
 }
 
@@ -546,7 +548,7 @@ function jumpTo(key) {
   target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
 }
-const previewText = m => m.text || (m.audio ? `🎤 Voice message (${fmtDur(m.audio.dur)})` : m.gif ? '🎞️ GIF' : '');
+const previewText = m => m.text || (m.audio ? `${m.audio.walkie ? '📻 Walkie-talkie' : '🎤 Voice message'} (${fmtDur(m.audio.dur)})` : m.gif ? '🎞️ GIF' : '');
 
 function notify(m) {
   if (isMine(m) || !document.hidden || pushActive) return;   // push notifications take over when enabled
@@ -772,6 +774,7 @@ let playingAudio = null;
 function stopAllAudio() { if (playingAudio) { playingAudio.pause(); playingAudio = null; } }
 function voicePlayer(a, localUrl) {
   const wrap = document.createElement('div'); wrap.className = 'voice';
+  if (a.walkie) { const tag = document.createElement('span'); tag.className = 'voice-tag'; tag.textContent = '📻 Walkie-talkie'; setTimeout(() => wrap.before(tag)); }
   const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'play'; btn.innerHTML = ICON.play; btn.setAttribute('aria-label', 'Play voice message');
   const wave = document.createElement('div'); wave.className = 'wave'; wave.setAttribute('role', 'slider'); wave.setAttribute('aria-label', 'Seek');
   let peaks = a.peaks?.length ? a.peaks : null;
@@ -1376,6 +1379,184 @@ async function muteGroup() {
   } catch (e) { toast(e.message); }
 }
 const fmtUntil = t => t > Date.now() + 365 * 864e5 ? 'you unmute it' : new Date(t).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+
+
+/* ---------------- Walkie-talkie ---------------- */
+// Hold to talk: your voice is recorded in ~1 s pieces that are sent as you speak; everyone with the walkie-talkie
+// open hears them straight away, played back-to-back. One person talks at a time. The whole transmission can also
+// be saved to the chat as a 📻 voice message for people who weren't listening.
+const walkie = {
+  on: false, ctx: null, nextTime: 0, played: new Set(), tsince: 0, queue: Promise.resolve(), floor: null, hearingUntil: 0, speaker: '',
+  talking: false, talkId: null, seq: 0, stream: null, seg: null, segTimer: null, full: null, fullChunks: [], start: 0, timer: null, send: Promise.resolve(),
+  analyser: null, peaks: [], listeners: 0,
+};
+const SEG_MS = 1000, MAX_TALK_S = 60;
+$('wkSave').checked = store.get('ic-wk-save') !== '0';
+$('wkSave').onchange = () => store.set('ic-wk-save', $('wkSave').checked ? '1' : '0');
+
+function openWalkie() {
+  if (!current) return;
+  // Create/resume audio playback inside this tap so phones allow sound without further taps
+  try {
+    walkie.ctx = walkie.ctx || new (window.AudioContext || window.webkitAudioContext)();
+    walkie.ctx.resume();
+    const b = walkie.ctx.createBuffer(1, 1, 22050), src = walkie.ctx.createBufferSource(); src.buffer = b; src.connect(walkie.ctx.destination); src.start(0);
+  } catch {}
+  walkie.on = true; walkie.nextTime = 0;
+  $('walkiePanel').classList.remove('hidden'); $('walkieBtn').classList.add('on'); $('walkieBtn').setAttribute('aria-pressed', 'true');
+  closeGifs(); renderWalkie(); repoll();
+}
+function closeWalkie() {
+  if (walkie.talking) stopTalking(false);
+  walkie.on = false;
+  $('walkiePanel').classList.add('hidden'); $('walkieBtn').classList.remove('on'); $('walkieBtn').setAttribute('aria-pressed', 'false');
+  renderWalkie();
+}
+$('walkieBtn').onclick = () => walkie.on ? (closeWalkie(), repoll()) : openWalkie();
+$('wkClose').onclick = () => { closeWalkie(); repoll(); };
+$('wbListen').onclick = openWalkie;
+
+function onTalk(talk, xt) {
+  walkie.floor = talk.floor;
+  if (!walkie.tsince) { walkie.tsince = xt; renderWalkie(); return; }     // first look: don't replay older audio
+  walkie.tsince = xt;
+  if (walkie.on && walkie.ctx) for (const c of talk.chunks.sort((a, b) => a.at - b.at || a.seq - b.seq)) enqueueChunk(c);
+  renderWalkie();
+}
+function enqueueChunk(c) {
+  const id = c.talkId + ':' + c.seq;
+  if (walkie.played.has(id)) return;
+  walkie.played.add(id);
+  if (walkie.played.size > 500) walkie.played = new Set([...walkie.played].slice(-200));
+  // download + decode right away, but play strictly in order
+  const decoded = fetch(c.url).then(r => r.arrayBuffer()).then(b => walkie.ctx.decodeAudioData(b)).catch(() => null);
+  walkie.queue = walkie.queue.then(async () => {
+    const buf = await decoded;
+    if (!buf || !walkie.on) return;
+    const ctx = walkie.ctx, src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+    const at = Math.max(ctx.currentTime + 0.05, walkie.nextTime);
+    src.start(at); walkie.nextTime = at + buf.duration;
+    walkie.hearingUntil = performance.now() + (walkie.nextTime - ctx.currentTime) * 1000 + 300;
+    walkie.speaker = c.name; renderWalkie();
+    setTimeout(renderWalkie, (walkie.nextTime - ctx.currentTime) * 1000 + 350);
+  });
+}
+
+function renderWalkie() {
+  const f = walkie.floor, othersTalking = f && f.uid !== me.uid, hearing = performance.now() < walkie.hearingUntil;
+  const listeners = presenceCache.filter(u => u.walkie && u.uid !== me.uid).length;
+  const canTalk = !(group?.me && !group.me.canChat);
+  // Banner for people who don't have the walkie-talkie open
+  const showBanner = !walkie.on && othersTalking;
+  $('walkieBanner').classList.toggle('hidden', !showBanner);
+  if (showBanner) $('wbText').textContent = `${f.name} is talking on the walkie-talkie`;
+  if (!walkie.on) return;
+  $('wkListeners').textContent = listeners ? `${listeners} listening` : 'Nobody else listening yet';
+  const st = $('wkStatus'), btn = $('pttBtn');
+  st.className = 'wk-status';
+  $('walkiePanel').classList.toggle('hearing', hearing && !walkie.talking);
+  if (walkie.talking) { st.classList.add('live'); st.textContent = `🔴 You’re live · ${fmtDur((Date.now() - walkie.start) / 1000)}`; }
+  else if (othersTalking || hearing) { st.classList.add('hearing'); st.textContent = `🔊 ${othersTalking ? f.name : walkie.speaker} is talking…`; }
+  else st.textContent = canTalk ? 'Hold the button to talk' : 'You can listen here, but you’re outside the range to talk';
+  btn.classList.toggle('talking', walkie.talking);
+  btn.classList.toggle('busy', !!othersTalking && !walkie.talking);
+  btn.disabled = !canTalk;
+  $('pttLabel').textContent = walkie.talking ? 'Release to stop' : othersTalking ? `${f.name.split(' ')[0]} is talking` : 'Hold to talk';
+  $('wkHint').textContent = finePointer ? 'Tip: hold the Space bar to talk. People with the walkie-talkie open hear you live; everyone else gets it as a 📻 message.'
+    : 'People with the walkie-talkie open hear you live. Everyone else gets it as a 📻 message.';
+}
+
+async function startTalking() {
+  if (walkie.talking || !current) return;
+  if (walkie.floor && walkie.floor.uid !== me.uid) { if (navigator.vibrate) navigator.vibrate([40, 40, 40]); return toast(`${walkie.floor.name} is talking — wait for them to finish`); }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast('Your browser can’t record audio');
+  const talkId = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => (b % 36).toString(36)).join('') + Date.now().toString(36).slice(-4);
+  walkie.talking = true; walkie.talkId = talkId; walkie.seq = 0; walkie.start = Date.now(); walkie.fullChunks = []; walkie.peaks = [];
+  renderWalkie();
+  try {
+    const [stream] = await Promise.all([
+      navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }),
+      api('talk/start', { talkId, loc: geo.loc }),
+    ]);
+    if (!walkie.talking || walkie.talkId !== talkId) { stream.getTracks().forEach(t => t.stop()); api('talk/end').catch(() => {}); return; }   // released already
+    walkie.stream = stream;
+    if (navigator.vibrate) navigator.vibrate(30);
+    const mime = pickMime();
+    // full recording (saved to chat afterwards)
+    walkie.full = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : undefined);
+    walkie.full.ondataavailable = e => e.data.size && walkie.fullChunks.push(e.data);
+    walkie.full.start(500);
+    // level meter for the ring + waveform for the saved message
+    try {
+      const ctx = walkie.ctx || (walkie.ctx = new (window.AudioContext || window.webkitAudioContext)());
+      walkie.analyser = ctx.createAnalyser(); walkie.analyser.fftSize = 512; ctx.createMediaStreamSource(stream).connect(walkie.analyser);
+    } catch { walkie.analyser = null; }
+    const buf = new Uint8Array(512);
+    walkie.timer = setInterval(() => {
+      if (walkie.analyser) {
+        walkie.analyser.getByteTimeDomainData(buf); let sum = 0; for (const v of buf) sum += ((v - 128) / 128) ** 2;
+        const lvl = Math.sqrt(sum / buf.length); walkie.peaks.push(lvl); $('pttBtn').style.setProperty('--lvl', 1 + Math.min(lvl * 3, 0.25));
+      }
+      renderWalkie();
+      if ((Date.now() - walkie.start) / 1000 >= MAX_TALK_S) { toast('Walkie-talkie turns are limited to 1 minute'); stopTalking(true); }
+    }, 100);
+    recordSegment(mime);
+  } catch (err) {
+    walkie.talking = false; renderWalkie();
+    toast(err.code === 'busy' ? err.message : err.name === 'NotAllowedError' ? 'Microphone access is blocked — allow it in your browser settings' : 'Couldn’t start: ' + err.message);
+  }
+}
+// Each piece is a separate, complete recording so listeners can play it on its own
+function recordSegment(mime) {
+  if (!walkie.stream) return;
+  const rec = new MediaRecorder(walkie.stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : undefined);
+  const parts = [], seq = walkie.seq++, talkId = walkie.talkId;
+  rec.ondataavailable = e => e.data.size && parts.push(e.data);
+  rec.onstop = () => {
+    const final = !walkie.talking || walkie.talkId !== talkId;
+    sendPiece(new Blob(parts, { type: (rec.mimeType || 'audio/webm').split(';')[0] }), talkId, seq, final);
+  };
+  rec.start();
+  walkie.seg = rec;
+  walkie.segTimer = setTimeout(() => { if (walkie.talking && walkie.talkId === talkId) { recordSegment(mime); rec.stop(); } }, SEG_MS);
+}
+function sendPiece(blob, talkId, seq, final) {
+  const room = current;
+  walkie.send = walkie.send.then(() => fetch('/api/talk/chunk', { method: 'POST', body: blob, headers: {
+    'Content-Type': blob.type || 'application/octet-stream', Authorization: 'Bearer ' + me.token, 'X-Chat-Device': me.device,
+    'X-Chat-Room': room, 'X-Talk-Id': talkId, 'X-Talk-Seq': String(seq), ...(final ? { 'X-Talk-Final': '1' } : {}) } }).catch(() => {}));
+}
+function stopTalking(save) {
+  if (!walkie.talking) return;
+  walkie.talking = false;
+  clearTimeout(walkie.segTimer); clearInterval(walkie.timer);
+  $('pttBtn').style.removeProperty('--lvl');
+  const dur = (Date.now() - walkie.start) / 1000, stream = walkie.stream, full = walkie.full, peaks = downsample(walkie.peaks, 40);
+  walkie.stream = null; walkie.full = null;
+  if (walkie.seg && walkie.seg.state !== 'inactive') walkie.seg.stop();          // last piece goes out with the "final" flag
+  else if (walkie.talkId) api('talk/end').catch(() => {});
+  if (navigator.vibrate) navigator.vibrate(15);
+  if (!full) { renderWalkie(); return; }
+  full.onstop = () => {
+    stream?.getTracks().forEach(t => t.stop());
+    if (save && $('wkSave').checked && dur >= 0.8) {
+      const blob = new Blob(walkie.fullChunks, { type: (full.mimeType || 'audio/webm').split(';')[0] });
+      sendMessage({ audio: { dur: Math.round(dur * 10) / 10, peaks, walkie: true }, upload: blob, localUrl: URL.createObjectURL(blob) });
+    }
+  };
+  full.stop();
+  renderWalkie();
+}
+const ptt = $('pttBtn');
+ptt.addEventListener('pointerdown', e => { if (e.button !== 0 || ptt.disabled) return; e.preventDefault(); ptt.setPointerCapture(e.pointerId); startTalking(); });
+ptt.addEventListener('pointerup', () => stopTalking(true));
+ptt.addEventListener('pointercancel', () => stopTalking(true));
+ptt.addEventListener('contextmenu', e => e.preventDefault());
+// Space bar = push-to-talk on keyboards (when you're not typing)
+const typingInField = () => /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName);
+document.addEventListener('keydown', e => { if (e.code === 'Space' && walkie.on && !e.repeat && !typingInField() && !ptt.disabled) { e.preventDefault(); startTalking(); } });
+document.addEventListener('keyup', e => { if (e.code === 'Space' && walkie.talking) { e.preventDefault(); stopTalking(true); } });
+window.addEventListener('blur', () => { if (walkie.talking) stopTalking(true); });
 
 /* ---------------- Start ---------------- */
 // Resume a saved session, otherwise show sign in (or create account when arriving from an invite)

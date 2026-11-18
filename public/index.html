@@ -93,11 +93,17 @@
           <div class="avatar" id="chatAvatar" aria-hidden="true"></div>
           <div class="bar-title"><strong id="chatTitle"></strong><small id="chatSub" class="muted"></small></div>
         </button>
+        <button class="icon-btn" id="walkieBtn" aria-label="Walkie-talkie" title="Walkie-talkie"><svg viewBox="0 0 24 24"><rect x="6" y="7" width="12" height="15" rx="2"/><path d="M9 7V2M10 11h4M10 14h4"/><circle cx="12" cy="18" r="1.5"/></svg></button>
         <button class="icon-btn" id="shareBtn" aria-label="Invite people" title="Invite people"><svg viewBox="0 0 24 24"><path d="M16 8a3 3 0 1 0-2.8-4M8 12a3 3 0 1 0 0 .01M16 16a3 3 0 1 0 0 .01"/><path d="m10.6 10.7 2.8-1.4M10.6 13.3l2.8 1.4"/><circle cx="16" cy="5" r="3"/><circle cx="7" cy="12" r="3"/><circle cx="16" cy="19" r="3"/></svg></button>
         <button class="icon-btn" id="infoBtn" aria-label="Group info" title="Group info"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></button>
       </header>
       <div id="netBanner" class="net-banner hidden" role="status">Reconnecting…</div>
       <div id="adminBanner" class="admin-banner hidden" role="status"></div>
+      <div id="walkieBanner" class="walkie-banner hidden" role="status">
+        <span class="wb-wave" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="grow" id="wbText"></span>
+        <button class="btn small primary" id="wbListen">Listen</button>
+      </div>
 
       <div class="messages-wrap">
         <div id="messages" class="messages" aria-live="polite"></div>
@@ -120,6 +126,21 @@
           <div id="gifGrid" class="gif-grid"></div>
           <div id="gifNote" class="gif-note"></div>
           <input type="file" id="gifFile" accept="image/gif,image/png,image/jpeg,image/webp" class="hidden">
+        </div>
+        <div id="walkiePanel" class="walkie hidden" role="region" aria-label="Walkie-talkie">
+          <div class="wk-head">
+            <b>📻 Walkie-talkie</b>
+            <span id="wkListeners" class="muted small"></span>
+            <button type="button" class="icon-btn" id="wkClose" aria-label="Close walkie-talkie"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+          </div>
+          <div class="wk-status" id="wkStatus" aria-live="assertive">Hold the button to talk</div>
+          <button type="button" id="pttBtn" class="ptt" aria-label="Hold to talk">
+            <span class="ptt-ring" id="pttRing"></span>
+            <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+            <span id="pttLabel">Hold to talk</span>
+          </button>
+          <label class="check small wk-save"><input type="checkbox" id="wkSave" checked> Also save what I say in the chat</label>
+          <p class="muted small wk-hint" id="wkHint">People with the walkie-talkie open hear you live. Everyone else gets it as a 📻 message.</p>
         </div>
         <div id="lockedBar" class="locked hidden"></div>
         <form id="composer" class="composer">
