@@ -1,9 +1,11 @@
 {
   "name": "intra-chat",
-  "version": "1.0.0",
-  "description": "Quick zero-dependency chat for your local/intranet network",
+  "version": "2.0.0",
+  "description": "Quick chat app: runs on your LAN with Node.js or on Netlify (Functions + Blobs)",
+  "type": "module",
   "main": "server.js",
   "scripts": { "start": "node server.js" },
   "engines": { "node": ">=18" },
+  "dependencies": { "@netlify/blobs": "^11.1.9" },
   "license": "MIT"
 }

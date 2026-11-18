@@ -50,6 +50,9 @@
     <input id="name" maxlength="24" required autofocus autocomplete="off">
     <label for="room">Room</label>
     <input id="room" maxlength="30" value="general" autocomplete="off">
+    <label for="pw">Password <span style="opacity:.7">(if your chat has one)</span></label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <div id="err" style="color:#dc2626;font-size:13px;margin-top:10px"></div>
     <button>Join chat</button>
   </form>
 
@@ -70,85 +73,117 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let me = { name: localStorage.getItem('ic-name') || '', room: 'general', clientId: null };
-let es = null, lastTyping = 0, typingTimer = null;
-$('name').value = me.name;
+const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+                set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+let me = { name: store.get('ic-name') || '', room: 'general', pw: store.get('ic-pw') || '' };
+let since = '', seen = new Set(), pollTimer = null, polling = false, session = 0, lastTyping = 0, failures = 0;
+$('name').value = me.name; $('pw').value = me.pw;
 
-$('login').onsubmit = e => { e.preventDefault(); join($('name').value, $('room').value); };
-$('switch').onclick = () => { const r = prompt('Room name:', me.room); if (r) join(me.name, r); };
+async function api(route, body) {
+  const r = await fetch('/api/' + route, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Chat-Password': me.pw },
+    body: JSON.stringify({ name: me.name, room: me.room, ...body }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(data.error || 'HTTP ' + r.status); e.status = r.status; throw e; }
+  return data;
+}
 
-function join(name, room) {
-  me.name = name.trim().slice(0, 24); if (!me.name) return;
+$('login').onsubmit = async e => {
+  e.preventDefault();
+  me.name = $('name').value.trim().slice(0, 24); me.pw = $('pw').value;
+  if (!me.name) return;
+  $('err').textContent = '';
+  try { await join($('room').value); }
+  catch (err) { $('err').textContent = err.message; showLogin(); }
+};
+$('switch').onclick = () => { const r = prompt('Room name:', me.room); if (r) join(r).catch(() => {}); };
+
+function showLogin() { clearTimeout(pollTimer); session++; $('app').classList.add('hidden'); $('login').classList.remove('hidden'); }
+
+async function join(room) {
   me.room = (room || 'general').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'general';
-  try { localStorage.setItem('ic-name', me.name); } catch {}
-  $('login').classList.add('hidden'); $('app').classList.remove('hidden');
-  $('roomTitle').textContent = '#' + me.room;
+  session++; since = ''; seen = new Set(); clearTimeout(pollTimer);
   $('messages').innerHTML = '';
-  if (es) es.close();
-  es = new EventSource(`/events?name=${encodeURIComponent(me.name)}&room=${encodeURIComponent(me.room)}`);
-  es.onopen = () => $('status').textContent = 'online';
-  es.onerror = () => $('status').textContent = 'reconnecting…';
-  es.addEventListener('hello', e => {
-    const d = JSON.parse(e.data); me.clientId = d.id;
-    $('messages').innerHTML = ''; d.history.forEach(render); scrollDown();
-  });
-  es.addEventListener('message', e => { render(JSON.parse(e.data)); scrollDown(); notify(JSON.parse(e.data)); });
-  es.addEventListener('presence', e => renderPresence(JSON.parse(e.data)));
-  es.addEventListener('typing', e => {
-    const { name } = JSON.parse(e.data); if (name === me.name) return;
-    $('typing').textContent = `${name} is typing…`;
-    clearTimeout(typingTimer); typingTimer = setTimeout(() => $('typing').textContent = '', 2500);
-  });
+  $('roomTitle').textContent = '#' + me.room;
+  await poll(session, true);           // throws on wrong password
+  store.set('ic-name', me.name); store.set('ic-pw', me.pw);
+  $('login').classList.add('hidden'); $('app').classList.remove('hidden');
   $('text').focus();
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
 }
 
+async function poll(mySession, rethrow) {
+  if (polling && !rethrow) return;
+  polling = true;
+  try {
+    const d = await api('poll', { since });
+    if (mySession !== session) return;
+    failures = 0; $('status').textContent = 'online';
+    const first = !since;
+    const fresh = d.messages.filter(m => !seen.has(m.key));
+    for (const m of fresh) { seen.add(m.key); render(m); if (!first) notify(m); if (m.key > since) since = m.key; }
+    if (fresh.length) scrollDown();
+    renderSidebar(d);
+  } catch (err) {
+    if (rethrow) throw err;
+    if (err.status === 401) { $('err').textContent = 'Password changed. Please log in again.'; return showLogin(); }
+    failures++; $('status').textContent = 'reconnecting…';
+  } finally {
+    polling = false;
+    if (mySession === session) {
+      clearTimeout(pollTimer);
+      const delay = (document.hidden ? 10000 : 2500) * Math.min(1 + failures, 4);
+      pollTimer = setTimeout(() => poll(mySession), delay);
+    }
+  }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('app').classList.contains('hidden')) poll(session); });
+
 function render(m) {
   const el = document.createElement('div');
-  if (m.system) { el.className = 'sys'; el.textContent = m.text; }
-  else {
-    el.className = 'msg' + (m.name === me.name ? ' mine' : '');
-    const meta = document.createElement('div'); meta.className = 'meta';
-    const b = document.createElement('b'); b.textContent = m.name;
-    meta.append(b, ' · ' + new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-    el.append(meta, document.createTextNode(m.text));
-  }
+  el.className = 'msg' + (m.name === me.name ? ' mine' : '');
+  const meta = document.createElement('div'); meta.className = 'meta';
+  const b = document.createElement('b'); b.textContent = m.name;
+  meta.append(b, ' · ' + new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  el.append(meta, document.createTextNode(m.text));
   $('messages').append(el);
 }
 function scrollDown() { const m = $('messages'); m.scrollTop = m.scrollHeight; }
 
-function renderPresence({ users, rooms }) {
+function renderSidebar({ users, rooms }) {
   const ul = $('users'); ul.innerHTML = '';
-  const seen = new Set();
-  users.filter(u => u.room === me.room).forEach(u => {
-    if (seen.has(u.name)) return; seen.add(u.name);
+  users.forEach(u => {
     const li = document.createElement('li'); li.innerHTML = '<span class="dot"></span>'; li.append(u.name); ul.append(li);
   });
+  const typing = users.filter(u => u.typing && u.name !== me.name).map(u => u.name);
+  $('typing').textContent = typing.length ? `${typing.join(', ')} ${typing.length > 1 ? 'are' : 'is'} typing…` : '';
   const rl = $('rooms'); rl.innerHTML = '';
-  rooms.sort().forEach(r => {
-    const n = users.filter(u => u.room === r).length;
-    const li = document.createElement('li'); li.textContent = `#${r}` + (n ? ` (${n})` : '');
+  rooms.forEach(r => {
+    const li = document.createElement('li'); li.textContent = '#' + r;
     if (r === me.room) li.className = 'active';
-    li.onclick = () => r !== me.room && join(me.name, r);
+    li.onclick = () => r !== me.room && join(r).catch(() => {});
     rl.append(li);
   });
 }
 
 function notify(m) {
-  if (m.system || m.name === me.name || !document.hidden) return;
+  if (m.name === me.name || !document.hidden) return;
   if ('Notification' in window && Notification.permission === 'granted') new Notification(`${m.name} in #${m.room}`, { body: m.text });
 }
 
 $('composer').onsubmit = async e => {
   e.preventDefault();
-  const text = $('text').value.trim(); if (!text || !me.clientId) return;
+  const text = $('text').value.trim(); if (!text) return;
   $('text').value = '';
-  await fetch('/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId: me.clientId, text }) });
+  try { await api('send', { text }); poll(session); }
+  catch (err) { $('text').value = text; $('status').textContent = 'send failed: ' + err.message; }
 };
 $('text').oninput = () => {
-  if (Date.now() - lastTyping < 1500 || !me.clientId) return;
+  if (Date.now() - lastTyping < 2000) return;
   lastTyping = Date.now();
-  fetch('/typing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId: me.clientId }) });
+  api('typing', {}).catch(() => {});
 };
 </script>
 </body>
