@@ -14,7 +14,9 @@ A quick group chat app. Run it in two ways with the same code:
 - History kept (last 300 messages per room)
 - Works on phones, light/dark mode
 
-New messages are fetched every ~2.5 s (every 10 s when the tab is in the background).
+Messages arrive almost instantly via long-polling: each browser keeps one request open, and the server
+answers it the moment someone sends a message or starts typing (~0.5–1 s on Netlify, <0.2 s on a LAN).
+Your own messages appear immediately.
 
 ## Deploy on Netlify
 1. Push this repo to GitHub, then in Netlify choose **Add new site → Import an existing project** and pick the repo.

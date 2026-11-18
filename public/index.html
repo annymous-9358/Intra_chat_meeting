@@ -36,6 +36,7 @@
   .msg.mine { align-self:flex-end; background:var(--mine); }
   .msg .meta { font-size:12px; color:var(--muted); margin-bottom:2px; }
   .msg .meta b { color:var(--text); }
+  .msg.pending { opacity:.55; }
   .sys { align-self:center; font-size:12px; color:var(--muted); }
   #typing { height:18px; padding:0 16px; font-size:12px; color:var(--muted); }
   form#composer { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); background:var(--panel); }
@@ -76,11 +77,11 @@ const $ = id => document.getElementById(id);
 const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } },
                 set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 let me = { name: store.get('ic-name') || '', room: 'general', pw: store.get('ic-pw') || '' };
-let since = '', seen = new Set(), pollTimer = null, polling = false, session = 0, lastTyping = 0, failures = 0;
+let since = '', version = '', seen = new Set(), pending = new Map(), ctrl = null, pollTimer = null, polling = false, session = 0, lastTyping = 0, failures = 0;
 $('name').value = me.name; $('pw').value = me.pw;
 
-async function api(route, body) {
-  const r = await fetch('/api/' + route, {
+async function api(route, body, signal) {
+  const r = await fetch('/api/' + route, { signal,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Chat-Password': me.pw },
     body: JSON.stringify({ name: me.name, room: me.room, ...body }),
@@ -100,11 +101,11 @@ $('login').onsubmit = async e => {
 };
 $('switch').onclick = () => { const r = prompt('Room name:', me.room); if (r) join(r).catch(() => {}); };
 
-function showLogin() { clearTimeout(pollTimer); session++; $('app').classList.add('hidden'); $('login').classList.remove('hidden'); }
+function showLogin() { clearTimeout(pollTimer); ctrl?.abort(); session++; $('app').classList.add('hidden'); $('login').classList.remove('hidden'); }
 
 async function join(room) {
   me.room = (room || 'general').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'general';
-  session++; since = ''; seen = new Set(); clearTimeout(pollTimer);
+  session++; since = ''; version = ''; seen = new Set(); pending = new Map(); clearTimeout(pollTimer); ctrl?.abort();
   $('messages').innerHTML = '';
   $('roomTitle').textContent = '#' + me.room;
   await poll(session, true);           // throws on wrong password
@@ -117,38 +118,55 @@ async function join(room) {
 async function poll(mySession, rethrow) {
   if (polling && !rethrow) return;
   polling = true;
+  ctrl = new AbortController();
+  const myCtrl = ctrl;
+  // Long-poll: the server holds the request until something changes (up to ~7 s)
+  const wait = since && version ? 7000 : 0;
+  const watchdog = setTimeout(() => myCtrl.abort(), wait + 15000);
   try {
-    const d = await api('poll', { since });
+    const d = await api('poll', { since, version, wait }, myCtrl.signal);
     if (mySession !== session) return;
     failures = 0; $('status').textContent = 'online';
     const first = !since;
+    version = d.version || '';
     const fresh = d.messages.filter(m => !seen.has(m.key));
-    for (const m of fresh) { seen.add(m.key); render(m); if (!first) notify(m); if (m.key > since) since = m.key; }
+    for (const m of fresh) { addMessage(m); if (!first) notify(m); }
     if (fresh.length) scrollDown();
     renderSidebar(d);
   } catch (err) {
     if (rethrow) throw err;
+    if (mySession !== session) return;
     if (err.status === 401) { $('err').textContent = 'Password changed. Please log in again.'; return showLogin(); }
     failures++; $('status').textContent = 'reconnecting…';
   } finally {
-    polling = false;
+    clearTimeout(watchdog);
+    if (ctrl === myCtrl) polling = false;
     if (mySession === session) {
       clearTimeout(pollTimer);
-      const delay = (document.hidden ? 10000 : 2500) * Math.min(1 + failures, 4);
+      // Immediately wait for the next change. Back off on errors, and pause a little when the tab is hidden.
+      const delay = failures ? Math.min(1000 * 2 ** failures, 15000) : (document.hidden ? 3000 : 0);
       pollTimer = setTimeout(() => poll(mySession), delay);
     }
   }
 }
+function addMessage(m) {
+  seen.add(m.key);
+  if (m.key > since) since = m.key;
+  const el = m.cid && pending.get(m.cid);
+  if (el) { pending.delete(m.cid); el.classList.remove('pending'); return; }  // already shown optimistically
+  render(m);
+}
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('app').classList.contains('hidden')) poll(session); });
 
-function render(m) {
+function render(m, isPending) {
   const el = document.createElement('div');
-  el.className = 'msg' + (m.name === me.name ? ' mine' : '');
+  el.className = 'msg' + (m.name === me.name ? ' mine' : '') + (isPending ? ' pending' : '');
   const meta = document.createElement('div'); meta.className = 'meta';
   const b = document.createElement('b'); b.textContent = m.name;
   meta.append(b, ' · ' + new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
   el.append(meta, document.createTextNode(m.text));
   $('messages').append(el);
+  return el;
 }
 function scrollDown() { const m = $('messages'); m.scrollTop = m.scrollHeight; }
 
@@ -177,8 +195,17 @@ $('composer').onsubmit = async e => {
   e.preventDefault();
   const text = $('text').value.trim(); if (!text) return;
   $('text').value = '';
-  try { await api('send', { text }); poll(session); }
-  catch (err) { $('text').value = text; $('status').textContent = 'send failed: ' + err.message; }
+  // Show it right away; it turns solid once the server has stored it.
+  const cid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const el = render({ name: me.name, text, ts: Date.now() }, true);
+  pending.set(cid, el); scrollDown();
+  try {
+    const { message } = await api('send', { text, cid });
+    if (pending.has(cid)) { pending.delete(cid); el.classList.remove('pending'); seen.add(message.key); if (message.key > since) since = message.key; }
+  } catch (err) {
+    pending.delete(cid); el.remove();
+    $('text').value = text; $('status').textContent = 'send failed: ' + err.message;
+  }
 };
 $('text').oninput = () => {
   if (Date.now() - lastTyping < 2000) return;
