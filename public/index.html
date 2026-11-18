@@ -65,7 +65,21 @@
   .sys { align-self:center; font-size:12px; color:var(--muted); }
   #typing { height:18px; padding:0 16px; font-size:12px; color:var(--muted); }
   form#composer { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); background:var(--panel); }
-  #text { flex:1; }
+  #text { flex:1; min-width:0; }
+  #gifBtn { background:transparent; color:var(--muted); border:1px solid var(--border); font-weight:700; font-size:12px; padding:0 10px; }
+  #gifBtn.active { color:var(--accent); border-color:var(--accent); }
+  .gif { display:block; max-width:min(260px, 100%); height:auto; border-radius:8px; margin:4px 0 2px; background:rgba(127,127,127,.15); cursor:zoom-in; }
+  #gifPanel { background:var(--panel); border-top:1px solid var(--border); padding:10px 16px 0; display:flex; flex-direction:column; gap:8px; max-height:45vh; }
+  #gifPanel .bar { display:flex; gap:8px; }
+  #gifPanel .bar input { flex:1; min-width:0; }
+  #gifPanel .bar button { white-space:nowrap; }
+  #gifGrid { overflow-y:auto; columns:4 120px; column-gap:6px; min-height:60px; }
+  #gifGrid img { width:100%; height:auto; display:block; margin-bottom:6px; border-radius:6px; cursor:pointer; break-inside:avoid; background:rgba(127,127,127,.15); }
+  #gifGrid img:hover { outline:2px solid var(--accent); }
+  #gifNote { font-size:12px; color:var(--muted); }
+  #gifNote a { color:inherit; }
+  #viewer { position:fixed; inset:0; background:rgba(0,0,0,.85); display:flex; align-items:center; justify-content:center; z-index:10; cursor:zoom-out; }
+  #viewer img { max-width:95vw; max-height:90vh; border-radius:8px; }
   @media (max-width: 640px) { aside { display:none; } }
 </style>
 </head>
@@ -94,7 +108,17 @@
       <div id="messages"></div>
       <div id="typing"></div>
       <div id="replyBar" class="hidden"><div class="quote"><b id="replyName"></b><span id="replyText"></span></div><button type="button" id="replyCancel" title="Cancel reply" aria-label="Cancel reply">✕</button></div>
-      <form id="composer"><input id="text" maxlength="2000" placeholder="Type a message…" autocomplete="off"><button>Send</button></form>
+      <div id="gifPanel" class="hidden">
+        <div class="bar">
+          <input id="gifSearch" placeholder="Search GIFs…" autocomplete="off" maxlength="50">
+          <button type="button" id="gifUpload" title="Send a GIF or image from your device">⬆ Upload</button>
+        </div>
+        <div id="gifGrid"></div>
+        <div id="gifNote"></div>
+        <input type="file" id="gifFile" accept="image/gif,image/png,image/jpeg,image/webp" class="hidden">
+      </div>
+      <form id="composer"><button type="button" id="gifBtn" title="GIFs" aria-label="GIFs">GIF</button><input id="text" maxlength="2000" placeholder="Type a message…" autocomplete="off"><button>Send</button></form>
+      <div id="viewer" class="hidden"><img alt=""></div>
     </main>
   </div>
 
@@ -215,13 +239,21 @@ function render(m, isPending) {
     q.onclick = () => jumpTo(m.replyTo.key);
     el.append(q);
   }
-  el.append(document.createTextNode(m.text));
+  if (m.gif) {
+    const img = document.createElement('img');
+    img.className = 'gif'; img.src = m.localUrl || m.gif.url; img.alt = m.gif.title || 'GIF'; img.loading = 'lazy';
+    if (m.gif.w && m.gif.h) { img.width = m.gif.w; img.height = m.gif.h; }
+    img.onclick = () => { $('viewer').querySelector('img').src = img.src; $('viewer').classList.remove('hidden'); };
+    img.onload = () => { const box = $('messages'); if (box.scrollHeight - box.scrollTop - box.clientHeight < 400) scrollDown(); };
+    el.append(img);
+  }
+  if (m.text) el.append(document.createTextNode(m.text));
   const btn = document.createElement('button');
   btn.type = 'button'; btn.className = 'reply-btn'; btn.textContent = '↩'; btn.title = 'Reply'; btn.setAttribute('aria-label', 'Reply');
   btn.onclick = () => startReply(el);
   const icon = document.createElement('div'); icon.className = 'swipe-icon'; icon.textContent = '↩';
   el.append(btn, icon);
-  el.addEventListener('dblclick', e => { if (!window.getSelection().toString()) startReply(el); });
+  el.addEventListener('dblclick', e => { if (e.target.tagName !== 'IMG' && !window.getSelection().toString()) startReply(el); });
   addSwipe(el, icon);
   $('messages').append(el);
   return el;
@@ -241,7 +273,7 @@ function jumpTo(key) {
 function startReply(el) {
   const m = el._msg;
   if (!m?.key) return;                       // still sending
-  replyTo = { key: m.key, name: m.name, text: m.text.slice(0, 140) };
+  replyTo = { key: m.key, name: m.name, text: (m.text || '🎞️ GIF').slice(0, 140) };
   $('replyName').textContent = m.name === me.name ? 'You' : m.name;
   $('replyText').textContent = replyTo.text;
   $('replyBar').classList.remove('hidden');
@@ -332,27 +364,86 @@ function renderSidebar({ users, rooms }) {
 function notify(m) {
   if (m.name === me.name || !document.hidden) return;
   const title = m.replyTo?.name === me.name ? `${m.name} replied to you in #${m.room}` : `${m.name} in #${m.room}`;
-  if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body: m.text });
+  if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body: m.text || '🎞️ sent a GIF' });
 }
 
-$('composer').onsubmit = async e => {
+$('composer').onsubmit = e => {
   e.preventDefault();
   const text = $('text').value.trim(); if (!text) return;
   $('text').value = '';
-  // Show it right away; it turns solid once the server has stored it.
+  sendMessage({ text });
+};
+
+// Shows the message right away (faded), then stores it. `upload` is a File to upload first (own GIFs/images).
+async function sendMessage({ text = '', gif, upload, localUrl }) {
   const cid = Math.random().toString(36).slice(2) + Date.now().toString(36);
   const reply = replyTo; cancelReply();
-  const el = render({ name: me.name, text, ts: Date.now(), replyTo: reply || undefined }, true);
+  const el = render({ name: me.name, text, gif, localUrl, ts: Date.now(), replyTo: reply || undefined }, true);
   pending.set(cid, el); scrollDown();
   try {
-    const { message } = await api('send', { text, cid, replyTo: reply });
+    if (upload) {
+      const r = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': upload.type || 'application/octet-stream', 'X-Chat-Password': me.pw }, body: upload });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'upload failed');
+      gif = { ...gif, url: d.url };
+    }
+    const { message } = await api('send', { text, gif, cid, replyTo: reply });
     if (pending.has(cid)) { pending.delete(cid); el.classList.remove('pending'); el._msg = message; el.dataset.key = message.key; seen.add(message.key); if (message.key > since) since = message.key; updateTicks(); }
   } catch (err) {
     pending.delete(cid); el.remove();
-    $('text').value = text; $('status').textContent = 'send failed: ' + err.message;
+    if (text && !gif) $('text').value = text;
+    $('status').textContent = 'send failed: ' + err.message;
     if (reply) startReplyData(reply);
   }
+}
+
+// ---- GIF picker ----
+let gifTimer = null, gifQuery = null, gifReq = 0;
+$('gifBtn').onclick = () => {
+  const open = $('gifPanel').classList.toggle('hidden') === false;
+  $('gifBtn').classList.toggle('active', open);
+  if (open) { if (gifQuery === null) loadGifs(''); $('gifSearch').focus(); }
 };
+function closeGifs() { $('gifPanel').classList.add('hidden'); $('gifBtn').classList.remove('active'); }
+$('gifSearch').oninput = () => { clearTimeout(gifTimer); gifTimer = setTimeout(() => loadGifs($('gifSearch').value.trim()), 350); };
+$('gifSearch').onkeydown = e => { if (e.key === 'Escape') closeGifs(); };
+async function loadGifs(q) {
+  gifQuery = q; const mine = ++gifReq;
+  $('gifNote').textContent = 'Loading…';
+  try {
+    const { gifs } = await api('gifs', { q });
+    if (mine !== gifReq) return;
+    const grid = $('gifGrid'); grid.innerHTML = '';
+    for (const g of gifs) {
+      const img = document.createElement('img');
+      img.src = g.preview.url; img.alt = g.title; img.title = g.title; img.loading = 'lazy';
+      img.width = g.preview.w; img.height = g.preview.h;
+      img.onclick = () => { closeGifs(); sendMessage({ gif: { ...g.full, title: g.title } }); };
+      grid.append(img);
+    }
+    $('gifNote').innerHTML = gifs.length ? 'Powered by GIPHY' : 'No GIFs found. Powered by GIPHY';
+  } catch (err) {
+    if (mine !== gifReq) return;
+    $('gifGrid').innerHTML = '';
+    $('gifNote').textContent = err.status === 501
+      ? 'GIF search isn’t set up yet (the admin needs to add a GIPHY_API_KEY). You can still upload your own GIF.'
+      : 'Couldn’t load GIFs: ' + err.message;
+  }
+}
+$('gifUpload').onclick = () => $('gifFile').click();
+$('gifFile').onchange = async () => {
+  const file = $('gifFile').files[0]; $('gifFile').value = '';
+  if (!file) return;
+  if (file.size > 4 * 1024 * 1024) { $('gifNote').textContent = 'That file is too large (max 4 MB).'; return; }
+  const localUrl = URL.createObjectURL(file);
+  const dims = await new Promise(res => { const i = new Image(); i.onload = () => res({ w: i.naturalWidth, h: i.naturalHeight }); i.onerror = () => res({}); i.src = localUrl; });
+  if (!dims.w) { $('gifNote').textContent = 'That doesn’t look like an image.'; return; }
+  closeGifs();
+  sendMessage({ gif: { ...dims, title: file.name.slice(0, 80) }, upload: file, localUrl });
+};
+$('viewer').onclick = () => $('viewer').classList.add('hidden');
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('viewer').classList.add('hidden'); });
+
 $('text').oninput = () => {
   if (Date.now() - lastTyping < 2000) return;
   lastTyping = Date.now();

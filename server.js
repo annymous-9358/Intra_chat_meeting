@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_FILE = path.join(__dirname, 'data', 'store.json');
+const FILES_DIR = path.join(__dirname, 'data', 'files');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
 
 // In-memory key/value store persisted to disk
@@ -25,6 +26,18 @@ const store = {
   get: async key => data.get(key) ?? null,
   set: async (key, value) => { data.set(key, value); if (!key.startsWith('p/')) saveSoon(); },
   del: async key => { data.delete(key); saveSoon(); },
+  // Uploaded files live in data/files/<id>; their type is kept in the key/value store
+  setFile: async (key, buf, type) => {
+    fs.mkdirSync(FILES_DIR, { recursive: true });
+    fs.writeFileSync(path.join(FILES_DIR, key.slice(2)), buf);
+    data.set(key, { type }); saveSoon();
+  },
+  getFile: async key => {
+    const meta = data.get(key);
+    if (!meta) return null;
+    try { return { data: fs.readFileSync(path.join(FILES_DIR, key.slice(2))), type: meta.type }; } catch { return null; }
+  },
+  delFile: async key => { data.delete(key); fs.rm(path.join(FILES_DIR, key.slice(2)), { force: true }, () => {}); saveSoon(); },
 };
 
 http.createServer(async (req, res) => {
@@ -33,11 +46,13 @@ http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/')) {
     const chunks = [];
     let size = 0;
-    for await (const c of req) { size += c.length; if (size > 16384) { res.writeHead(413); return res.end(); } chunks.push(c); }
+    const limit = url.pathname === '/api/upload' ? 4 * 1024 * 1024 + 1 : 16384;
+    for await (const c of req) { size += c.length; if (size > limit) { res.writeHead(413); return res.end(); } chunks.push(c); }
     const request = new Request(url, { method: req.method, headers: req.headers, body: req.method === 'POST' ? Buffer.concat(chunks) : undefined });
-    const response = await handle(request, store, { password: process.env.CHAT_PASSWORD });
+    // GIF search on a LAN install needs GIPHY_API_KEY in the environment (and internet access)
+    const response = await handle(request, store, { password: process.env.CHAT_PASSWORD, giphyKey: process.env.GIPHY_API_KEY });
     res.writeHead(response.status, Object.fromEntries(response.headers));
-    return res.end(await response.text());
+    return res.end(Buffer.from(await response.arrayBuffer()));
   }
 
   if (req.method !== 'GET') { res.writeHead(405); return res.end(); }

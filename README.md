@@ -12,6 +12,8 @@ A quick group chat app. Run it in two ways with the same code:
 - Online users, typing indicator, desktop notifications
 - WhatsApp-style replies: swipe a message left or right on a phone, or hover and click ↩ (or double-click) on desktop.
   Tap a quote to jump to the original message. Esc cancels a reply.
+- GIFs like WhatsApp: tap **GIF** to search GIPHY (needs `GIPHY_API_KEY`, see below) or upload your own
+  GIF / PNG / JPEG / WebP (max 4 MB). Tap a GIF to view it full screen.
 - Seen status on your messages: 🕓 sending · ✓ sent · ✓✓ delivered · blue ✓✓ seen.
   "Seen by …" appears under your latest message; tap the ticks on any message to see who has seen it.
 - Shared password protection (required on Netlify, optional on LAN)
@@ -31,6 +33,12 @@ Your own messages appear immediately.
 Or with the CLI: `npx netlify-cli deploy --prod` (after `netlify login` / `netlify link`).
 
 Netlify Blobs needs no setup; it is enabled automatically for the site.
+
+**GIF search (optional):** create a free API key at https://developers.giphy.com/dashboard/ (choose "API"),
+add it as the `GIPHY_API_KEY` environment variable in Netlify, then redeploy. Without it, uploading your own GIFs
+still works. On a LAN install, start the server with `GIPHY_API_KEY=... node server.js`.
+
+Uploaded files can be opened by anyone who has their (random, unguessable) link, so they don't need the password.
 
 **Usage cost:** each open chat tab calls a function about 24 times a minute while visible.
 Keep an eye on your Netlify usage if many people keep it open all day.
