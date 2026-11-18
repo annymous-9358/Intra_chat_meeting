@@ -1,5 +1,5 @@
 // Local / LAN server: serves public/ and the same /api used on Netlify, with a JSON-file store.
-// Usage: node server.js            (optional: PORT=8080, CHAT_PASSWORD=secret)
+// Usage: node server.js            (optional: PORT=8080, GIPHY_API_KEY=...)
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -50,7 +50,7 @@ http.createServer(async (req, res) => {
     for await (const c of req) { size += c.length; if (size > limit) { res.writeHead(413); return res.end(); } chunks.push(c); }
     const request = new Request(url, { method: req.method, headers: req.headers, body: req.method === 'POST' ? Buffer.concat(chunks) : undefined });
     // GIF search on a LAN install needs GIPHY_API_KEY in the environment (and internet access)
-    const response = await handle(request, store, { password: process.env.CHAT_PASSWORD, giphyKey: process.env.GIPHY_API_KEY });
+    const response = await handle(request, store, { giphyKey: process.env.GIPHY_API_KEY });
     res.writeHead(response.status, Object.fromEntries(response.headers));
     return res.end(Buffer.from(await response.arrayBuffer()));
   }
@@ -64,7 +64,7 @@ http.createServer(async (req, res) => {
     res.end(buf);
   });
 }).listen(PORT, '0.0.0.0', () => {
-  console.log(`\nIntra Chat running${process.env.CHAT_PASSWORD ? ' (password protected)' : ''}. Open on any device in your network:\n`);
+  console.log(`\nIntra Chat running. Open on any device in your network:\n`);
   console.log(`  http://localhost:${PORT}`);
   for (const list of Object.values(os.networkInterfaces()))
     for (const a of list || []) if (a.family === 'IPv4' && !a.internal) console.log(`  http://${a.address}:${PORT}`);

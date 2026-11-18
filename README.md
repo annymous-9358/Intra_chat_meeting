@@ -5,11 +5,18 @@ A quick group chat app. Run it in two ways with the same code:
 | Mode | Where it runs | Who can reach it |
 |------|---------------|------------------|
 | **LAN** | `node server.js` on one office computer | Anyone on your network |
-| **Netlify** | Netlify Functions + Netlify Blobs | Anyone on the internet who knows the password |
+| **Netlify** | Netlify Functions + Netlify Blobs | Anyone with the link (groups can have their own password) |
 
 ## Features
 - Mobile-first design: chat list → chat on phones, side-by-side on tablets, plus a group-info column on desktop. Light/dark mode.
-- Group chats (`#general` plus any group you create), online list, typing indicator, desktop notifications
+- **No app-wide password** — first visit only asks for your name. Each group decides its own access:
+  - 💬 **Open**: anyone with the link · 🔒 **Private**: needs the group's own password · 📍 **Location**: works within a range (optionally with a password too)
+  - The group creator is its admin and can rename it, add/change/remove the password, and (for location groups) manage the range and requests.
+  - Changing a password signs everyone else out of that group until they enter the new one.
+- Invite links (`…/#/g/<group>`): share from the chat header; new people enter their name and go straight in (or get asked for the password)
+- Chat list with last-message previews, times, unread dots and an unread count in the tab title; previews of private groups are hidden from people who haven't joined
+- Custom popups and toasts everywhere (no browser alert/confirm/prompt), jump-to-latest button with new-message count, per-group drafts, profile (change name / sign out)
+- Group chats, online list, typing indicator, desktop notifications
 - **Voice messages**: hold the mic to record, slide left to cancel, release to send (max 2 min). Waveform, seek, 1×/1.5×/2× speed.
 - **Location groups**: the creator (admin) sets a range around their location (50 m – 50 km).
   Members inside the range can chat. Members outside stay in the group read-only and can **ask to chat**;
@@ -17,7 +24,6 @@ A quick group chat app. Run it in two ways with the same code:
 - WhatsApp-style replies: swipe a message on a phone, or hover and click ↩ (or double-click) on desktop
 - Seen status: 🕓 sending · ✓ sent · ✓✓ delivered · blue ✓✓ seen, "Seen by …" under your latest message
 - GIFs: GIPHY search (needs `GIPHY_API_KEY`) or upload your own GIF / image (max 4 MB)
-- Shared password protection (required on Netlify, optional on LAN)
 - History kept (last 300 messages per room; old uploads are deleted with them)
 
 Messages arrive almost instantly via long-polling: each browser keeps one request open, and the server
@@ -27,8 +33,8 @@ Your own messages appear immediately.
 ## Deploy on Netlify
 1. Push this repo to GitHub, then in Netlify choose **Add new site → Import an existing project** and pick the repo.
    Build settings come from `netlify.toml` automatically.
-2. In **Site configuration → Environment variables**, add `CHAT_PASSWORD` with your chosen password, then redeploy.
-3. Share the site URL and the password with your team.
+2. (Optional) add `GIPHY_API_KEY` for GIF search (see below) and redeploy.
+3. Share the site URL. People create open, private or location groups themselves.
 
 Or with the CLI: `npx netlify-cli deploy --prod` (after `netlify login` / `netlify link`).
 
@@ -47,8 +53,7 @@ Keep an eye on your Netlify usage if many people keep it open all day.
 Requires Node.js 18+.
 ```bash
 npm install                 # once
-node server.js              # open; or:
-CHAT_PASSWORD=secret node server.js
+node server.js
 ```
 It prints addresses like `http://192.168.1.20:3000`; share that with colleagues.
 Allow inbound TCP 3000 in the server's firewall
@@ -74,3 +79,8 @@ unless you put the server behind HTTPS (e.g. a reverse proxy with a certificate)
 - Location can be faked by a determined user (browser dev tools / spoofing apps), so treat this as a convenience
   fence, not a security boundary.
 - Approval to chat from outside lasts until the admin revokes it.
+
+## Security notes
+- Anyone with the site link can open `#general` and other open groups, and create groups. Use private groups (own password) for anything sensitive.
+- Group passwords are stored only as salted scrypt hashes. Joining returns a per-group key kept in that browser; changing the password invalidates old keys. Repeated wrong guesses are slowed down and briefly blocked.
+- Admin rights belong to the browser that created the group (a random device id). Clearing site data loses them.

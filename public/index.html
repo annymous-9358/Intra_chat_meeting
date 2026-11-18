@@ -5,23 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#4338ca" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Group chat for your team — open groups, private groups with their own password, and location groups.">
 <title>Intra Chat</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%234f46e5'/%3E%3Cpath d='M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z' fill='white'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <!-- ============ Login ============ -->
+  <!-- ============ Welcome (first visit: just your name) ============ -->
   <main id="login" class="login">
-    <form id="loginForm" class="login-card" autocomplete="on">
+    <form id="loginForm" class="login-card" autocomplete="on" novalidate>
       <div class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg>
       </div>
-      <h1>Intra Chat</h1>
-      <p class="muted">Chat with your team, nearby.</p>
-      <label class="field"><span>Your name</span><input id="name" maxlength="24" required autocomplete="nickname" placeholder="e.g. Priya"></label>
-      <label class="field"><span>Chat password</span><input id="pw" type="password" autocomplete="current-password" placeholder="Ask your admin"></label>
+      <h1 id="welcomeTitle">Welcome to Intra Chat</h1>
+      <p class="muted" id="welcomeText">Group chat for your team. Join open groups, private groups with their own password, or location groups that work within a set range.</p>
+      <label class="field"><span>What should people call you?</span>
+        <input id="name" maxlength="24" required autocomplete="nickname" placeholder="Your name" enterkeyhint="go"></label>
       <p id="err" class="error" role="alert"></p>
       <button class="btn primary block" id="loginBtn">Continue</button>
+      <ul class="feature-list" aria-label="What you can do">
+        <li><span>💬</span>Open groups anyone with the link can join</li>
+        <li><span>🔒</span>Private groups with their own password</li>
+        <li><span>📍</span>Location groups that only work within a range</li>
+      </ul>
     </form>
   </main>
 
@@ -30,19 +36,18 @@
     <!-- Chat list -->
     <aside id="listPane" class="list-pane" aria-label="Chats">
       <header class="bar list-bar">
-        <div class="me-avatar avatar" id="meAvatar" aria-hidden="true"></div>
-        <div class="bar-title"><strong>Chats</strong><small class="muted" id="meName"></small></div>
-        <button class="icon-btn" id="logoutBtn" title="Sign out" aria-label="Sign out">
-          <svg viewBox="0 0 24 24"><path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M16 16l4-4-4-4M20 12H9"/></svg>
+        <button class="me-btn" id="meBtn" aria-label="Your profile">
+          <div class="avatar" id="meAvatar" aria-hidden="true"></div>
+          <div class="bar-title"><strong>Chats</strong><small class="muted" id="meName"></small></div>
         </button>
       </header>
       <div class="search-wrap">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="roomSearch" type="search" placeholder="Search groups" autocomplete="off">
+        <input id="roomSearch" type="search" placeholder="Search groups" autocomplete="off" aria-label="Search groups">
       </div>
       <ul id="roomList" class="room-list"></ul>
-      <button class="fab" id="newGroupBtn" title="New group" aria-label="New group">
-        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      <button class="fab" id="newGroupBtn" aria-label="New group">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>New group</span>
       </button>
     </aside>
 
@@ -51,7 +56,7 @@
       <div class="empty-chat" id="emptyChat">
         <div class="brand-mark big" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg></div>
         <h2>Pick a group to start chatting</h2>
-        <p class="muted">Or create a location group that only works within a range you choose.</p>
+        <p class="muted">Or create one — open, private with a password, or limited to a location.</p>
       </div>
 
       <header class="bar chat-bar hidden" id="chatBar">
@@ -60,13 +65,19 @@
           <div class="avatar" id="chatAvatar" aria-hidden="true"></div>
           <div class="bar-title"><strong id="chatTitle"></strong><small id="chatSub" class="muted"></small></div>
         </button>
-        <span class="conn" id="status" title="Connection"></span>
-        <button class="icon-btn" id="infoBtn" aria-label="Group info"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></button>
+        <button class="icon-btn" id="shareBtn" aria-label="Invite people" title="Invite people"><svg viewBox="0 0 24 24"><path d="M16 8a3 3 0 1 0-2.8-4M8 12a3 3 0 1 0 0 .01M16 16a3 3 0 1 0 0 .01"/><path d="m10.6 10.7 2.8-1.4M10.6 13.3l2.8 1.4"/><circle cx="16" cy="5" r="3"/><circle cx="7" cy="12" r="3"/><circle cx="16" cy="19" r="3"/></svg></button>
+        <button class="icon-btn" id="infoBtn" aria-label="Group info" title="Group info"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></button>
       </header>
+      <div id="netBanner" class="net-banner hidden" role="status">Reconnecting…</div>
       <div id="adminBanner" class="admin-banner hidden" role="status"></div>
 
-      <div id="messages" class="messages" aria-live="polite"></div>
-      <div id="typing" class="typing"></div>
+      <div class="messages-wrap">
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <button id="toBottom" class="to-bottom hidden" aria-label="Jump to latest messages">
+          <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg><span id="toBottomCount" class="badge hidden"></span>
+        </button>
+      </div>
+      <div id="typing" class="typing" aria-live="polite"></div>
 
       <footer class="composer-wrap hidden" id="composerWrap">
         <div id="replyBar" class="reply-bar hidden">
@@ -75,7 +86,7 @@
         </div>
         <div id="gifPanel" class="gif-panel hidden">
           <div class="gif-bar">
-            <input id="gifSearch" type="search" placeholder="Search GIFs" autocomplete="off" maxlength="50">
+            <input id="gifSearch" type="search" placeholder="Search GIFs" autocomplete="off" maxlength="50" aria-label="Search GIFs">
             <button type="button" class="btn" id="gifUpload" title="Send a GIF or image from your device">Upload</button>
           </div>
           <div id="gifGrid" class="gif-grid"></div>
@@ -86,7 +97,7 @@
         <form id="composer" class="composer">
           <button type="button" class="icon-btn gif-btn" id="gifBtn" aria-label="GIFs and images" title="GIFs and images">GIF</button>
           <div class="input-wrap">
-            <textarea id="text" rows="1" maxlength="2000" placeholder="Message" autocomplete="off" enterkeyhint="send"></textarea>
+            <textarea id="text" rows="1" maxlength="2000" placeholder="Message" autocomplete="off" enterkeyhint="send" aria-label="Message"></textarea>
             <div id="recBar" class="rec-bar hidden" aria-live="polite">
               <span class="rec-dot"></span><span id="recTime">0:00</span>
               <span class="rec-hint" id="recHint">‹ Slide to cancel</span>
@@ -114,26 +125,49 @@
 
   <!-- New group -->
   <dialog id="newGroup" class="sheet">
-    <form method="dialog" id="newGroupForm">
+    <form id="newGroupForm" novalidate>
       <header class="sheet-head">
         <h2>New group</h2>
         <button type="button" class="icon-btn" id="ngClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </header>
       <label class="field"><span>Group name</span><input id="ngName" maxlength="30" required placeholder="e.g. Floor 3 team" autocomplete="off"></label>
-      <div class="segmented" role="radiogroup" aria-label="Group type">
-        <label><input type="radio" name="ngType" value="open" checked><span><b>Open</b><small>Anyone with the password</small></span></label>
-        <label><input type="radio" name="ngType" value="geo"><span><b>📍 Location</b><small>Only within a range</small></span></label>
+      <div class="type-cards" role="radiogroup" aria-label="Who can join">
+        <label><input type="radio" name="ngType" value="open" checked><span><i>💬</i><b>Open</b><small>Anyone with the link</small></span></label>
+        <label><input type="radio" name="ngType" value="private"><span><i>🔒</i><b>Private</b><small>Needs a password</small></span></label>
+        <label><input type="radio" name="ngType" value="geo"><span><i>📍</i><b>Location</b><small>Only within a range</small></span></label>
       </div>
-      <div id="ngGeo" class="ng-geo hidden">
-        <div class="range-row">
-          <span>Range</span><output id="ngRadiusOut">500 m</output>
-        </div>
+      <div id="ngGeo" class="ng-section hidden">
+        <div class="range-row"><span>Range</span><output id="ngRadiusOut">500 m</output></div>
         <input type="range" id="ngRadius" min="0" max="18" step="1" value="6" aria-label="Range">
-        <p class="muted small">The centre is where you are now. People inside the range can chat; anyone outside can still read but must ask you to chat.</p>
         <p id="ngLoc" class="loc-status">Getting your location…</p>
+        <label class="check"><input type="checkbox" id="ngGeoPw"> Also require a password</label>
       </div>
+      <div id="ngPwWrap" class="ng-section hidden">
+        <label class="field"><span>Group password</span>
+          <div class="pw-wrap"><input id="ngPw" type="password" minlength="4" maxlength="64" autocomplete="new-password" placeholder="At least 4 characters"><button type="button" class="pw-eye" aria-label="Show password">Show</button></div>
+        </label>
+        <p class="muted small">Share it only with people who should join. You can change or remove it later.</p>
+      </div>
+      <p id="ngHint" class="muted small"></p>
       <p id="ngErr" class="error" role="alert"></p>
       <button class="btn primary block" id="ngCreate">Create group</button>
+    </form>
+  </dialog>
+
+  <!-- Generic popup (replaces alert / confirm / prompt) -->
+  <dialog id="modal" class="sheet modal">
+    <form id="modalForm" novalidate>
+      <div class="modal-icon" id="modalIcon" aria-hidden="true"></div>
+      <h2 id="modalTitle"></h2>
+      <p id="modalText" class="muted"></p>
+      <div id="modalField" class="field hidden">
+        <div class="pw-wrap"><input id="modalInput" autocomplete="off"><button type="button" class="pw-eye hidden" id="modalEye" aria-label="Show password">Show</button></div>
+      </div>
+      <p id="modalErr" class="error" role="alert"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="modalCancel">Cancel</button>
+        <button class="btn primary" id="modalOk">OK</button>
+      </div>
     </form>
   </dialog>
 

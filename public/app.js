@@ -1,11 +1,13 @@
 'use strict';
-/* Intra Chat client — long-polling chat with replies, seen ticks, GIFs, voice notes and location groups. */
+/* Intra Chat client — long-polling chat with per-group access, replies, seen ticks, GIFs, voice notes and location groups. */
 
 const $ = id => document.getElementById(id);
 const store = {
   get: k => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
   del: k => { try { localStorage.removeItem(k); } catch {} },
+  json: (k, fallback) => { try { return JSON.parse(localStorage.getItem(k)) ?? fallback; } catch { return fallback; } },
+  setJson: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 const ICON = {
   reply: '<svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v3"/></svg>',
@@ -13,8 +15,9 @@ const ICON = {
   pause: '<svg viewBox="0 0 24 24"><rect x="6" y="4.5" width="4" height="15" rx="1"/><rect x="14" y="4.5" width="4" height="15" rx="1"/></svg>',
 };
 const finePointer = matchMedia('(pointer: fine)').matches;
+const wide = () => matchMedia('(min-width: 768px)').matches;
 
-// A random per-device secret: proves "this is the same phone" for location-group admin rights and requests
+// A random per-device secret: proves "this is the same device" for group-admin rights and location requests
 function deviceSecret() {
   let s = store.get('ic-device');
   if (!s || !/^[a-f0-9]{32}$/.test(s)) {
@@ -24,96 +27,180 @@ function deviceSecret() {
   return s;
 }
 
-const me = { name: store.get('ic-name') || '', pw: store.get('ic-pw') || '', device: deviceSecret() };
-let rooms = [], current = null;          // current = room slug
+const me = { name: store.get('ic-name') || '', device: deviceSecret() };
+store.del('ic-pw');                                  // the old app-wide password is gone
+const keys = store.json('ic-keys', {});              // room -> access key for password-protected groups
+const lastRead = store.json('ic-read', {});          // room -> newest message key seen, for unread dots
+let rooms = [], current = null;
 let since = '', version = '', seen = new Set(), pending = new Map(), replyTo = null;
 let receipts = [], acked = { delivered: '', read: '' }, openReceipts = new Set();
 let ctrl = null, pollTimer = null, polling = false, session = 0, failures = 0, lastTyping = 0;
-let group = null;                        // location-group info for the current room (null for open rooms)
-let lastRendered = null;                 // { name, ts, day } of the last message element, for grouping
-let roomsTimer = null;
+let group = null;                                    // info about the current group (null for #general)
+let lastRendered = null, unseenBelow = 0, presenceCache = [], roomsTimer = null;
 
 /* ---------------- API ---------------- */
 async function api(route, body = {}, signal) {
+  const room = body.room || current || 'general';
   const r = await fetch('/api/' + route, {
     method: 'POST', signal,
-    headers: { 'Content-Type': 'application/json', 'X-Chat-Password': me.pw, 'X-Chat-Device': me.device },
-    body: JSON.stringify({ name: me.name, room: current || 'general', ...body }),
+    headers: { 'Content-Type': 'application/json', 'X-Chat-Device': me.device, ...(keys[room] ? { 'X-Room-Key': keys[room] } : {}) },
+    body: JSON.stringify({ name: me.name, room, ...body }),
   });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(data.error || 'HTTP ' + r.status); e.status = r.status; e.code = data.code; throw e; }
+  if (!r.ok) { const e = new Error(data.error || `Something went wrong (${r.status})`); e.status = r.status; e.code = data.code; e.data = data; throw e; }
   return data;
 }
 async function upload(file) {
-  const r = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Chat-Password': me.pw }, body: file });
+  const r = await fetch('/api/upload', { method: 'POST', body: file, headers: {
+    'Content-Type': file.type || 'application/octet-stream', 'X-Chat-Device': me.device, 'X-Chat-Room': current,
+    ...(keys[current] ? { 'X-Room-Key': keys[current] } : {}) } });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || 'upload failed');
+  if (!r.ok) throw new Error(d.error || 'Upload failed');
   return d.url;
 }
+const saveKeys = () => store.setJson('ic-keys', keys);
+const markRead = (room, key) => { if (key && key > (lastRead[room] || '')) { lastRead[room] = key; store.setJson('ic-read', lastRead); } };
 
+/* ---------------- Toasts & popups (no browser alert/confirm/prompt) ---------------- */
 let toastTimer;
 function toast(msg) {
   const t = $('toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
 }
+/**
+ * Custom popup. Resolves with true (confirm), the entered text (input), or null when cancelled.
+ * onConfirm(value) may return an error string to keep the popup open and show it inline.
+ */
+function popup({ icon = '', title, text = '', input = null, ok = 'OK', cancel = 'Cancel', danger = false, onConfirm = null }) {
+  return new Promise(resolve => {
+    const dlg = $('modal'), field = $('modalField'), inp = $('modalInput'), eye = $('modalEye');
+    $('modalIcon').textContent = icon; $('modalIcon').classList.toggle('danger', danger);
+    $('modalTitle').textContent = title; $('modalText').textContent = text; $('modalText').classList.toggle('hidden', !text);
+    $('modalErr').textContent = '';
+    $('modalOk').textContent = ok; $('modalOk').className = 'btn ' + (danger ? 'danger' : 'primary'); $('modalOk').disabled = false;
+    $('modalCancel').textContent = cancel; $('modalCancel').classList.toggle('hidden', !cancel);
+    dlg.querySelector('.modal-actions').classList.toggle('single', !cancel);
+    field.classList.toggle('hidden', !input);
+    if (input) {
+      inp.type = input.type || 'text'; inp.value = input.value || ''; inp.placeholder = input.placeholder || '';
+      inp.maxLength = input.maxLength || 140; inp.autocomplete = input.type === 'password' ? 'current-password' : 'off';
+      eye.classList.toggle('hidden', input.type !== 'password'); eye.textContent = 'Show';
+    }
+    let done = false;
+    const finish = v => { if (done) return; done = true; dlg.close(); resolve(v); };
+    $('modalForm').onsubmit = async e => {
+      e.preventDefault();
+      const value = input ? inp.value.trim() : true;
+      if (input?.required && !value) { $('modalErr').textContent = input.requiredMsg || 'Please fill this in'; inp.focus(); return; }
+      if (onConfirm) {
+        $('modalOk').disabled = true; $('modalErr').textContent = '';
+        const err = await onConfirm(value).catch(x => x.message);
+        $('modalOk').disabled = false;
+        if (err) { $('modalErr').textContent = err; if (input) { inp.select(); inp.focus(); } return; }
+      }
+      finish(value);
+    };
+    $('modalCancel').onclick = () => finish(null);
+    dlg.oncancel = e => { e.preventDefault(); finish(null); };
+    dlg.onclick = e => { if (e.target === dlg) finish(null); };     // tap the backdrop to dismiss
+    dlg.showModal();
+    if (input) setTimeout(() => inp.focus(), 50); else $('modalOk').focus();
+  });
+}
+for (const btn of document.querySelectorAll('.pw-eye')) btn.onclick = () => {
+  const inp = btn.parentElement.querySelector('input'), show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password'; btn.textContent = show ? 'Hide' : 'Show';
+  btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+};
 
 /* ---------------- Helpers ---------------- */
-const slug = s => s.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, '').slice(0, 30);
+const slug = s => s.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 30);
 function hue(str) { let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
-function initials(s) { const p = s.replace(/[-_]/g, ' ').trim().split(/\s+/); return ((p[0]?.[0] || '?') + (p[1]?.[0] || '')).toUpperCase(); }
-function paintAvatar(el, label, geo) {
+function initials(s) { const p = s.replace(/^#/, '').replace(/[-_]/g, ' ').trim().split(/\s+/); return ((p[0]?.[0] || '?') + (p[1]?.[0] || '')).toUpperCase(); }
+function paintAvatar(el, label, { geo, locked } = {}) {
   el.textContent = initials(label);
   el.style.background = `hsl(${hue(label)} 55% 48%)`;
-  el.classList.toggle('geo', !!geo);
+  el.classList.toggle('geo', !!geo); el.classList.toggle('locked', !!locked);
 }
 const nameColor = n => `hsl(${hue(n)} 60% var(--name-l, 42%))`;
 function fmtDist(m) { if (m == null) return '?'; return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`; }
 function fmtDur(s) { s = Math.max(0, Math.round(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 function dayLabel(ts) {
-  const d = new Date(ts), today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1);
+  const d = new Date(ts), today = new Date(), y = new Date(); y.setDate(today.getDate() - 1);
   if (d.toDateString() === today.toDateString()) return 'Today';
   if (d.toDateString() === y.toDateString()) return 'Yesterday';
   return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
 }
 const timeLabel = ts => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+function listTime(ts) {
+  const d = new Date(ts), now = new Date();
+  if (d.toDateString() === now.toDateString()) return timeLabel(ts);
+  if (now - d < 6 * 864e5) return d.toLocaleDateString([], { weekday: 'short' });
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
 const roomInfo = r => rooms.find(x => x.room === r) || { room: r };
 const roomTitle = r => roomInfo(r).title || '#' + r;
-// Range slider snaps to round distances between 50 m and 50 km
 const RANGES = [50, 100, 150, 200, 300, 400, 500, 750, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 30000, 50000];
 const sliderToRadius = v => RANGES[Math.min(Math.max(Math.round(v), 0), RANGES.length - 1)];
 const radiusToSlider = r => RANGES.reduce((best, x, i) => Math.abs(x - r) < Math.abs(RANGES[best] - r) ? i : best, 0);
+const inviteLink = room => `${location.origin}${location.pathname}#/g/${encodeURIComponent(room)}`;
+const linkedRoom = () => { const m = location.hash.match(/^#\/g\/([a-z0-9_-]{1,30})$/i); return m ? m[1].toLowerCase() : null; };
 
-/* ---------------- Login ---------------- */
-$('name').value = me.name; $('pw').value = me.pw;
-$('loginForm').onsubmit = async e => {
+/* ---------------- Welcome ---------------- */
+$('name').value = me.name;
+const invited = linkedRoom();
+if (invited) {
+  $('welcomeTitle').textContent = 'You’re invited to a group';
+  $('welcomeText').textContent = 'Tell everyone your name and you’ll go straight into the chat.';
+}
+$('loginForm').onsubmit = e => {
   e.preventDefault();
-  me.name = $('name').value.trim().slice(0, 24); me.pw = $('pw').value;
-  if (!me.name) return;
-  $('err').textContent = ''; $('loginBtn').disabled = true;
-  try {
-    const d = await api('rooms', { room: 'general' });
-    store.set('ic-name', me.name); store.set('ic-pw', me.pw);
-    rooms = d.rooms; enterApp();
-  } catch (err) { $('err').textContent = err.status === 401 ? 'Wrong password' : err.message; }
-  finally { $('loginBtn').disabled = false; }
-};
-$('logoutBtn').onclick = () => {
-  if (!confirm('Sign out on this device?')) return;
-  store.del('ic-pw'); leaveRoom(); clearInterval(roomsTimer);
-  $('app').classList.add('hidden'); $('login').classList.remove('hidden'); $('pw').value = '';
+  const n = $('name').value.trim().replace(/\s+/g, ' ').slice(0, 24);
+  if (!n) { $('err').textContent = 'Please enter your name'; $('name').focus(); return; }
+  me.name = n; store.set('ic-name', n); $('err').textContent = '';
+  enterApp();
 };
 function enterApp() {
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
   paintAvatar($('meAvatar'), me.name); $('meName').textContent = me.name;
-  renderRooms();
+  refreshRooms().then(() => {
+    const target = linkedRoom() || (wide() ? (rooms.some(r => r.room === store.get('ic-room')) ? store.get('ic-room') : 'general') : null);
+    if (target) openRoom(target);
+  });
   clearInterval(roomsTimer);
   roomsTimer = setInterval(() => { if (!current && !document.hidden) refreshRooms(); }, 15000);
-  const last = store.get('ic-room');
-  // On tablets/desktops open the last chat straight away; phones start on the chat list
-  if (matchMedia('(min-width: 768px)').matches) openRoom(last && rooms.some(r => r.room === last) ? last : 'general');
-  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  if ('Notification' in window && Notification.permission === 'default') setTimeout(() => Notification.requestPermission(), 4000);
 }
-async function refreshRooms() { try { const r = (await api('rooms')).rooms; if (JSON.stringify(r) !== JSON.stringify(rooms)) { rooms = r; renderRooms(); } } catch {} }
+async function refreshRooms() {
+  try { setRooms((await api('rooms', { room: current || 'general', keys })).rooms); }
+  catch { if (!rooms.length) setRooms([{ room: 'general' }]); }
+}
+function setRooms(list) {
+  if (!list || JSON.stringify(list) === JSON.stringify(rooms)) return;
+  rooms = list; renderRooms();
+}
+
+// Profile: change name or sign out
+$('meBtn').onclick = async () => {
+  const name = await popup({ icon: '🙂', title: 'Your profile', text: 'This is the name others see on your messages.', ok: 'Save', cancel: 'Sign out',
+    input: { value: me.name, maxLength: 24, required: true, requiredMsg: 'Your name can’t be empty' } });
+  if (name === null) return signOut();
+  if (name && name !== me.name) {
+    me.name = name.replace(/\s+/g, ' ').slice(0, 24); store.set('ic-name', me.name);
+    paintAvatar($('meAvatar'), me.name); $('meName').textContent = me.name;
+    if (current) { const r = current; leaveRoom(); openRoom(r, true); }
+    toast('Name updated');
+  }
+};
+async function signOut() {
+  const yes = await popup({ icon: '👋', title: 'Sign out?', text: 'You’ll need to enter your name again, and private groups will ask for their passwords again.', ok: 'Sign out', danger: true });
+  if (!yes) return;
+  leaveRoom(); clearInterval(roomsTimer);
+  for (const k of Object.keys(keys)) delete keys[k]; saveKeys(); store.del('ic-name');
+  history.replaceState(null, '', location.pathname);
+  $('app').classList.add('hidden'); $('app').classList.remove('in-chat', 'has-room', 'info-open');
+  $('login').classList.remove('hidden'); $('name').value = '';
+}
 
 /* ---------------- Chat list ---------------- */
 function renderRooms() {
@@ -121,47 +208,93 @@ function renderRooms() {
   const list = $('roomList'); list.innerHTML = '';
   const shown = rooms.filter(r => !q || r.room.includes(q) || (r.title || '').toLowerCase().includes(q));
   for (const r of shown) {
-    const li = document.createElement('li'); if (r.room === current) li.className = 'active';
+    const unread = isUnread(r);
+    const li = document.createElement('li');
+    li.className = (r.room === current ? 'active ' : '') + (unread ? 'unread' : '');
     const b = document.createElement('button');
-    const av = document.createElement('div'); av.className = 'avatar'; paintAvatar(av, r.title || r.room, r.geo);
+    const av = document.createElement('div'); av.className = 'avatar'; paintAvatar(av, r.title || r.room, r);
     const meta = document.createElement('div'); meta.className = 'room-meta';
+    const top = document.createElement('div'); top.className = 'room-top';
     const t = document.createElement('b'); t.textContent = r.title || '#' + r.room;
+    top.append(t);
+    if (r.last?.ts) { const tm = document.createElement('span'); tm.className = 'room-time'; tm.textContent = listTime(r.last.ts); top.append(tm); }
+    const bottom = document.createElement('div'); bottom.className = 'room-bottom';
     const sub = document.createElement('small');
-    if (r.geo) { sub.className = 'geo'; sub.textContent = `📍 Location group · ${fmtDist(r.radius)} range`; } else sub.textContent = 'Open group';
-    meta.append(t, sub); b.append(av, meta);
+    if (r.last?.text) sub.textContent = (r.last.name === me.name ? 'You' : r.last.name) + ': ' + r.last.text;
+    else if (r.locked && !keys[r.room]) sub.textContent = '🔒 Private group · tap to enter password';
+    else if (r.geo) sub.textContent = `📍 Location group · ${fmtDist(r.radius)} range`;
+    else sub.textContent = r.room === 'general' ? 'Everyone' : 'No messages yet';
+    bottom.append(sub);
+    if (unread) { const dot = document.createElement('span'); dot.className = 'unread-dot'; dot.setAttribute('aria-label', 'Unread'); bottom.append(dot); }
+    meta.append(top, bottom); b.append(av, meta);
     b.onclick = () => openRoom(r.room);
     li.append(b); list.append(li);
   }
-  if (!shown.length) list.innerHTML = '<li class="room-empty">No groups match.</li>';
+  if (!shown.length) {
+    const li = document.createElement('li'); li.className = 'room-empty';
+    li.textContent = q ? `No groups match “${q}”.` : 'No groups yet — create the first one.';
+    list.append(li);
+  }
+  const unreadCount = rooms.filter(isUnread).length;
+  document.title = unreadCount ? `(${unreadCount}) Intra Chat` : 'Intra Chat';
 }
 $('roomSearch').oninput = renderRooms;
+// Unread = newer message than we've seen, not from us, and in a group we can actually open
+function isUnread(r) {
+  if (r.room === current || !r.last?.key || r.last.name === me.name) return false;
+  if (r.locked && !keys[r.room]) return false;
+  return r.last.key > (lastRead[r.room] || '');
+}
 
 /* ---------------- Opening / leaving a room ---------------- */
-function openRoom(room) {
-  if (current === room && $('app').classList.contains('in-chat')) return;
+async function openRoom(room, force) {
+  if (!force && current === room && $('app').classList.contains('in-chat')) return;
+  const info = roomInfo(room);
+  // Private group we haven't joined yet: ask for its password first
+  if (info.locked && !keys[room]) { if (!(await askPassword(room))) { if (linkedRoom() === room) history.replaceState(null, '', location.pathname); return; } }
   leaveRoom();
   current = room; store.set('ic-room', room);
+  if (location.hash !== `#/g/${room}`) history.replaceState(null, '', `#/g/${room}`);
   session++; since = ''; version = ''; seen = new Set(); pending = new Map(); receipts = [];
-  acked = { delivered: '', read: '' }; openReceipts = new Set(); group = null; lastRendered = null;
-  cancelReply(); closeGifs();
+  acked = { delivered: '', read: '' }; openReceipts = new Set(); group = null; lastRendered = null; unseenBelow = 0;
+  cancelReply(); closeGifs(); updateToBottom();
   $('messages').innerHTML = '';
+  text.value = drafts[room] || ''; autosize(); syncButtons();   // restore any unsent draft for this group
   $('app').classList.add('in-chat', 'has-room');
   $('chatBar').classList.remove('hidden'); $('composerWrap').classList.remove('hidden');
   $('chatTitle').textContent = roomTitle(room); $('chatSub').textContent = 'connecting…';
-  paintAvatar($('chatAvatar'), roomInfo(room).title || room, roomInfo(room).geo);
+  paintAvatar($('chatAvatar'), info.title || room, info);
   renderRooms(); updateComposerLock(); renderAdminBanner();
-  if (roomInfo(room).geo) startLocation();
+  if (info.geo) startLocation();
   poll(session);
   if (finePointer) $('text').focus();
 }
 function leaveRoom() {
   session++; clearTimeout(pollTimer); ctrl?.abort(); polling = false;
   stopLocation(); stopAllAudio();
+  if (current) markRead(current, since);
   current = null; group = null;
 }
 $('backBtn').onclick = () => {
-  leaveRoom(); $('app').classList.remove('in-chat', 'info-open'); renderRooms(); refreshRooms();
+  leaveRoom(); history.replaceState(null, '', location.pathname);
+  $('app').classList.remove('in-chat', 'info-open'); renderRooms(); refreshRooms();
 };
+window.addEventListener('hashchange', () => { const r = linkedRoom(); if (r && r !== current && !$('app').classList.contains('hidden')) openRoom(r); });
+
+async function askPassword(room, again) {
+  const title = roomTitle(room);
+  const ok = await popup({
+    icon: '🔒', title: again ? 'Password changed' : `Join “${title}”`,
+    text: again ? `The password for “${title}” was changed. Enter the new one to keep chatting.` : 'This is a private group. Enter its password — ask the person who invited you.',
+    input: { type: 'password', placeholder: 'Group password', maxLength: 64, required: true, requiredMsg: 'Enter the group password' },
+    ok: 'Join',
+    onConfirm: async pw => {
+      try { const d = await api('group/join', { room, password: pw }); if (d.key) { keys[room] = d.key; saveKeys(); } return null; }
+      catch (e) { return e.message; }
+    },
+  });
+  return ok !== null;
+}
 
 /* ---------------- Long-poll loop ---------------- */
 async function poll(mySession) {
@@ -175,25 +308,35 @@ async function poll(mySession) {
     const ack = {};
     if (since && since > acked.delivered) ack.delivered = since;
     if (since && !document.hidden && since > acked.read) ack.read = since;
-    const d = await api('poll', { since, version, wait, ack, loc: geo.loc }, myCtrl.signal);
+    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, keys }, myCtrl.signal);
     if (mySession !== session) return;
     if (ack.delivered) acked.delivered = ack.delivered;
-    if (ack.read) acked.read = ack.read;
-    failures = 0; $('status').classList.remove('bad'); $('status').title = 'Connected';
-    const first = !since;
+    if (ack.read) { acked.read = ack.read; markRead(current, ack.read); }
+    failures = 0; $('netBanner').classList.add('hidden');
+    const first = !since, wasNear = nearBottom();
     version = d.version || '';
     const fresh = d.messages.filter(m => !seen.has(m.key));
     for (const m of fresh) { addMessage(m); if (!first) notify(m); }
-    if (fresh.length) scrollDown(first);
-    if (d.rooms && JSON.stringify(d.rooms) !== JSON.stringify(rooms)) { rooms = d.rooms; renderRooms(); }
+    if (fresh.length) {
+      if (first || wasNear) scrollDown(true);
+      else { unseenBelow += fresh.filter(m => m.name !== me.name).length; updateToBottom(); }
+    }
+    setRooms(d.rooms);
     receipts = d.receipts || [];
     setGroup(d.group);
     renderPresence(d.users || []);
     updateTicks();
   } catch (err) {
     if (mySession !== session || err.name === 'AbortError') return;
-    if (err.status === 401) { toast('Password changed — please sign in again.'); $('logoutBtn').click(); return; }
-    failures++; $('status').classList.add('bad'); $('status').title = 'Reconnecting…'; $('chatSub').textContent = 'reconnecting…';
+    if (err.code === 'locked') {
+      // Password was changed (or we never had a valid key): ask again
+      const room = current; delete keys[room]; saveKeys();
+      leaveRoom();
+      if (await askPassword(room, true)) openRoom(room, true); else $('backBtn').click();
+      return;
+    }
+    failures++;
+    if (failures > 1) { $('netBanner').classList.remove('hidden'); $('chatSub').textContent = 'reconnecting…'; }
   } finally {
     clearTimeout(watchdog);
     if (ctrl === myCtrl) polling = false;
@@ -206,18 +349,19 @@ async function poll(mySession) {
 }
 function repoll() { if (!current) return; if (polling) ctrl?.abort(); else poll(session); }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && current) repoll(); });
+window.addEventListener('online', repoll);
 
 function renderPresence(users) {
   const others = users.filter(u => u.name !== me.name);
   const typing = others.filter(u => u.typing).map(u => u.name);
   $('typing').textContent = typing.length ? `${typing.join(', ')} ${typing.length > 1 ? 'are' : 'is'} typing…` : '';
-  let sub = typing.length ? 'typing…' : `${users.length} online`;
-  if (group) sub += ` · 📍 ${fmtDist(group.radius)} range`;
+  let sub = typing.length ? 'typing…' : users.length > 1 ? `${users.length} online` : 'Only you here right now';
+  if (group?.geo) sub += ` · 📍 ${fmtDist(group.radius)}`;
+  if (group?.locked) sub += ' · 🔒 private';
   $('chatSub').textContent = sub;
   presenceCache = users;
   if ($('app').classList.contains('info-open')) renderInfo();
 }
-let presenceCache = [];
 
 /* ---------------- Messages ---------------- */
 function addMessage(m) {
@@ -258,7 +402,7 @@ function render(m, isPending) {
     img.className = 'gif'; img.src = m.localUrl || m.gif.url; img.alt = m.gif.title || 'GIF'; img.loading = 'lazy';
     if (m.gif.w && m.gif.h) { img.width = m.gif.w; img.height = m.gif.h; }
     img.onclick = () => { $('viewer').querySelector('img').src = img.src; $('viewer').classList.remove('hidden'); };
-    img.onload = () => { if (nearBottom()) scrollDown(); };
+    img.onload = () => { if (nearBottom(600)) scrollDown(true); };
     el.append(img);
   }
   if (m.audio) el.append(voicePlayer(m.audio, m.localUrl));
@@ -284,8 +428,15 @@ function render(m, isPending) {
   box.append(el);
   return el;
 }
-const nearBottom = () => { const b = $('messages'); return b.scrollHeight - b.scrollTop - b.clientHeight < 400; };
-function scrollDown(force) { const b = $('messages'); if (force || nearBottom()) b.scrollTop = b.scrollHeight; }
+const nearBottom = (px = 160) => { const b = $('messages'); return b.scrollHeight - b.scrollTop - b.clientHeight < px; };
+function scrollDown(force) { const b = $('messages'); if (force || nearBottom()) b.scrollTop = b.scrollHeight; unseenBelow = 0; updateToBottom(); }
+function updateToBottom() {
+  const show = current && !nearBottom(300);
+  $('toBottom').classList.toggle('hidden', !show);
+  $('toBottomCount').textContent = unseenBelow; $('toBottomCount').classList.toggle('hidden', !unseenBelow);
+}
+$('messages').addEventListener('scroll', () => { if (nearBottom()) unseenBelow = 0; updateToBottom(); }, { passive: true });
+$('toBottom').onclick = () => { const b = $('messages'); b.scrollTo({ top: b.scrollHeight, behavior: 'smooth' }); unseenBelow = 0; updateToBottom(); };
 
 function quoteEl(r) {
   const q = document.createElement('div'); q.className = 'quote';
@@ -295,7 +446,7 @@ function quoteEl(r) {
 }
 function jumpTo(key) {
   const target = [...$('messages').children].find(x => x.dataset.key === key);
-  if (!target) return toast('That message is no longer loaded');
+  if (!target) return toast('That message is too old to show');
   target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
 }
@@ -304,7 +455,10 @@ const previewText = m => m.text || (m.audio ? `🎤 Voice message (${fmtDur(m.au
 function notify(m) {
   if (m.name === me.name || !document.hidden) return;
   const title = m.replyTo?.name === me.name ? `${m.name} replied to you` : `${m.name} · ${roomTitle(m.room)}`;
-  if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body: previewText(m) });
+  if ('Notification' in window && Notification.permission === 'granted') {
+    const n = new Notification(title, { body: previewText(m), tag: m.room });
+    n.onclick = () => { window.focus(); n.close(); };
+  }
 }
 
 /* ---------------- Seen ticks ---------------- */
@@ -335,13 +489,16 @@ const summarize = n => n.length <= 3 ? n.join(', ') : `${n.slice(0, 2).join(', '
 function startReply(el) {
   const m = el._msg;
   if (!m?.key) return;
-  if (group && !group.me.canChat) return toast('You can’t reply until you’re allowed to chat here');
+  if (group?.me && !group.me.canChat) return toast('You can’t reply until you’re allowed to chat here');
   replyTo = { key: m.key, name: m.name, text: previewText(m).slice(0, 140) };
-  $('replyName').textContent = m.name === me.name ? 'You' : m.name;
-  $('replyText').textContent = replyTo.text;
-  $('replyBar').classList.remove('hidden');
+  showReplyBar();
   if (navigator.vibrate) navigator.vibrate(15);
   $('text').focus();
+}
+function showReplyBar() {
+  $('replyName').textContent = replyTo.name === me.name ? 'You' : replyTo.name;
+  $('replyText').textContent = replyTo.text;
+  $('replyBar').classList.remove('hidden');
 }
 function cancelReply() { replyTo = null; $('replyBar').classList.add('hidden'); }
 $('replyCancel').onclick = () => { cancelReply(); $('text').focus(); };
@@ -377,11 +534,12 @@ function addSwipe(el, icon) {
 
 /* ---------------- Sending ---------------- */
 const text = $('text');
+const drafts = {};
 function autosize() { text.style.height = 'auto'; text.style.height = Math.min(text.scrollHeight, 140) + 'px'; }
 function syncButtons() { const has = text.value.trim().length > 0; $('sendBtn').classList.toggle('hidden', !has); $('micBtn').classList.toggle('hidden', has); }
 text.addEventListener('input', () => {
-  autosize(); syncButtons();
-  if (Date.now() - lastTyping < 2000 || !current) return;
+  autosize(); syncButtons(); if (current) drafts[current] = text.value;
+  if (Date.now() - lastTyping < 2000 || !current || !text.value) return;
   lastTyping = Date.now(); api('typing').catch(() => {});
 });
 text.addEventListener('keydown', e => {
@@ -392,12 +550,13 @@ text.addEventListener('keydown', e => {
 $('composer').onsubmit = e => {
   e.preventDefault();
   const t = text.value.trim(); if (!t) return;
-  text.value = ''; autosize(); syncButtons();
+  text.value = ''; delete drafts[current]; autosize(); syncButtons();
   sendMessage({ text: t });
+  if (!finePointer) text.focus();
 };
 
 async function sendMessage({ text: body = '', gif, audio, upload: file, localUrl }) {
-  if (group && !group.me.canChat) { toast('You can’t send messages here right now'); return; }
+  if (group?.me && !group.me.canChat) { toast('You can’t send messages here right now'); return; }
   const cid = Math.random().toString(36).slice(2) + Date.now().toString(36);
   const reply = replyTo; cancelReply();
   const el = render({ name: me.name, text: body, gif, audio, localUrl, ts: Date.now(), replyTo: reply || undefined }, true);
@@ -412,9 +571,9 @@ async function sendMessage({ text: body = '', gif, audio, upload: file, localUrl
   } catch (err) {
     pending.delete(cid); el.remove();
     if (body && !gif && !audio) { text.value = body; autosize(); syncButtons(); }
-    toast(err.code === 'out_of_range' ? err.message : 'Not sent: ' + err.message);
-    if (err.code === 'out_of_range') repoll();
-    if (reply) { replyTo = reply; $('replyName').textContent = reply.name === me.name ? 'You' : reply.name; $('replyText').textContent = reply.text; $('replyBar').classList.remove('hidden'); }
+    toast(err.code === 'out_of_range' ? err.message : 'Not sent — ' + err.message);
+    if (err.code === 'out_of_range' || err.code === 'locked') repoll();
+    if (reply) { replyTo = reply; showReplyBar(); }
   }
 }
 
@@ -430,7 +589,7 @@ function pickMime() {
 const mic = $('micBtn');
 mic.addEventListener('pointerdown', async e => {
   if (e.button !== 0 || rec.state !== 'idle') return;
-  if (group && !group.me.canChat) return toast('You can’t send messages here right now');
+  if (group?.me && !group.me.canChat) return toast('You can’t send messages here right now');
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast('Voice messages aren’t supported in this browser');
   e.preventDefault();
   mic.setPointerCapture(e.pointerId);
@@ -449,7 +608,7 @@ mic.addEventListener('pointerdown', async e => {
       rec.ctx.createMediaStreamSource(stream).connect(rec.analyser);
     } catch { rec.analyser = null; }
     rec.state = 'recording'; rec.start = Date.now();
-    mic.classList.add('recording'); $('recBar').classList.remove('hidden'); $('recBar').classList.remove('cancel');
+    mic.classList.add('recording'); $('recBar').classList.remove('hidden', 'cancel');
     if (navigator.vibrate) navigator.vibrate(20);
     const buf = new Uint8Array(512);
     rec.timer = setInterval(() => {
@@ -460,7 +619,7 @@ mic.addEventListener('pointerdown', async e => {
     }, 100);
   } catch (err) {
     rec.state = 'idle';
-    toast(err.name === 'NotAllowedError' ? 'Microphone access was blocked. Allow it in your browser settings.' : 'Couldn’t start recording: ' + err.message);
+    toast(err.name === 'NotAllowedError' ? 'Microphone access is blocked — allow it in your browser settings' : 'Couldn’t start recording: ' + err.message);
   }
 });
 mic.addEventListener('pointermove', e => {
@@ -533,7 +692,7 @@ function voicePlayer(a, localUrl) {
   const paint = () => {
     const p = audio ? audio.currentTime / dur() : 0;
     bars.forEach((b, i) => b.classList.toggle('on', i / bars.length < p));
-    time.textContent = audio && (audio.currentTime > 0) ? fmtDur(audio.currentTime) : fmtDur(a.dur);
+    time.textContent = audio && audio.currentTime > 0 ? fmtDur(audio.currentTime) : fmtDur(a.dur);
   };
   const ensure = () => {
     if (audio) return audio;
@@ -556,13 +715,13 @@ function voicePlayer(a, localUrl) {
     const next = { '1×': '1.5×', '1.5×': '2×', '2×': '1×' }[speed.textContent];
     speed.textContent = next; ensure().playbackRate = parseFloat(next);
   };
-  const seek = e => {
+  wave.addEventListener('pointerdown', e => {
+    e.stopPropagation();
     const r = wave.getBoundingClientRect(), p = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1);
     const au = ensure();
     const go = () => { au.currentTime = p * dur(); paint(); };
     if (au.readyState >= 1) go(); else au.addEventListener('loadedmetadata', go, { once: true });
-  };
-  wave.addEventListener('pointerdown', e => { e.stopPropagation(); seek(e); });
+  });
   return wrap;
 }
 
@@ -631,30 +790,28 @@ function getLocationOnce() {
   return new Promise((res, rej) => {
     if (!navigator.geolocation) return rej(new Error('Location isn’t available in this browser'));
     navigator.geolocation.getCurrentPosition(p => res({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) }),
-      err => rej(new Error(err.code === 1 ? 'Location access was blocked. Allow it in your browser settings.' : 'Couldn’t get your location')),
+      err => rej(new Error(err.code === 1 ? 'Location access is blocked — allow it in your browser settings' : 'Couldn’t get your location — try again')),
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 });
   });
 }
 
 function setGroup(g) {
-  const wasGeo = !!group;
+  const wasGeo = !!group?.geo;
   group = g || null;
-  if (group && !wasGeo) startLocation();
+  if (group?.geo && !wasGeo) startLocation();
   if (group) {
-    const r = roomInfo(current); r.geo = true; r.radius = group.radius; r.title = group.title;
-    $('chatTitle').textContent = group.title; paintAvatar($('chatAvatar'), group.title, true);
+    const r = roomInfo(current);
+    $('chatTitle').textContent = group.title; paintAvatar($('chatAvatar'), group.title, { geo: group.geo, locked: group.locked });
+    if (r.title !== group.title) { r.title = group.title; renderRooms(); }
   }
   updateComposerLock(); renderAdminBanner();
   if ($('app').classList.contains('info-open')) renderInfo();
 }
 
-// When a member can't chat, the composer is replaced by an explanation + action (like WhatsApp's "only admins can send")
+// When a member can't chat, the composer is replaced by an explanation + action
 function updateComposerLock() {
   const locked = $('lockedBar'), comp = $('composer');
-  if (!group || group.me.canChat) {
-    locked.classList.add('hidden'); comp.classList.remove('hidden');
-    return;
-  }
+  if (!group?.me || group.me.canChat) { locked.classList.add('hidden'); comp.classList.remove('hidden'); return; }
   comp.classList.add('hidden'); locked.classList.remove('hidden'); closeGifs(); cancelReply();
   const m = group.me, admin = group.adminName || 'the admin', range = fmtDist(group.radius);
   let icon = '📍', msg, action = null;
@@ -664,7 +821,9 @@ function updateComposerLock() {
   else if (m.req === 'pending') { icon = '⏳'; msg = `You’re ${fmtDist(m.dist)} away, outside the ${range} range. Your request was sent to ${admin} — you can chat once they approve.`; }
   else if (m.req === 'denied') { icon = '🚫'; msg = `${admin} declined your request to chat from outside the ${range} range. You can still read messages.`; action = ['Ask again', requestAccess]; }
   else { msg = `You’re ${fmtDist(m.dist)} away — outside this group’s ${range} range. You can still read messages.`; action = ['Ask to chat', requestAccess]; }
-  locked.innerHTML = '';
+  const key = icon + msg + (action?.[0] || '');
+  if (locked.dataset.key === key) return;             // avoid re-rendering (and losing focus) on every poll
+  locked.dataset.key = key; locked.innerHTML = '';
   const row = document.createElement('div'); row.className = 'row';
   const ico = document.createElement('span'); ico.className = 'ico'; ico.textContent = icon;
   const p = document.createElement('span'); p.textContent = msg;
@@ -672,7 +831,9 @@ function updateComposerLock() {
   if (action) { const b = document.createElement('button'); b.className = 'btn primary'; b.textContent = action[0]; b.onclick = action[1]; locked.append(b); }
 }
 async function requestAccess() {
-  const note = prompt(`Add a note for ${group?.adminName || 'the admin'} (optional):`, '') ;
+  const admin = group?.adminName || 'the admin';
+  const note = await popup({ icon: '📍', title: 'Ask to chat from here', text: `${admin} will be asked to let you chat while you’re outside the range. Add a short note if you like.`,
+    input: { placeholder: 'e.g. Working from home today', maxLength: 140 }, ok: 'Send request' });
   if (note === null) return;
   try { await api('group/request', { note }); toast('Request sent'); repoll(); }
   catch (err) { toast(err.message); }
@@ -689,81 +850,132 @@ function renderAdminBanner() {
   b.append(t, btn);
 }
 
+/* ---------------- Invite ---------------- */
+async function shareInvite() {
+  if (!current) return;
+  const url = inviteLink(current), title = roomTitle(current);
+  const text = group?.locked ? `Join “${title}” on Intra Chat (ask me for the password)` : `Join “${title}” on Intra Chat`;
+  if (navigator.share && !finePointer) { try { await navigator.share({ title, text, url }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(url); toast('Invite link copied'); }
+  catch { popup({ icon: '🔗', title: 'Invite link', text: url, ok: 'Done', cancel: '' }); }
+}
+$('shareBtn').onclick = shareInvite;
+
 /* ---------------- Group info panel ---------------- */
 function openInfo() { if (!current) return; $('app').classList.add('info-open'); renderInfo(); }
 $('infoBtn').onclick = () => $('app').classList.contains('info-open') ? $('app').classList.remove('info-open') : openInfo();
 $('chatHead').onclick = openInfo;
 $('infoClose').onclick = () => $('app').classList.remove('info-open');
 
-function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
 function renderInfo() {
-  const body = $('infoBody'); const scroll = body.scrollTop;
+  const body = $('infoBody');
   if (body.contains(document.activeElement) && document.activeElement.type === 'range') return;   // don't disturb a slider mid-drag
+  const scroll = body.scrollTop;
   body.innerHTML = '';
-  const info = roomInfo(current);
+  const g = group, title = g?.title || roomTitle(current);
   const hero = el('div', 'info-hero');
-  const av = el('div', 'avatar'); paintAvatar(av, group?.title || info.title || current, !!group);
-  hero.append(av, el('h2', null, group?.title || roomTitle(current)),
-    el('span', 'muted', group ? `📍 Location group · admin ${group.adminName || '?'}` : 'Open group · anyone with the password'));
+  const av = el('div', 'avatar'); paintAvatar(av, title, { geo: g?.geo, locked: g?.locked });
+  const kind = g?.geo ? '📍 Location group' : g?.locked ? '🔒 Private group' : current === 'general' ? '💬 Everyone' : '💬 Open group';
+  hero.append(av, el('h2', null, title), el('span', 'muted', g?.adminName ? `${kind} · admin ${g.adminName}` : kind));
   body.append(hero);
 
-  if (group) {
+  // Invite
+  const inv = el('div', 'card'); inv.append(el('h3', null, 'Invite people'));
+  const row = el('div', 'invite-row'); row.append(el('code', null, inviteLink(current)));
+  const copy = el('button', 'btn small primary', 'Share'); copy.onclick = shareInvite; row.append(copy);
+  inv.append(row);
+  if (g?.locked) inv.append(el('p', 'muted small', 'People who open the link will be asked for the group password.'));
+  body.append(inv);
+
+  // Admin: access settings
+  if (g?.isAdmin) {
+    const ac = el('div', 'card'); ac.append(el('h3', null, 'Admin settings'));
+    const setting = (titleTxt, sub, btnLabel, fn, cls = '') => {
+      const s = el('div', 'setting'); const m = el('div', 's-meta'); m.append(el('b', null, titleTxt), el('small', null, sub));
+      const b = el('button', 'btn small ' + cls, btnLabel); b.onclick = fn; s.append(m, b); ac.append(s);
+    };
+    setting('Group name', title, 'Rename', renameGroup);
+    if (g.locked) {
+      setting('Password', 'Members need it to join', 'Change', () => setGroupPassword(true));
+      setting('Remove password', 'Anyone with the link can join', 'Remove', removeGroupPassword, 'ghost');
+    } else setting('Password', 'No password — anyone with the link can join', 'Add', () => setGroupPassword(false));
+    body.append(ac);
+  }
+
+  if (g?.geo) {
     const c = el('div', 'card'); c.append(el('h3', null, 'Range'));
-    c.append(radar(group));
-    const m = group.me;
+    c.append(radar(g));
+    const m = g.me || {};
     const kv = (k, v) => { const r = el('div', 'kv'); r.append(el('span', null, k), v instanceof Node ? v : el('span', null, v)); c.append(r); };
-    kv('Range', fmtDist(group.radius));
-    if (!group.isAdmin) {
+    kv('Range', fmtDist(g.radius));
+    if (!g.isAdmin) {
       kv('Your distance', m.dist == null ? (geo.error === 'denied' ? 'Location blocked' : 'Checking…') : `${fmtDist(m.dist)}${m.acc ? ` (±${fmtDist(m.acc)})` : ''}`);
-      const chip = el('span', 'chip ' + (m.inside ? 'ok' : m.approved ? 'brand' : 'warn'),
-        m.inside ? 'Inside — can chat' : m.approved ? 'Approved — can chat' : m.req === 'pending' ? 'Request pending' : 'Outside — read only');
-      kv('Status', chip);
+      kv('Status', el('span', 'chip ' + (m.inside ? 'ok' : m.approved ? 'brand' : 'warn'),
+        m.inside ? 'Inside — can chat' : m.approved ? 'Approved — can chat' : m.req === 'pending' ? 'Request pending' : 'Outside — read only'));
     } else {
       kv('You', el('span', 'chip brand', 'Admin — can always chat'));
-      // Admin controls
-      const row = el('div', 'slider-row');
-      const slider = el('input'); slider.type = 'range'; slider.min = 0; slider.max = RANGES.length - 1; slider.step = 1; slider.value = radiusToSlider(group.radius); slider.setAttribute('aria-label', 'Group range');
-      const out = el('output', null, fmtDist(group.radius));
+      const sr = el('div', 'slider-row');
+      const slider = el('input'); slider.type = 'range'; slider.min = 0; slider.max = RANGES.length - 1; slider.step = 1; slider.value = radiusToSlider(g.radius); slider.setAttribute('aria-label', 'Group range');
+      const out = el('output', null, fmtDist(g.radius));
       slider.oninput = () => out.textContent = fmtDist(sliderToRadius(+slider.value));
-      row.append(slider, out);
+      sr.append(slider, out);
       const save = el('button', 'btn small primary', 'Save range');
       save.onclick = async () => { try { await api('group/update', { radius: sliderToRadius(+slider.value) }); toast('Range updated'); slider.blur(); repoll(); } catch (e) { toast(e.message); } };
-      const recBtn = el('button', 'btn small', 'Move centre to my location');
+      const recBtn = el('button', 'btn small', 'Move centre here');
       recBtn.onclick = async () => {
-        if (!confirm('Set the group centre to where you are now? Everyone’s range status will be re-checked.')) return;
+        const yes = await popup({ icon: '📍', title: 'Move the centre here?', text: 'The group’s centre will be set to where you are now, and everyone’s range status will be checked again.', ok: 'Move centre' });
+        if (!yes) return;
         try { const loc = await getLocationOnce(); await api('group/update', { recenter: true, loc }); toast('Centre moved'); repoll(); } catch (e) { toast(e.message); }
       };
       const btns = el('div', 'btn-row'); btns.append(save, recBtn);
-      c.append(el('h3', null, 'Change range'), row, btns);
+      c.append(el('h3', null, 'Change range'), sr, btns);
     }
     body.append(c);
 
-    if (group.isAdmin) {
-      const mc = el('div', 'card'); mc.append(el('h3', null, `Members (${(group.members || []).length})`));
-      if (!(group.members || []).length) mc.append(el('p', 'muted small', 'Nobody else has opened this group yet.'));
-      for (const mm of group.members || []) {
-        const row = el('div', 'member');
+    if (g.isAdmin) {
+      const mc = el('div', 'card'); mc.append(el('h3', null, `Members (${(g.members || []).length})`));
+      if (!(g.members || []).length) mc.append(el('p', 'muted small', 'Nobody else has opened this group yet. Share the invite link above.'));
+      for (const mm of g.members || []) {
+        const r = el('div', 'member');
         const a = el('div', 'avatar'); paintAvatar(a, mm.name);
         const meta = el('div', 'm-meta'); meta.append(el('b', null, mm.name));
         const where = mm.inside == null ? 'Location unknown' : `${mm.inside ? 'Inside' : 'Outside'} · ${fmtDist(mm.dist)} away`;
         meta.append(el('small', null, where + (mm.approved ? ' · approved' : '')));
         if (mm.req === 'pending' && mm.note) meta.append(el('small', 'note', `“${mm.note}”`));
         const acts = el('div', 'm-actions');
-        const act = (label, cls, action) => { const b = el('button', 'btn small ' + cls, label); b.onclick = async () => { b.disabled = true; try { await api('group/decide', { member: mm.id, action }); repoll(); } catch (e) { toast(e.message); b.disabled = false; } }; acts.append(b); };
+        const act = (label, cls, action) => { const b = el('button', 'btn small ' + cls, label); b.onclick = async () => { b.disabled = true; try { await api('group/decide', { member: mm.id, action }); toast(action === 'approve' ? `${mm.name} can chat now` : action === 'deny' ? 'Request declined' : 'Access revoked'); repoll(); } catch (e) { toast(e.message); b.disabled = false; } }; acts.append(b); };
         if (mm.req === 'pending') { act('Approve', 'ok', 'approve'); act('Deny', 'ghost', 'deny'); }
         else if (mm.approved) act('Revoke', 'ghost', 'revoke');
         else if (mm.req === 'denied') acts.append(el('span', 'chip warn', 'Denied'));
         else acts.append(el('span', 'chip ' + (mm.inside ? 'ok' : mm.inside === false ? 'warn' : ''), mm.inside ? 'Can chat' : mm.inside === false ? 'Read only' : '—'));
-        row.append(a, meta, acts); mc.append(row);
+        r.append(a, meta, acts); mc.append(r);
       }
       body.append(mc);
     }
   }
 
   const oc = el('div', 'card'); oc.append(el('h3', null, `Online now (${presenceCache.length})`));
-  for (const u of presenceCache) { const row = el('div', 'member'); const a = el('div', 'avatar'); paintAvatar(a, u.name); const meta = el('div', 'm-meta'); meta.append(el('b', null, u.name === me.name ? `${u.name} (you)` : u.name)); row.append(a, meta); oc.append(row); }
+  for (const u of presenceCache) { const r = el('div', 'member'); const a = el('div', 'avatar'); paintAvatar(a, u.name); const meta = el('div', 'm-meta'); meta.append(el('b', null, u.name === me.name ? `${u.name} (you)` : u.name)); if (u.typing && u.name !== me.name) meta.append(el('small', null, 'typing…')); r.append(a, meta); oc.append(r); }
   body.append(oc);
   body.scrollTop = scroll;
+}
+async function renameGroup() {
+  const title = await popup({ icon: '✏️', title: 'Rename group', input: { value: group.title, maxLength: 40, required: true, requiredMsg: 'Enter a name' }, ok: 'Save',
+    onConfirm: async v => { try { await api('group/update', { title: v }); return null; } catch (e) { return e.message; } } });
+  if (title) { toast('Group renamed'); repoll(); refreshRooms(); }
+}
+async function setGroupPassword(changing) {
+  const pw = await popup({ icon: '🔒', title: changing ? 'Change password' : 'Add a password',
+    text: changing ? 'Everyone except you will need the new password to keep chatting.' : 'New people will need this password to join. Share it only with people who should be here.',
+    input: { type: 'password', placeholder: 'At least 4 characters', maxLength: 64, required: true, requiredMsg: 'Enter a password' }, ok: changing ? 'Change' : 'Add password',
+    onConfirm: async v => { if (v.length < 4) return 'Use at least 4 characters'; try { const d = await api('group/update', { password: v }); if (d.key) { keys[current] = d.key; saveKeys(); } return null; } catch (e) { return e.message; } } });
+  if (pw) { toast(changing ? 'Password changed' : 'Group is now private'); repoll(); refreshRooms(); }
+}
+async function removeGroupPassword() {
+  const yes = await popup({ icon: '🔓', title: 'Remove the password?', text: 'Anyone with the invite link will be able to read and join this group.', ok: 'Remove', danger: true });
+  if (!yes) return;
+  try { await api('group/update', { password: null }); toast('Password removed'); repoll(); refreshRooms(); } catch (e) { toast(e.message); }
 }
 
 // A small radar: the dashed circle is the range; dots show distance from the centre (direction isn't shared, only distance)
@@ -777,7 +989,7 @@ function radar(g) {
   add('circle', { cx: C, cy: C, r: 4, class: 'centre' });
   const label = add('text', { x: C, y: C - R - 4, 'text-anchor': 'middle' }); label.textContent = fmtDist(g.radius);
   const scale = d => Math.min(d / g.radius * R, 92);
-  const people = g.isAdmin ? (g.members || []).filter(m => m.dist != null) : (g.me.dist != null ? [{ name: me.name, dist: g.me.dist, inside: g.me.inside }] : []);
+  const people = g.isAdmin ? (g.members || []).filter(m => m.dist != null) : (g.me?.dist != null ? [{ name: me.name, dist: g.me.dist, inside: g.me.inside }] : []);
   for (const p of people) {
     const ang = (hue(p.name) / 360) * Math.PI * 2, r = scale(p.dist);
     add('circle', { cx: C + Math.cos(ang) * r, cy: C + Math.sin(ang) * r, r: 6, class: 'dot', fill: p.inside ? 'var(--ok)' : 'var(--warn)' })
@@ -788,44 +1000,52 @@ function radar(g) {
 
 /* ---------------- New group ---------------- */
 let ngLoc = null;
+const ngType = () => document.querySelector('input[name=ngType]:checked').value;
+function syncNewGroup() {
+  const t = ngType();
+  $('ngGeo').classList.toggle('hidden', t !== 'geo');
+  $('ngPwWrap').classList.toggle('hidden', !(t === 'private' || (t === 'geo' && $('ngGeoPw').checked)));
+  $('ngHint').textContent = { open: 'Anyone with the invite link can read and chat.', private: 'Only people who know the password can join.', geo: 'People inside the range can chat. Anyone outside can read and ask you to chat.' }[t];
+  $('ngCreate').textContent = { open: 'Create open group', private: 'Create private group', geo: 'Create location group' }[t];
+}
 $('newGroupBtn').onclick = () => {
-  $('newGroupForm').reset(); $('ngErr').textContent = ''; $('ngGeo').classList.add('hidden'); ngLoc = null;
+  $('newGroupForm').reset(); $('ngErr').textContent = ''; ngLoc = null;
   $('ngRadiusOut').textContent = fmtDist(sliderToRadius(+$('ngRadius').value));
-  $('newGroup').showModal(); $('ngName').focus();
+  syncNewGroup(); $('newGroup').showModal(); if (finePointer) $('ngName').focus();
 };
 $('ngClose').onclick = () => $('newGroup').close();
+$('newGroup').onclick = e => { if (e.target === $('newGroup')) $('newGroup').close(); };
 $('ngRadius').oninput = () => $('ngRadiusOut').textContent = fmtDist(sliderToRadius(+$('ngRadius').value));
+$('ngGeoPw').onchange = syncNewGroup;
 for (const r of document.querySelectorAll('input[name=ngType]')) r.onchange = async () => {
-  const isGeo = r.value === 'geo' && r.checked;
-  $('ngGeo').classList.toggle('hidden', !isGeo);
-  if (isGeo && !ngLoc) {
+  syncNewGroup();
+  if (ngType() === 'geo' && !ngLoc) {
     const s = $('ngLoc'); s.className = 'loc-status'; s.textContent = 'Getting your location…';
-    try { ngLoc = await getLocationOnce(); s.className = 'loc-status ok'; s.textContent = `✓ Location found (accuracy ±${fmtDist(ngLoc.acc)}). This will be the centre.`; }
+    try { ngLoc = await getLocationOnce(); s.className = 'loc-status ok'; s.textContent = `✓ Location found (±${fmtDist(ngLoc.acc)}). This will be the centre.`; }
     catch (e) { s.className = 'loc-status bad'; s.textContent = e.message; }
   }
 };
 $('newGroupForm').onsubmit = async e => {
   e.preventDefault();
-  const title = $('ngName').value.trim(), room = slug(title);
-  if (!room) { $('ngErr').textContent = 'Use letters or numbers in the name'; return; }
-  const isGeo = document.querySelector('input[name=ngType]:checked').value === 'geo';
+  const title = $('ngName').value.trim(), room = slug(title), type = ngType();
+  const needsPw = type === 'private' || (type === 'geo' && $('ngGeoPw').checked);
+  const password = needsPw ? $('ngPw').value : '';
   $('ngErr').textContent = '';
-  if (!isGeo) {
-    if (!rooms.some(r => r.room === room)) rooms.push({ room, title: null, geo: false });
-    $('newGroup').close(); openRoom(room); return;
-  }
-  if (!ngLoc) { try { ngLoc = await getLocationOnce(); } catch (err) { $('ngErr').textContent = err.message; return; } }
+  if (!title) { $('ngErr').textContent = 'Give your group a name'; $('ngName').focus(); return; }
+  if (!room) { $('ngErr').textContent = 'Use some letters or numbers in the name'; $('ngName').focus(); return; }
+  if (needsPw && password.length < 4) { $('ngErr').textContent = 'Choose a password of at least 4 characters'; $('ngPw').focus(); return; }
+  if (type === 'geo' && !ngLoc) { try { ngLoc = await getLocationOnce(); } catch (err) { $('ngErr').textContent = err.message; return; } }
   $('ngCreate').disabled = true;
   try {
-    const radius = sliderToRadius(+$('ngRadius').value);
-    await api('group/create', { room, title, radius, loc: ngLoc });
-    rooms.push({ room, title, geo: true, radius });
+    const d = await api('group/create', { room, title, type, password, radius: sliderToRadius(+$('ngRadius').value), loc: type === 'geo' ? ngLoc : undefined });
+    if (d.key) { keys[room] = d.key; saveKeys(); }
+    rooms = [{ room, ...d.group, last: null }, ...rooms.filter(r => r.room !== room)];
     $('newGroup').close(); openRoom(room);
-    toast(`📍 “${title}” created — you’re the admin`);
+    toast(`“${title}” created — share the invite link to add people`);
   } catch (err) { $('ngErr').textContent = err.message; }
   finally { $('ngCreate').disabled = false; }
 };
 
 /* ---------------- Start ---------------- */
-// Auto sign-in if we already have a name + password on this device
-if (me.name && me.pw) $('loginForm').requestSubmit();
+if (me.name) enterApp();
+else setTimeout(() => $('name').focus(), 50);
