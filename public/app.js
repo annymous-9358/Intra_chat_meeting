@@ -165,7 +165,39 @@ const RANGES = [50, 100, 150, 200, 300, 400, 500, 750, 1000, 1500, 2000, 3000, 5
 const sliderToRadius = v => RANGES[Math.min(Math.max(Math.round(v), 0), RANGES.length - 1)];
 const radiusToSlider = r => RANGES.reduce((best, x, i) => Math.abs(x - r) < Math.abs(RANGES[best] - r) ? i : best, 0);
 const inviteLink = room => `${location.origin}${location.pathname}#/g/${encodeURIComponent(room)}`;
-const linkedRoom = () => { const m = location.hash.match(/^#\/g\/([a-z0-9_-]{1,30})$/i); return m ? m[1].toLowerCase() : null; };
+const linkedRoom = () => { const m = location.hash.match(/^#\/g\/([a-z0-9_-]{1,30})(\?.*)?$/i); return m ? m[1].toLowerCase() : null; };
+// What a link / notification button asks for: open a group and then talk, reply or play a message
+function linkIntent() {
+  const h = location.hash;
+  if (h === '#/walkie') return { room: store.get('ic-room') || 'general', act: 'walkie' };
+  if (h === '#/new') return { act: 'new' };
+  const room = linkedRoom(); if (!room) return null;
+  const q = new URLSearchParams(h.split('?')[1] || '');
+  return { room, act: q.get('a') || 'open', key: q.get('k') || null };
+}
+let pendingIntent = null;
+function runIntent(intent) {
+  if (!intent) return;
+  if (intent.act === 'new') { history.replaceState(null, '', location.pathname); return $('newGroupBtn').click(); }
+  pendingIntent = intent.act === 'open' ? null : intent;
+  if (intent.room !== current) openRoom(intent.room); else applyIntent();
+}
+// Runs once the group's messages are on screen
+function applyIntent() {
+  const it = pendingIntent; if (!it || it.room !== current) return;
+  pendingIntent = null;
+  history.replaceState(null, '', `#/g/${current}`);
+  const el = it.key && [...$('messages').children].find(x => x.dataset.key === it.key);
+  if (it.act === 'walkie' || it.act === 'talk') {
+    if (!walkie.on) openWalkie();
+    if (el && it.act === 'talk') startReply(el, { focus: false });
+    toast(el && it.act === 'talk' ? `Hold the button to reply to ${el._msg?.name}` : '📻 Walkie-talkie on — hold the button to talk');
+  } else if (el && it.act === 'reply') startReply(el);
+  else if (el && it.act === 'play') {
+    el.scrollIntoView({ block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+    el.querySelector('.voice .play')?.click();
+  }
+}
 
 /* ---------------- Sign in / create account ---------------- */
 let authMode = 'login';
@@ -229,7 +261,9 @@ function enterApp() {
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
   paintAvatar($('meAvatar'), me.name); $('meName').textContent = `${me.name} · @${me.username}`;
   refreshRooms().then(() => {
-    const target = linkedRoom() || (wide() ? (rooms.some(r => r.room === store.get('ic-room')) ? store.get('ic-room') : 'general') : null);
+    const intent = linkIntent();
+    if (intent) return runIntent(intent);
+    const target = wide() ? (rooms.some(r => r.room === store.get('ic-room')) ? store.get('ic-room') : 'general') : null;
     if (target) openRoom(target);
   });
   clearInterval(roomsTimer);
@@ -334,7 +368,7 @@ async function openRoom(room, force) {
   if (info.locked && info.access === false) { if (!(await askPassword(room))) { if (linkedRoom() === room) history.replaceState(null, '', location.pathname); return; } }
   leaveRoom();
   current = room; store.set('ic-room', room);
-  if (location.hash !== `#/g/${room}`) history.replaceState(null, '', `#/g/${room}`);
+  if (!pendingIntent && location.hash !== `#/g/${room}`) history.replaceState(null, '', `#/g/${room}`);
   session++; since = ''; version = ''; seen = new Set(); pending = new Map(); receipts = [];
   acked = { delivered: '', read: '' }; openReceipts = new Set(); group = null; lastRendered = null; unseenBelow = 0; xsince = 0; edits = {};
   cancelReply(); closeGifs(); updateToBottom();
@@ -360,7 +394,7 @@ $('backBtn').onclick = () => {
   leaveRoom(); history.replaceState(null, '', location.pathname);
   $('app').classList.remove('in-chat', 'info-open'); renderRooms(); refreshRooms();
 };
-window.addEventListener('hashchange', () => { const r = linkedRoom(); if (r && r !== current && !$('app').classList.contains('hidden')) openRoom(r); });
+window.addEventListener('hashchange', () => { if ($('app').classList.contains('hidden')) return; const it = linkIntent(); if (it && (it.act !== 'open' || it.room !== current)) runIntent(it); });
 
 async function askPassword(room, again) {
   const title = roomTitle(room);
@@ -404,6 +438,7 @@ async function poll(mySession) {
       else { unseenBelow += fresh.filter(m => !isMine(m)).length; updateToBottom(); }
     }
     if (d.edits) { for (const [k, e] of Object.entries(d.edits)) { edits[k] = e; applyEdit(k); } }
+    if (first && pendingIntent) setTimeout(applyIntent, 0);
     if (d.xt) xsince = d.xt;
     if (d.talk) onTalk(d.talk, d.xt);
     // (ignore a mute state from a request that started before we changed it ourselves)
@@ -499,7 +534,16 @@ function render(m, isPending) {
     img.onload = () => { if (nearBottom(600)) scrollDown(true); };
     el.append(img);
   }
-  if (m.audio) el.append(voicePlayer(m.audio, m.localUrl));
+  if (m.audio) {
+    el.append(voicePlayer(m.audio, m.localUrl));
+    if (!mine && !isPending) {          // 🎙 hold here to answer with a voice message that quotes this one
+      const q = document.createElement('button'); q.type = 'button'; q.className = 'quick-reply';
+      q.innerHTML = '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Hold to reply</span>';
+      q.setAttribute('aria-label', `Hold to reply to ${m.name} with a voice message`);
+      bindHoldToRecord(q, () => startReply(el, { focus: false }));
+      el.append(q);
+    }
+  }
   if (m.deleted) { el.classList.add('deleted'); const body = document.createElement('span'); body.className = 'body'; body.textContent = '🚫 This message was deleted'; el.append(body); }
   else if (m.text) { const body = document.createElement('span'); body.className = 'body'; body.textContent = m.text; el.append(body); }
   if (!m.text && !m.deleted) el.classList.add('media-only');
@@ -586,21 +630,22 @@ function updateTicks() {
 const summarize = n => n.length <= 3 ? n.join(', ') : `${n.slice(0, 2).join(', ')} +${n.length - 2}`;
 
 /* ---------------- Replies ---------------- */
-function startReply(el) {
+function startReply(el, { focus = true } = {}) {
   const m = el._msg;
   if (!m?.key || el.classList.contains('deleted')) return;
   if (group?.me && !group.me.canChat) return toast('You can’t reply until you’re allowed to chat here');
   replyTo = { key: m.key, name: m.name, uid: m.uid, text: previewText(m).slice(0, 140) };
   showReplyBar();
   if (navigator.vibrate) navigator.vibrate(15);
-  $('text').focus();
+  if (focus) $('text').focus();
 }
 function showReplyBar() {
   $('replyName').textContent = isMine(replyTo) ? 'You' : replyTo.name;
   $('replyText').textContent = replyTo.text;
   $('replyBar').classList.remove('hidden');
+  if (walkie.on) renderWalkie();
 }
-function cancelReply() { replyTo = null; $('replyBar').classList.add('hidden'); }
+function cancelReply() { replyTo = null; $('replyBar').classList.add('hidden'); if (typeof walkie !== 'undefined' && walkie.on) renderWalkie(); }
 $('replyCancel').onclick = () => { cancelReply(); $('text').focus(); };
 
 // Swipe a message sideways (touch) to reply
@@ -687,12 +732,16 @@ function pickMime() {
   return '';
 }
 const mic = $('micBtn');
-mic.addEventListener('pointerdown', async e => {
+// Hold-to-record works on any button: the composer mic, and the 🎙 quick-reply button on voice messages.
+// beforeStart() runs first (e.g. to set which message we're replying to).
+function bindHoldToRecord(btn, beforeStart) {
+btn.addEventListener('pointerdown', async e => {
   if (e.button !== 0 || rec.state !== 'idle') return;
   if (group?.me && !group.me.canChat) return toast('You can’t send messages here right now');
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast('Voice messages aren’t supported in this browser');
-  e.preventDefault();
-  mic.setPointerCapture(e.pointerId);
+  e.preventDefault(); e.stopPropagation();
+  beforeStart?.();
+  btn.setPointerCapture(e.pointerId); rec.btn = btn;
   rec.state = 'starting'; rec.x0 = e.clientX; rec.cancel = false; rec.pointer = e.pointerId; rec.pressedAt = Date.now();
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
@@ -708,7 +757,7 @@ mic.addEventListener('pointerdown', async e => {
       rec.ctx.createMediaStreamSource(stream).connect(rec.analyser);
     } catch { rec.analyser = null; }
     rec.state = 'recording'; rec.start = Date.now();
-    mic.classList.add('recording'); $('recBar').classList.remove('hidden', 'cancel');
+    btn.classList.add('recording'); $('recBar').classList.remove('hidden', 'cancel');
     if (navigator.vibrate) navigator.vibrate(20);
     const buf = new Uint8Array(512);
     rec.timer = setInterval(() => {
@@ -722,7 +771,7 @@ mic.addEventListener('pointerdown', async e => {
     toast(err.name === 'NotAllowedError' ? 'Microphone access is blocked — allow it in your browser settings' : 'Couldn’t start recording: ' + err.message);
   }
 });
-mic.addEventListener('pointermove', e => {
+btn.addEventListener('pointermove', e => {
   if (rec.state !== 'recording' || e.pointerId !== rec.pointer) return;
   const dx = Math.min(0, e.clientX - rec.x0);
   $('recHint').style.transform = `translateX(${dx / 2}px)`;
@@ -730,9 +779,11 @@ mic.addEventListener('pointermove', e => {
   $('recBar').classList.toggle('cancel', rec.cancel);
   $('recHint').textContent = rec.cancel ? 'Release to cancel' : '‹ Slide to cancel';
 });
-mic.addEventListener('pointerup', () => onMicRelease());
-mic.addEventListener('pointercancel', () => { rec.cancel = true; onMicRelease(); });
-mic.addEventListener('contextmenu', e => e.preventDefault());
+btn.addEventListener('pointerup', () => onMicRelease());
+btn.addEventListener('pointercancel', () => { rec.cancel = true; onMicRelease(); });
+btn.addEventListener('contextmenu', e => e.preventDefault());
+}
+bindHoldToRecord(mic);
 function onMicRelease() {
   if (rec.state === 'starting') { rec.state = 'idle'; if (Date.now() - rec.pressedAt < 400) toast('Hold the mic to record'); return; }
   if (rec.state !== 'recording') return;
@@ -750,14 +801,14 @@ function finishRecording(send) {
     rec.ctx?.close().catch(() => {});
     const blob = new Blob(rec.chunks, { type: (recorder.mimeType || 'audio/webm').split(';')[0] });
     resetRecUI();
-    if (!send) { toast('Voice message cancelled'); return; }
+    if (!send) { toast('Voice message cancelled'); if (rec.btn !== mic) cancelReply(); return; }
     if (dur < 0.8) { toast('Hold the mic to record'); return; }
     sendMessage({ audio: { dur: Math.round(dur * 10) / 10, peaks }, upload: blob, localUrl: URL.createObjectURL(blob) });
   };
   recorder.stop();
 }
 function resetRecUI() {
-  rec.state = 'idle'; mic.classList.remove('recording'); $('recBar').classList.add('hidden');
+  rec.state = 'idle'; (rec.btn || mic).classList.remove('recording'); $('recBar').classList.add('hidden');
   $('recHint').style.transform = ''; $('recHint').textContent = '‹ Slide to cancel'; $('recTime').textContent = '0:00';
 }
 function downsample(arr, n) {
@@ -1302,7 +1353,7 @@ async function setupServiceWorker() {
   try {
     swReg = await navigator.serviceWorker.register('/sw.js');
     navigator.serviceWorker.addEventListener('message', e => {
-      if (e.data?.type === 'open' && e.data.room) openRoom(e.data.room);
+      if (e.data?.type === 'open' && e.data.room) runIntent({ room: e.data.room, act: e.data.act || 'open', key: e.data.key });
     });
     navigator.serviceWorker.addEventListener('controllerchange', tellSW);
     await navigator.serviceWorker.ready; tellSW();
@@ -1512,7 +1563,7 @@ function renderWalkie() {
   btn.classList.toggle('talking', walkie.talking);
   btn.classList.toggle('busy', !!othersTalking && !walkie.talking);
   btn.disabled = !canTalk;
-  $('pttLabel').textContent = walkie.talking ? 'Release to stop' : othersTalking ? `${f.name.split(' ')[0]} is talking` : 'Hold to talk';
+  $('pttLabel').textContent = walkie.talking ? 'Release to stop' : othersTalking ? `${f.name.split(' ')[0]} is talking` : replyTo ? `Hold to reply to ${replyTo.name.split(' ')[0]}` : 'Hold to talk';
   $('wkHint').textContent = finePointer ? 'Tip: hold the Space bar to talk. People with the walkie-talkie open hear you live; everyone else gets it as a 📻 message.'
     : 'Keeps playing with the screen locked or in another app (like music) while this stays on. Others get it as a 📻 message.';
 }

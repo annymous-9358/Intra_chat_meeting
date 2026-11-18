@@ -35,6 +35,11 @@ A quick group chat app. Run it in two ways with the same code:
   While it's on, the walkie-talkie plays through one continuous media stream with a lock-screen media notification,
   so on Android Chrome it keeps working with the screen locked or another app open (like music) — as long as the app
   isn't closed. iPhone Safari pauses web pages in the background, so there it works while on screen.
+- **Fast voice replies**: notifications for voice/walkie messages have **🎙 Reply** (opens that group's walkie-talkie,
+  ready to answer that message) and **▶ Play**; other messages get **↩ Reply**. Long-press the app icon for a
+  **📻 Walkie-talkie** shortcut (opens your last group with the walkie-talkie on — drag it to your home screen). Voice
+  messages from others have a **Hold to reply** button that records a quoted voice reply right there.
+  (Notification buttons and app shortcuts work on Android and desktop; iPhone doesn't support them for web apps.)
 - **Message actions**: press and hold (phone) or right-click / 😊 (desktop) a message for emoji reactions
   (👍 ❤️ 😂 😮 😢 🙏, one per person), Reply, Copy text, Message info (seen/delivered) and Delete for everyone
   (your own messages; group admins can delete any message in their group)

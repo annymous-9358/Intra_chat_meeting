@@ -1,5 +1,5 @@
 /* Intra Chat service worker: offline app shell + WhatsApp-style push notifications */
-const CACHE = 'intra-chat-v9';
+const CACHE = 'intra-chat-v10';
 const SHELL = ['/', '/index.html', '/app.css', '/app.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', e => {
@@ -66,19 +66,22 @@ async function showMessage(d) {
     icon: '/icons/icon-192.png', badge: '/icons/badge-96.png',
     timestamp: d.ts || Date.now(),
     vibrate: [80, 40, 80],
-    data: { url: d.url || '/', room, count, lines },
+    // Quick actions: voice/walkie messages get Reply (hold-to-talk) and Play; other messages get Reply
+    actions: d.audio ? [{ action: 'reply', title: '🎙 Reply' }, { action: 'play', title: '▶ Play' }] : [{ action: 'reply', title: '↩ Reply' }],
+    data: { url: d.url || '/', room, count, lines, key: d.key, audio: !!d.audio },
   });
   await updateBadge();
 }
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const { url = '/', room } = e.notification.data || {};
+  const { url = '/', room, key, audio } = e.notification.data || {};
+  const act = e.action === 'reply' ? (audio ? 'talk' : 'reply') : e.action === 'play' ? 'play' : 'open';
   e.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const win = wins.find(c => new URL(c.url).origin === location.origin);
-    if (win) { await win.focus(); win.postMessage({ type: 'open', room }); }
-    else await self.clients.openWindow(url);
+    if (win) { await win.focus(); win.postMessage({ type: 'open', room, act, key }); }
+    else await self.clients.openWindow(act === 'open' ? url : `${url}?a=${act}&k=${encodeURIComponent(key || '')}`);
     await updateBadge();
   })());
 });
