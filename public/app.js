@@ -379,7 +379,7 @@ async function askPassword(room, again) {
 
 /* ---------------- Long-poll loop ---------------- */
 async function poll(mySession) {
-  if (polling) return;
+  if (polling || mySession !== session) return;
   polling = true;
   ctrl = new AbortController();
   const myCtrl = ctrl;
@@ -429,8 +429,10 @@ async function poll(mySession) {
     if (ctrl === myCtrl) polling = false;
     if (mySession === session) {
       clearTimeout(pollTimer);
-      const delay = failures ? Math.min(1000 * 2 ** failures, 15000) : (document.hidden ? 3000 : 0);
-      pollTimer = setTimeout(() => poll(mySession), delay);
+      const delay = failures ? Math.min(1000 * 2 ** failures, 15000) : (document.hidden && !walkie.on ? 3000 : 0);
+      // Re-poll straight away without a timer: browsers slow timers down in background tabs
+      if (delay === 0) Promise.resolve().then(() => poll(mySession));
+      else pollTimer = setTimeout(() => poll(mySession), delay);
     }
   }
 }
@@ -1412,12 +1414,14 @@ function openWalkie() {
     const b = walkie.ctx.createBuffer(1, 1, 22050), src = walkie.ctx.createBufferSource(); src.buffer = b; src.connect(walkie.ctx.destination); src.start(0);
   } catch {}
   walkie.on = true; walkie.nextTime = 0;
+  startBackgroundAudio();
   $('walkiePanel').classList.remove('hidden'); $('walkieBtn').classList.add('on'); $('walkieBtn').setAttribute('aria-pressed', 'true');
   closeGifs(); renderWalkie(); repoll();
 }
 function closeWalkie() {
   if (walkie.talking) stopTalking(false);
   walkie.on = false;
+  stopBackgroundAudio();
   $('walkiePanel').classList.add('hidden'); $('walkieBtn').classList.remove('on'); $('walkieBtn').setAttribute('aria-pressed', 'false');
   renderWalkie();
 }
@@ -1442,13 +1446,50 @@ function enqueueChunk(c) {
   walkie.queue = walkie.queue.then(async () => {
     const buf = await decoded;
     if (!buf || !walkie.on) return;
-    const ctx = walkie.ctx, src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+    const ctx = walkie.ctx, src = ctx.createBufferSource(); src.buffer = buf; src.connect(walkieOutput());
     const at = Math.max(ctx.currentTime + 0.05, walkie.nextTime);
     src.start(at); walkie.nextTime = at + buf.duration;
     walkie.hearingUntil = performance.now() + (walkie.nextTime - ctx.currentTime) * 1000 + 300;
     walkie.speaker = c.name; renderWalkie();
     setTimeout(renderWalkie, (walkie.nextTime - ctx.currentTime) * 1000 + 350);
   });
+}
+
+// Keep-alive while the walkie-talkie is on: all walkie sound goes into ONE continuous media stream played by an
+// <audio> element (plus an inaudible 30 Hz tone), so Chrome treats the page like a music player and keeps it running
+// with the screen locked or another app open. A media notification shows who's talking and lets you switch it off.
+function startBackgroundAudio() {
+  const ctx = walkie.ctx; if (!ctx) return;
+  try {
+    if (!walkie.out && ctx.createMediaStreamDestination) {
+      const dest = ctx.createMediaStreamDestination();
+      const el = new Audio(); el.srcObject = dest.stream; el.setAttribute('playsinline', ''); el.autoplay = true;
+      const osc = ctx.createOscillator(), quiet = ctx.createGain();
+      osc.frequency.value = 30; quiet.gain.value = 0.0008;            // far below hearing on phone speakers
+      osc.connect(quiet).connect(dest); osc.start();
+      walkie.out = { dest, el, osc, ok: false };
+    }
+    walkie.out?.el.play().then(() => { if (walkie.out) walkie.out.ok = true; }).catch(() => {});
+  } catch { walkie.out = null; }
+  updateMediaSession();
+}
+function stopBackgroundAudio() {
+  if (walkie.out) { try { walkie.out.osc.stop(); walkie.out.el.pause(); walkie.out.el.srcObject = null; } catch {} walkie.out = null; }
+  if ('mediaSession' in navigator) { try { navigator.mediaSession.playbackState = 'none'; navigator.mediaSession.metadata = null; } catch {} }
+  walkie.mediaText = '';
+}
+// Play through the continuous stream when it's running, otherwise straight to the speakers
+const walkieOutput = () => (walkie.out?.ok ? walkie.out.dest : walkie.ctx.destination);
+function updateMediaSession(text = '📻 Walkie-talkie') {
+  if (!('mediaSession' in navigator) || !walkie.on || walkie.mediaText === text) return;
+  walkie.mediaText = text;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: text, artist: roomTitle(current), album: 'Intra Chat',
+      artwork: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' }] });
+    navigator.mediaSession.playbackState = 'playing';
+    for (const a of ['pause', 'stop']) navigator.mediaSession.setActionHandler(a, () => { closeWalkie(); repoll(); });
+    navigator.mediaSession.setActionHandler('play', () => startBackgroundAudio());
+  } catch {}
 }
 
 function renderWalkie() {
@@ -1464,6 +1505,7 @@ function renderWalkie() {
   const st = $('wkStatus'), btn = $('pttBtn');
   st.className = 'wk-status';
   $('walkiePanel').classList.toggle('hearing', hearing && !walkie.talking);
+  updateMediaSession(walkie.talking ? '🔴 You’re talking' : (othersTalking || hearing) ? `🔊 ${othersTalking ? f.name : walkie.speaker} is talking` : '📻 Walkie-talkie · listening');
   if (walkie.talking) { st.classList.add('live'); st.textContent = `🔴 You’re live · ${fmtDur((Date.now() - walkie.start) / 1000)}`; }
   else if (othersTalking || hearing) { st.classList.add('hearing'); st.textContent = `🔊 ${othersTalking ? f.name : walkie.speaker} is talking…`; }
   else st.textContent = canTalk ? 'Hold the button to talk' : 'You can listen here, but you’re outside the range to talk';
@@ -1472,7 +1514,7 @@ function renderWalkie() {
   btn.disabled = !canTalk;
   $('pttLabel').textContent = walkie.talking ? 'Release to stop' : othersTalking ? `${f.name.split(' ')[0]} is talking` : 'Hold to talk';
   $('wkHint').textContent = finePointer ? 'Tip: hold the Space bar to talk. People with the walkie-talkie open hear you live; everyone else gets it as a 📻 message.'
-    : 'People with the walkie-talkie open hear you live. Everyone else gets it as a 📻 message.';
+    : 'Keeps playing with the screen locked or in another app (like music) while this stays on. Others get it as a 📻 message.';
 }
 
 async function startTalking() {

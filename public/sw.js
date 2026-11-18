@@ -1,5 +1,5 @@
 /* Intra Chat service worker: offline app shell + WhatsApp-style push notifications */
-const CACHE = 'intra-chat-v8';
+const CACHE = 'intra-chat-v9';
 const SHELL = ['/', '/index.html', '/app.css', '/app.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', e => {

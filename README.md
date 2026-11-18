@@ -32,6 +32,9 @@ A quick group chat app. Run it in two ways with the same code:
   Everyone with the walkie-talkie open hears you live (about 1–2 s behind), one person talks at a time, and people
   who aren't listening see "X is talking — Listen". Each transmission is also saved in the chat as a 📻 voice message
   (can be switched off), so others get a notification and can play it later. Turns are limited to 1 minute.
+  While it's on, the walkie-talkie plays through one continuous media stream with a lock-screen media notification,
+  so on Android Chrome it keeps working with the screen locked or another app open (like music) — as long as the app
+  isn't closed. iPhone Safari pauses web pages in the background, so there it works while on screen.
 - **Message actions**: press and hold (phone) or right-click / 😊 (desktop) a message for emoji reactions
   (👍 ❤️ 😂 😮 😢 🙏, one per person), Reply, Copy text, Message info (seen/delivered) and Delete for everyone
   (your own messages; group admins can delete any message in their group)
