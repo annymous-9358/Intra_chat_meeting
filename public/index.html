@@ -31,12 +31,32 @@
   header { padding:12px 16px; border-bottom:1px solid var(--border); background:var(--panel); display:flex; align-items:center; gap:10px; }
   header strong { flex:1; }
   #status { font-size:12px; color:var(--muted); }
-  #messages { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:6px; }
+  #messages { flex:1; overflow-y:auto; overflow-x:hidden; padding:16px; display:flex; flex-direction:column; gap:6px; }
   .msg { max-width:min(640px, 85%); background:var(--panel); border:1px solid var(--border); padding:8px 12px; border-radius:10px; align-self:flex-start; word-wrap:break-word; white-space:pre-wrap; }
   .msg.mine { align-self:flex-end; background:var(--mine); }
   .msg .meta { font-size:12px; color:var(--muted); margin-bottom:2px; }
   .msg .meta b { color:var(--text); }
   .msg.pending { opacity:.55; }
+  .row { position:relative; display:flex; flex-direction:column; }
+  .msg { position:relative; touch-action:pan-y; transition:transform .18s ease; user-select:text; }
+  .msg.dragging { transition:none; }
+  .swipe-icon { position:absolute; top:50%; width:30px; height:30px; margin-top:-15px; border-radius:50%; background:var(--panel); border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--muted); opacity:0; pointer-events:none; }
+  .reply-btn { position:absolute; top:4px; border:1px solid var(--border); background:var(--panel); color:var(--muted); padding:2px 8px; border-radius:6px;
+    font-size:14px; line-height:1.4; opacity:0; transition:opacity .12s; }
+  .reply-btn { right:6px; padding:0 6px; font-size:13px; }
+  .msg .meta { padding-right:28px; }
+  .msg:hover .reply-btn, .reply-btn:focus { opacity:1; }
+  @media (hover: none) { .reply-btn { display:none; } }
+  .quote { border-left:3px solid var(--accent); background:rgba(127,127,127,.12); border-radius:6px; padding:4px 8px; margin:2px 0 6px; font-size:13px;
+    cursor:pointer; white-space:normal; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .quote b { color:var(--accent); display:block; font-size:12px; }
+  .msg.flash { animation:flash 1.2s ease; }
+  @keyframes flash { 0%,40% { box-shadow:0 0 0 3px var(--accent); } 100% { box-shadow:0 0 0 0 transparent; } }
+  #replyBar { display:flex; align-items:center; gap:8px; padding:8px 16px 0; background:var(--panel); border-top:1px solid var(--border); }
+  #replyBar .quote { flex:1; margin:0; cursor:default; }
+  #replyBar button { background:transparent; color:var(--muted); padding:4px 8px; font-size:18px; }
+  #replyBar + form#composer { border-top:0; }
   .sys { align-self:center; font-size:12px; color:var(--muted); }
   #typing { height:18px; padding:0 16px; font-size:12px; color:var(--muted); }
   form#composer { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); background:var(--panel); }
@@ -68,6 +88,7 @@
       <header><strong id="roomTitle"></strong><span id="status">connecting…</span><button id="switch" type="button">Switch room</button></header>
       <div id="messages"></div>
       <div id="typing"></div>
+      <div id="replyBar" class="hidden"><div class="quote"><b id="replyName"></b><span id="replyText"></span></div><button type="button" id="replyCancel" title="Cancel reply" aria-label="Cancel reply">✕</button></div>
       <form id="composer"><input id="text" maxlength="2000" placeholder="Type a message…" autocomplete="off"><button>Send</button></form>
     </main>
   </div>
@@ -77,7 +98,7 @@ const $ = id => document.getElementById(id);
 const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } },
                 set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 let me = { name: store.get('ic-name') || '', room: 'general', pw: store.get('ic-pw') || '' };
-let since = '', version = '', seen = new Set(), pending = new Map(), ctrl = null, pollTimer = null, polling = false, session = 0, lastTyping = 0, failures = 0;
+let since = '', version = '', seen = new Set(), pending = new Map(), replyTo = null, ctrl = null, pollTimer = null, polling = false, session = 0, lastTyping = 0, failures = 0;
 $('name').value = me.name; $('pw').value = me.pw;
 
 async function api(route, body, signal) {
@@ -105,7 +126,7 @@ function showLogin() { clearTimeout(pollTimer); ctrl?.abort(); session++; $('app
 
 async function join(room) {
   me.room = (room || 'general').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'general';
-  session++; since = ''; version = ''; seen = new Set(); pending = new Map(); clearTimeout(pollTimer); ctrl?.abort();
+  session++; since = ''; version = ''; seen = new Set(); pending = new Map(); cancelReply(); clearTimeout(pollTimer); ctrl?.abort();
   $('messages').innerHTML = '';
   $('roomTitle').textContent = '#' + me.room;
   await poll(session, true);           // throws on wrong password
@@ -153,7 +174,7 @@ function addMessage(m) {
   seen.add(m.key);
   if (m.key > since) since = m.key;
   const el = m.cid && pending.get(m.cid);
-  if (el) { pending.delete(m.cid); el.classList.remove('pending'); return; }  // already shown optimistically
+  if (el) { pending.delete(m.cid); el.classList.remove('pending'); el._msg = m; el.dataset.key = m.key; return; }  // already shown optimistically
   render(m);
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('app').classList.contains('hidden')) poll(session); });
@@ -161,12 +182,87 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && !$
 function render(m, isPending) {
   const el = document.createElement('div');
   el.className = 'msg' + (m.name === me.name ? ' mine' : '') + (isPending ? ' pending' : '');
+  el._msg = m; if (m.key) el.dataset.key = m.key;
   const meta = document.createElement('div'); meta.className = 'meta';
   const b = document.createElement('b'); b.textContent = m.name;
   meta.append(b, ' · ' + new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-  el.append(meta, document.createTextNode(m.text));
+  el.append(meta);
+  if (m.replyTo) {
+    const q = quoteEl(m.replyTo);
+    q.title = 'Go to message';
+    q.onclick = () => jumpTo(m.replyTo.key);
+    el.append(q);
+  }
+  el.append(document.createTextNode(m.text));
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'reply-btn'; btn.textContent = '↩'; btn.title = 'Reply'; btn.setAttribute('aria-label', 'Reply');
+  btn.onclick = () => startReply(el);
+  const icon = document.createElement('div'); icon.className = 'swipe-icon'; icon.textContent = '↩';
+  el.append(btn, icon);
+  el.addEventListener('dblclick', e => { if (!window.getSelection().toString()) startReply(el); });
+  addSwipe(el, icon);
   $('messages').append(el);
   return el;
+}
+function quoteEl(r) {
+  const q = document.createElement('div'); q.className = 'quote';
+  const n = document.createElement('b'); n.textContent = r.name === me.name ? 'You' : r.name;
+  q.append(n, r.text);
+  return q;
+}
+function jumpTo(key) {
+  const target = [...$('messages').children].find(x => x.dataset.key === key);
+  if (!target) return;
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
+}
+function startReply(el) {
+  const m = el._msg;
+  if (!m?.key) return;                       // still sending
+  replyTo = { key: m.key, name: m.name, text: m.text.slice(0, 140) };
+  $('replyName').textContent = m.name === me.name ? 'You' : m.name;
+  $('replyText').textContent = replyTo.text;
+  $('replyBar').classList.remove('hidden');
+  if (navigator.vibrate) navigator.vibrate(15);
+  $('text').focus();
+}
+function startReplyData(r) { startReply({ _msg: { key: r.key, name: r.name, text: r.text } }); }
+function cancelReply() { replyTo = null; $('replyBar').classList.add('hidden'); }
+$('replyCancel').onclick = () => { cancelReply(); $('text').focus(); };
+$('text').addEventListener('keydown', e => { if (e.key === 'Escape') cancelReply(); });
+
+// WhatsApp-style swipe to reply (touch screens; swipe left or right)
+function addSwipe(el, icon) {
+  const TRIGGER = 60, MAX = 90;
+  let x0 = 0, y0 = 0, dx = 0, mode = null;   // mode: null (undecided) | 'swipe' | 'scroll'
+  el.addEventListener('touchstart', e => {
+    const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; mode = null;
+  }, { passive: true });
+  el.addEventListener('touchmove', e => {
+    const t = e.touches[0], mx = t.clientX - x0, my = t.clientY - y0;
+    if (!mode) {
+      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+      mode = Math.abs(mx) > Math.abs(my) * 1.3 ? 'swipe' : 'scroll';
+      if (mode === 'swipe') el.classList.add('dragging');
+    }
+    if (mode !== 'swipe') return;
+    e.preventDefault();
+    dx = Math.max(-MAX, Math.min(MAX, mx));
+    el.style.transform = `translateX(${dx}px)`;
+    const p = Math.min(Math.abs(dx) / TRIGGER, 1);
+    icon.style.opacity = p;
+    icon.style.left = dx > 0 ? `${-dx - 4}px` : '';
+    icon.style.right = dx < 0 ? `${dx - 4}px` : '';
+    icon.style.transform = `scale(${0.6 + 0.4 * p})`;
+  }, { passive: false });
+  const end = () => {
+    if (mode === 'swipe' && Math.abs(dx) >= TRIGGER) startReply(el);
+    el.classList.remove('dragging');
+    el.style.transform = ''; icon.style.opacity = 0;
+    mode = null; dx = 0;
+  };
+  el.addEventListener('touchend', end);
+  el.addEventListener('touchcancel', end);
 }
 function scrollDown() { const m = $('messages'); m.scrollTop = m.scrollHeight; }
 
@@ -188,7 +284,8 @@ function renderSidebar({ users, rooms }) {
 
 function notify(m) {
   if (m.name === me.name || !document.hidden) return;
-  if ('Notification' in window && Notification.permission === 'granted') new Notification(`${m.name} in #${m.room}`, { body: m.text });
+  const title = m.replyTo?.name === me.name ? `${m.name} replied to you in #${m.room}` : `${m.name} in #${m.room}`;
+  if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body: m.text });
 }
 
 $('composer').onsubmit = async e => {
@@ -197,14 +294,16 @@ $('composer').onsubmit = async e => {
   $('text').value = '';
   // Show it right away; it turns solid once the server has stored it.
   const cid = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  const el = render({ name: me.name, text, ts: Date.now() }, true);
+  const reply = replyTo; cancelReply();
+  const el = render({ name: me.name, text, ts: Date.now(), replyTo: reply || undefined }, true);
   pending.set(cid, el); scrollDown();
   try {
-    const { message } = await api('send', { text, cid });
-    if (pending.has(cid)) { pending.delete(cid); el.classList.remove('pending'); seen.add(message.key); if (message.key > since) since = message.key; }
+    const { message } = await api('send', { text, cid, replyTo: reply });
+    if (pending.has(cid)) { pending.delete(cid); el.classList.remove('pending'); el._msg = message; el.dataset.key = message.key; seen.add(message.key); if (message.key > since) since = message.key; }
   } catch (err) {
     pending.delete(cid); el.remove();
     $('text').value = text; $('status').textContent = 'send failed: ' + err.message;
+    if (reply) startReplyData(reply);
   }
 };
 $('text').oninput = () => {
