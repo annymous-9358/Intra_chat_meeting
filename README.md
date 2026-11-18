@@ -12,6 +12,8 @@ A quick group chat app. Run it in two ways with the same code:
 - Online users, typing indicator, desktop notifications
 - WhatsApp-style replies: swipe a message left or right on a phone, or hover and click ↩ (or double-click) on desktop.
   Tap a quote to jump to the original message. Esc cancels a reply.
+- Seen status on your messages: 🕓 sending · ✓ sent · ✓✓ delivered · blue ✓✓ seen.
+  "Seen by …" appears under your latest message; tap the ticks on any message to see who has seen it.
 - Shared password protection (required on Netlify, optional on LAN)
 - History kept (last 300 messages per room)
 - Works on phones, light/dark mode

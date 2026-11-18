@@ -37,6 +37,11 @@
   .msg .meta { font-size:12px; color:var(--muted); margin-bottom:2px; }
   .msg .meta b { color:var(--text); }
   .msg.pending { opacity:.55; }
+  .ticks { margin-left:6px; font-size:12px; letter-spacing:-3px; color:var(--muted); cursor:pointer; user-select:none; }
+  .ticks.clock { letter-spacing:0; }
+  .ticks.seen { color:#0ea5e9; font-weight:600; }
+  .seenby { font-size:11px; color:var(--muted); text-align:right; margin-top:2px; white-space:normal; }
+  .seenby.open { color:var(--text); }
   .row { position:relative; display:flex; flex-direction:column; }
   .msg { position:relative; touch-action:pan-y; transition:transform .18s ease; user-select:text; }
   .msg.dragging { transition:none; }
@@ -98,7 +103,7 @@ const $ = id => document.getElementById(id);
 const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } },
                 set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 let me = { name: store.get('ic-name') || '', room: 'general', pw: store.get('ic-pw') || '' };
-let since = '', version = '', seen = new Set(), pending = new Map(), replyTo = null, ctrl = null, pollTimer = null, polling = false, session = 0, lastTyping = 0, failures = 0;
+let since = '', version = '', seen = new Set(), pending = new Map(), replyTo = null, receipts = [], acked = { delivered: '', read: '' }, openReceipts = new Set(), ctrl = null, pollTimer = null, polling = false, session = 0, lastTyping = 0, failures = 0;
 $('name').value = me.name; $('pw').value = me.pw;
 
 async function api(route, body, signal) {
@@ -126,7 +131,7 @@ function showLogin() { clearTimeout(pollTimer); ctrl?.abort(); session++; $('app
 
 async function join(room) {
   me.room = (room || 'general').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'general';
-  session++; since = ''; version = ''; seen = new Set(); pending = new Map(); cancelReply(); clearTimeout(pollTimer); ctrl?.abort();
+  session++; since = ''; version = ''; seen = new Set(); pending = new Map(); receipts = []; acked = { delivered: '', read: '' }; openReceipts = new Set(); cancelReply(); clearTimeout(pollTimer); ctrl?.abort();
   $('messages').innerHTML = '';
   $('roomTitle').textContent = '#' + me.room;
   await poll(session, true);           // throws on wrong password
@@ -145,7 +150,13 @@ async function poll(mySession, rethrow) {
   const wait = since && version ? 7000 : 0;
   const watchdog = setTimeout(() => myCtrl.abort(), wait + 15000);
   try {
-    const d = await api('poll', { since, version, wait }, myCtrl.signal);
+    // Tell the server what we've received / looked at (only when it changed)
+    const ack = {};
+    if (since && since > acked.delivered) ack.delivered = since;
+    if (since && !document.hidden && since > acked.read) ack.read = since;
+    const d = await api('poll', { since, version, wait, ack }, myCtrl.signal);
+    if (ack.delivered) acked.delivered = ack.delivered;
+    if (ack.read) acked.read = ack.read;
     if (mySession !== session) return;
     failures = 0; $('status').textContent = 'online';
     const first = !since;
@@ -154,9 +165,11 @@ async function poll(mySession, rethrow) {
     for (const m of fresh) { addMessage(m); if (!first) notify(m); }
     if (fresh.length) scrollDown();
     renderSidebar(d);
+    receipts = d.receipts || [];
+    updateTicks();
   } catch (err) {
     if (rethrow) throw err;
-    if (mySession !== session) return;
+    if (mySession !== session || err.name === 'AbortError') return;
     if (err.status === 401) { $('err').textContent = 'Password changed. Please log in again.'; return showLogin(); }
     failures++; $('status').textContent = 'reconnecting…';
   } finally {
@@ -174,10 +187,14 @@ function addMessage(m) {
   seen.add(m.key);
   if (m.key > since) since = m.key;
   const el = m.cid && pending.get(m.cid);
-  if (el) { pending.delete(m.cid); el.classList.remove('pending'); el._msg = m; el.dataset.key = m.key; return; }  // already shown optimistically
+  if (el) { pending.delete(m.cid); el.classList.remove('pending'); el._msg = m; el.dataset.key = m.key; updateTicks(); return; }  // already shown optimistically
   render(m);
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('app').classList.contains('hidden')) poll(session); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || $('app').classList.contains('hidden')) return;
+  // Coming back to the tab: restart the long-poll right away so "seen" is reported immediately
+  if (polling) ctrl?.abort(); else poll(session);
+});
 
 function render(m, isPending) {
   const el = document.createElement('div');
@@ -186,6 +203,11 @@ function render(m, isPending) {
   const meta = document.createElement('div'); meta.className = 'meta';
   const b = document.createElement('b'); b.textContent = m.name;
   meta.append(b, ' · ' + new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  if (m.name === me.name) {
+    const t = document.createElement('span'); t.className = 'ticks clock'; t.textContent = '🕓'; t.title = 'Sending…';
+    t.onclick = e => { e.stopPropagation(); const k = el.dataset.key; if (!k) return; openReceipts.has(k) ? openReceipts.delete(k) : openReceipts.add(k); updateTicks(); };
+    meta.append(t);
+  }
   el.append(meta);
   if (m.replyTo) {
     const q = quoteEl(m.replyTo);
@@ -264,6 +286,31 @@ function addSwipe(el, icon) {
   el.addEventListener('touchend', end);
   el.addEventListener('touchcancel', end);
 }
+// ✓ sent · ✓✓ grey delivered · ✓✓ blue seen. "Seen by …" under your latest message (or any message whose ticks you tap).
+function updateTicks() {
+  const others = receipts.filter(r => r.name !== me.name);
+  const mine = [...$('messages').children].filter(el => el.classList.contains('mine'));
+  const lastKey = mine.filter(el => el.dataset.key).pop()?.dataset.key;
+  for (const el of mine) {
+    const t = el.querySelector('.ticks'), key = el.dataset.key;
+    let line = el.querySelector('.seenby');
+    if (!key) continue;                                      // still sending
+    const readers = others.filter(r => r.read >= key).map(r => r.name);
+    const delivered = others.filter(r => r.delivered >= key && !(r.read >= key)).map(r => r.name);
+    t.classList.remove('clock');
+    t.classList.toggle('seen', readers.length > 0);
+    t.textContent = readers.length || delivered.length ? '✓✓' : '✓';
+    t.title = [readers.length && 'Seen by ' + readers.join(', '), delivered.length && 'Delivered to ' + delivered.join(', ')].filter(Boolean).join('\n') || 'Sent';
+    const open = openReceipts.has(key);
+    const show = open || (key === lastKey && readers.length);
+    if (!show) { line?.remove(); continue; }
+    if (!line) { line = document.createElement('div'); line.className = 'seenby'; el.append(line); }
+    line.classList.toggle('open', open);
+    line.textContent = open ? t.title.replace('\n', ' · ') : 'Seen by ' + summarize(readers);
+  }
+}
+function summarize(names) { return names.length <= 3 ? names.join(', ') : `${names.slice(0, 2).join(', ')} +${names.length - 2}`; }
+
 function scrollDown() { const m = $('messages'); m.scrollTop = m.scrollHeight; }
 
 function renderSidebar({ users, rooms }) {
@@ -299,7 +346,7 @@ $('composer').onsubmit = async e => {
   pending.set(cid, el); scrollDown();
   try {
     const { message } = await api('send', { text, cid, replyTo: reply });
-    if (pending.has(cid)) { pending.delete(cid); el.classList.remove('pending'); el._msg = message; el.dataset.key = message.key; seen.add(message.key); if (message.key > since) since = message.key; }
+    if (pending.has(cid)) { pending.delete(cid); el.classList.remove('pending'); el._msg = message; el.dataset.key = message.key; seen.add(message.key); if (message.key > since) since = message.key; updateTicks(); }
   } catch (err) {
     pending.delete(cid); el.remove();
     $('text').value = text; $('status').textContent = 'send failed: ' + err.message;
