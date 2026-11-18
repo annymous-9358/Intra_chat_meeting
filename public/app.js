@@ -873,11 +873,13 @@ function renderInfo() {
   if (body.contains(document.activeElement) && document.activeElement.type === 'range') return;   // don't disturb a slider mid-drag
   const scroll = body.scrollTop;
   body.innerHTML = '';
-  const g = group, title = g?.title || roomTitle(current);
+  const g = group, ri = roomInfo(current), title = g?.title || roomTitle(current);
+  const isGeoRoom = g ? g.geo : ri.geo, isLocked = g ? g.locked : ri.locked;   // fall back to the chat list until group details load
   const hero = el('div', 'info-hero');
-  const av = el('div', 'avatar'); paintAvatar(av, title, { geo: g?.geo, locked: g?.locked });
-  const kind = g?.geo ? '📍 Location group' : g?.locked ? '🔒 Private group' : current === 'general' ? '💬 Everyone' : '💬 Open group';
-  hero.append(av, el('h2', null, title), el('span', 'muted', g?.adminName ? `${kind} · admin ${g.adminName}` : kind));
+  const av = el('div', 'avatar'); paintAvatar(av, title, { geo: isGeoRoom, locked: isLocked });
+  const kind = isGeoRoom ? '📍 Location group' : isLocked ? '🔒 Private group' : current === 'general' ? '💬 Everyone' : '💬 Open group';
+  const adminTxt = g?.isAdmin ? ' · you’re the admin' : g?.adminName ? ` · admin ${g.adminName}` : '';
+  hero.append(av, el('h2', null, title), el('span', 'muted', kind + adminTxt));
   body.append(hero);
 
   // Invite
@@ -891,6 +893,7 @@ function renderInfo() {
   // Admin: access settings
   if (g?.isAdmin) {
     const ac = el('div', 'card'); ac.append(el('h3', null, 'Admin settings'));
+    ac.append(el('p', 'muted small', 'You created this group on this device, so only you see these settings. Admin rights stay with this device even if you change your name.'));
     const setting = (titleTxt, sub, btnLabel, fn, cls = '') => {
       const s = el('div', 'setting'); const m = el('div', 's-meta'); m.append(el('b', null, titleTxt), el('small', null, sub));
       const b = el('button', 'btn small ' + cls, btnLabel); b.onclick = fn; s.append(m, b); ac.append(s);
