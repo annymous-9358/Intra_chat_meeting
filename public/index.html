@@ -2,453 +2,144 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#4338ca" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)">
 <title>Intra Chat</title>
-<style>
-  :root { --bg:#f4f5f7; --panel:#fff; --text:#1d2129; --muted:#6b7280; --accent:#2563eb; --mine:#dbe7ff; --border:#e5e7eb; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#0f1115; --panel:#181b22; --text:#e6e8ec; --muted:#9aa1ad; --accent:#5b8cff; --mine:#1f3360; --border:#2a2f3a; }
-  }
-  * { box-sizing: border-box; }
-  body { margin:0; font:15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; }
-  .hidden { display:none !important; }
-  #login { margin:auto; background:var(--panel); padding:28px; border-radius:12px; border:1px solid var(--border); width:min(360px, calc(100% - 32px)); }
-  #login h1 { margin:0 0 16px; font-size:22px; }
-  label { display:block; font-size:13px; color:var(--muted); margin:12px 0 4px; }
-  input { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font:inherit; }
-  button { padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
-  #login button { width:100%; margin-top:18px; }
-  #app { flex:1; display:flex; min-width:0; }
-  aside { width:220px; background:var(--panel); border-right:1px solid var(--border); padding:16px; overflow:auto; }
-  aside h3 { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:16px 0 8px; }
-  aside h3:first-child { margin-top:0; }
-  aside ul { list-style:none; margin:0; padding:0; }
-  aside li { padding:4px 6px; border-radius:6px; cursor:default; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  #rooms li { cursor:pointer; }
-  #rooms li.active { background:var(--mine); }
-  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e; margin-right:6px; }
-  main { flex:1; display:flex; flex-direction:column; min-width:0; }
-  header { padding:12px 16px; border-bottom:1px solid var(--border); background:var(--panel); display:flex; align-items:center; gap:10px; }
-  header strong { flex:1; }
-  #status { font-size:12px; color:var(--muted); }
-  #messages { flex:1; overflow-y:auto; overflow-x:hidden; padding:16px; display:flex; flex-direction:column; gap:6px; }
-  .msg { max-width:min(640px, 85%); background:var(--panel); border:1px solid var(--border); padding:8px 12px; border-radius:10px; align-self:flex-start; word-wrap:break-word; white-space:pre-wrap; }
-  .msg.mine { align-self:flex-end; background:var(--mine); }
-  .msg .meta { font-size:12px; color:var(--muted); margin-bottom:2px; }
-  .msg .meta b { color:var(--text); }
-  .msg.pending { opacity:.55; }
-  .ticks { margin-left:6px; font-size:12px; letter-spacing:-3px; color:var(--muted); cursor:pointer; user-select:none; }
-  .ticks.clock { letter-spacing:0; }
-  .ticks.seen { color:#0ea5e9; font-weight:600; }
-  .seenby { font-size:11px; color:var(--muted); text-align:right; margin-top:2px; white-space:normal; }
-  .seenby.open { color:var(--text); }
-  .row { position:relative; display:flex; flex-direction:column; }
-  .msg { position:relative; touch-action:pan-y; transition:transform .18s ease; user-select:text; }
-  .msg.dragging { transition:none; }
-  .swipe-icon { position:absolute; top:50%; width:30px; height:30px; margin-top:-15px; border-radius:50%; background:var(--panel); border:1px solid var(--border);
-    display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--muted); opacity:0; pointer-events:none; }
-  .reply-btn { position:absolute; top:4px; border:1px solid var(--border); background:var(--panel); color:var(--muted); padding:2px 8px; border-radius:6px;
-    font-size:14px; line-height:1.4; opacity:0; transition:opacity .12s; }
-  .reply-btn { right:6px; padding:0 6px; font-size:13px; }
-  .msg .meta { padding-right:28px; }
-  .msg:hover .reply-btn, .reply-btn:focus { opacity:1; }
-  @media (hover: none) { .reply-btn { display:none; } }
-  .quote { border-left:3px solid var(--accent); background:rgba(127,127,127,.12); border-radius:6px; padding:4px 8px; margin:2px 0 6px; font-size:13px;
-    cursor:pointer; white-space:normal; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-  .quote b { color:var(--accent); display:block; font-size:12px; }
-  .msg.flash { animation:flash 1.2s ease; }
-  @keyframes flash { 0%,40% { box-shadow:0 0 0 3px var(--accent); } 100% { box-shadow:0 0 0 0 transparent; } }
-  #replyBar { display:flex; align-items:center; gap:8px; padding:8px 16px 0; background:var(--panel); border-top:1px solid var(--border); }
-  #replyBar .quote { flex:1; margin:0; cursor:default; }
-  #replyBar button { background:transparent; color:var(--muted); padding:4px 8px; font-size:18px; }
-  #replyBar + form#composer { border-top:0; }
-  .sys { align-self:center; font-size:12px; color:var(--muted); }
-  #typing { height:18px; padding:0 16px; font-size:12px; color:var(--muted); }
-  form#composer { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); background:var(--panel); }
-  #text { flex:1; min-width:0; }
-  #gifBtn { background:transparent; color:var(--muted); border:1px solid var(--border); font-weight:700; font-size:12px; padding:0 10px; }
-  #gifBtn.active { color:var(--accent); border-color:var(--accent); }
-  .gif { display:block; max-width:min(260px, 100%); height:auto; border-radius:8px; margin:4px 0 2px; background:rgba(127,127,127,.15); cursor:zoom-in; }
-  #gifPanel { background:var(--panel); border-top:1px solid var(--border); padding:10px 16px 0; display:flex; flex-direction:column; gap:8px; max-height:45vh; }
-  #gifPanel .bar { display:flex; gap:8px; }
-  #gifPanel .bar input { flex:1; min-width:0; }
-  #gifPanel .bar button { white-space:nowrap; }
-  #gifGrid { overflow-y:auto; columns:4 120px; column-gap:6px; min-height:60px; }
-  #gifGrid img { width:100%; height:auto; display:block; margin-bottom:6px; border-radius:6px; cursor:pointer; break-inside:avoid; background:rgba(127,127,127,.15); }
-  #gifGrid img:hover { outline:2px solid var(--accent); }
-  #gifNote { font-size:12px; color:var(--muted); }
-  #gifNote a { color:inherit; }
-  #viewer { position:fixed; inset:0; background:rgba(0,0,0,.85); display:flex; align-items:center; justify-content:center; z-index:10; cursor:zoom-out; }
-  #viewer img { max-width:95vw; max-height:90vh; border-radius:8px; }
-  @media (max-width: 640px) { aside { display:none; } }
-</style>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%234f46e5'/%3E%3Cpath d='M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <form id="login">
-    <h1>💬 Intra Chat</h1>
-    <label for="name">Your name</label>
-    <input id="name" maxlength="24" required autofocus autocomplete="off">
-    <label for="room">Room</label>
-    <input id="room" maxlength="30" value="general" autocomplete="off">
-    <label for="pw">Password <span style="opacity:.7">(if your chat has one)</span></label>
-    <input id="pw" type="password" autocomplete="current-password">
-    <div id="err" style="color:#dc2626;font-size:13px;margin-top:10px"></div>
-    <button>Join chat</button>
-  </form>
-
-  <div id="app" class="hidden">
-    <aside>
-      <h3>Rooms</h3>
-      <ul id="rooms"></ul>
-      <h3>Online</h3>
-      <ul id="users"></ul>
-    </aside>
-    <main>
-      <header><strong id="roomTitle"></strong><span id="status">connecting…</span><button id="switch" type="button">Switch room</button></header>
-      <div id="messages"></div>
-      <div id="typing"></div>
-      <div id="replyBar" class="hidden"><div class="quote"><b id="replyName"></b><span id="replyText"></span></div><button type="button" id="replyCancel" title="Cancel reply" aria-label="Cancel reply">✕</button></div>
-      <div id="gifPanel" class="hidden">
-        <div class="bar">
-          <input id="gifSearch" placeholder="Search GIFs…" autocomplete="off" maxlength="50">
-          <button type="button" id="gifUpload" title="Send a GIF or image from your device">⬆ Upload</button>
-        </div>
-        <div id="gifGrid"></div>
-        <div id="gifNote"></div>
-        <input type="file" id="gifFile" accept="image/gif,image/png,image/jpeg,image/webp" class="hidden">
+  <!-- ============ Login ============ -->
+  <main id="login" class="login">
+    <form id="loginForm" class="login-card" autocomplete="on">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg>
       </div>
-      <form id="composer"><button type="button" id="gifBtn" title="GIFs" aria-label="GIFs">GIF</button><input id="text" maxlength="2000" placeholder="Type a message…" autocomplete="off"><button>Send</button></form>
-      <div id="viewer" class="hidden"><img alt=""></div>
-    </main>
+      <h1>Intra Chat</h1>
+      <p class="muted">Chat with your team, nearby.</p>
+      <label class="field"><span>Your name</span><input id="name" maxlength="24" required autocomplete="nickname" placeholder="e.g. Priya"></label>
+      <label class="field"><span>Chat password</span><input id="pw" type="password" autocomplete="current-password" placeholder="Ask your admin"></label>
+      <p id="err" class="error" role="alert"></p>
+      <button class="btn primary block" id="loginBtn">Continue</button>
+    </form>
+  </main>
+
+  <!-- ============ App ============ -->
+  <div id="app" class="app hidden">
+    <!-- Chat list -->
+    <aside id="listPane" class="list-pane" aria-label="Chats">
+      <header class="bar list-bar">
+        <div class="me-avatar avatar" id="meAvatar" aria-hidden="true"></div>
+        <div class="bar-title"><strong>Chats</strong><small class="muted" id="meName"></small></div>
+        <button class="icon-btn" id="logoutBtn" title="Sign out" aria-label="Sign out">
+          <svg viewBox="0 0 24 24"><path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M16 16l4-4-4-4M20 12H9"/></svg>
+        </button>
+      </header>
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="roomSearch" type="search" placeholder="Search groups" autocomplete="off">
+      </div>
+      <ul id="roomList" class="room-list"></ul>
+      <button class="fab" id="newGroupBtn" title="New group" aria-label="New group">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </aside>
+
+    <!-- Conversation -->
+    <section id="chatPane" class="chat-pane" aria-label="Conversation">
+      <div class="empty-chat" id="emptyChat">
+        <div class="brand-mark big" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg></div>
+        <h2>Pick a group to start chatting</h2>
+        <p class="muted">Or create a location group that only works within a range you choose.</p>
+      </div>
+
+      <header class="bar chat-bar hidden" id="chatBar">
+        <button class="icon-btn back" id="backBtn" aria-label="Back to chats"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <button class="chat-head" id="chatHead" aria-label="Group info">
+          <div class="avatar" id="chatAvatar" aria-hidden="true"></div>
+          <div class="bar-title"><strong id="chatTitle"></strong><small id="chatSub" class="muted"></small></div>
+        </button>
+        <span class="conn" id="status" title="Connection"></span>
+        <button class="icon-btn" id="infoBtn" aria-label="Group info"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></button>
+      </header>
+      <div id="adminBanner" class="admin-banner hidden" role="status"></div>
+
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div id="typing" class="typing"></div>
+
+      <footer class="composer-wrap hidden" id="composerWrap">
+        <div id="replyBar" class="reply-bar hidden">
+          <div class="quote"><b id="replyName"></b><span id="replyText"></span></div>
+          <button type="button" class="icon-btn" id="replyCancel" aria-label="Cancel reply"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        </div>
+        <div id="gifPanel" class="gif-panel hidden">
+          <div class="gif-bar">
+            <input id="gifSearch" type="search" placeholder="Search GIFs" autocomplete="off" maxlength="50">
+            <button type="button" class="btn" id="gifUpload" title="Send a GIF or image from your device">Upload</button>
+          </div>
+          <div id="gifGrid" class="gif-grid"></div>
+          <div id="gifNote" class="gif-note"></div>
+          <input type="file" id="gifFile" accept="image/gif,image/png,image/jpeg,image/webp" class="hidden">
+        </div>
+        <div id="lockedBar" class="locked hidden"></div>
+        <form id="composer" class="composer">
+          <button type="button" class="icon-btn gif-btn" id="gifBtn" aria-label="GIFs and images" title="GIFs and images">GIF</button>
+          <div class="input-wrap">
+            <textarea id="text" rows="1" maxlength="2000" placeholder="Message" autocomplete="off" enterkeyhint="send"></textarea>
+            <div id="recBar" class="rec-bar hidden" aria-live="polite">
+              <span class="rec-dot"></span><span id="recTime">0:00</span>
+              <span class="rec-hint" id="recHint">‹ Slide to cancel</span>
+            </div>
+          </div>
+          <button type="button" class="round-btn" id="micBtn" aria-label="Hold to record a voice message" title="Hold to record">
+            <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          </button>
+          <button class="round-btn hidden" id="sendBtn" aria-label="Send">
+            <svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-3-7-7-1z"/></svg>
+          </button>
+        </form>
+      </footer>
+    </section>
+
+    <!-- Group info -->
+    <aside id="infoPane" class="info-pane" aria-label="Group info">
+      <header class="bar">
+        <button class="icon-btn" id="infoClose" aria-label="Close group info"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        <div class="bar-title"><strong>Group info</strong></div>
+      </header>
+      <div class="info-body" id="infoBody"></div>
+    </aside>
   </div>
 
-<script>
-const $ = id => document.getElementById(id);
-const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } },
-                set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
-let me = { name: store.get('ic-name') || '', room: 'general', pw: store.get('ic-pw') || '' };
-let since = '', version = '', seen = new Set(), pending = new Map(), replyTo = null, receipts = [], acked = { delivered: '', read: '' }, openReceipts = new Set(), ctrl = null, pollTimer = null, polling = false, session = 0, lastTyping = 0, failures = 0;
-$('name').value = me.name; $('pw').value = me.pw;
+  <!-- New group -->
+  <dialog id="newGroup" class="sheet">
+    <form method="dialog" id="newGroupForm">
+      <header class="sheet-head">
+        <h2>New group</h2>
+        <button type="button" class="icon-btn" id="ngClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </header>
+      <label class="field"><span>Group name</span><input id="ngName" maxlength="30" required placeholder="e.g. Floor 3 team" autocomplete="off"></label>
+      <div class="segmented" role="radiogroup" aria-label="Group type">
+        <label><input type="radio" name="ngType" value="open" checked><span><b>Open</b><small>Anyone with the password</small></span></label>
+        <label><input type="radio" name="ngType" value="geo"><span><b>📍 Location</b><small>Only within a range</small></span></label>
+      </div>
+      <div id="ngGeo" class="ng-geo hidden">
+        <div class="range-row">
+          <span>Range</span><output id="ngRadiusOut">500 m</output>
+        </div>
+        <input type="range" id="ngRadius" min="0" max="18" step="1" value="6" aria-label="Range">
+        <p class="muted small">The centre is where you are now. People inside the range can chat; anyone outside can still read but must ask you to chat.</p>
+        <p id="ngLoc" class="loc-status">Getting your location…</p>
+      </div>
+      <p id="ngErr" class="error" role="alert"></p>
+      <button class="btn primary block" id="ngCreate">Create group</button>
+    </form>
+  </dialog>
 
-async function api(route, body, signal) {
-  const r = await fetch('/api/' + route, { signal,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Chat-Password': me.pw },
-    body: JSON.stringify({ name: me.name, room: me.room, ...body }),
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(data.error || 'HTTP ' + r.status); e.status = r.status; throw e; }
-  return data;
-}
+  <div id="viewer" class="viewer hidden" role="dialog" aria-label="Image viewer"><img alt=""></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-$('login').onsubmit = async e => {
-  e.preventDefault();
-  me.name = $('name').value.trim().slice(0, 24); me.pw = $('pw').value;
-  if (!me.name) return;
-  $('err').textContent = '';
-  try { await join($('room').value); }
-  catch (err) { $('err').textContent = err.message; showLogin(); }
-};
-$('switch').onclick = () => { const r = prompt('Room name:', me.room); if (r) join(r).catch(() => {}); };
-
-function showLogin() { clearTimeout(pollTimer); ctrl?.abort(); session++; $('app').classList.add('hidden'); $('login').classList.remove('hidden'); }
-
-async function join(room) {
-  me.room = (room || 'general').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'general';
-  session++; since = ''; version = ''; seen = new Set(); pending = new Map(); receipts = []; acked = { delivered: '', read: '' }; openReceipts = new Set(); cancelReply(); clearTimeout(pollTimer); ctrl?.abort();
-  $('messages').innerHTML = '';
-  $('roomTitle').textContent = '#' + me.room;
-  await poll(session, true);           // throws on wrong password
-  store.set('ic-name', me.name); store.set('ic-pw', me.pw);
-  $('login').classList.add('hidden'); $('app').classList.remove('hidden');
-  $('text').focus();
-  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-}
-
-async function poll(mySession, rethrow) {
-  if (polling && !rethrow) return;
-  polling = true;
-  ctrl = new AbortController();
-  const myCtrl = ctrl;
-  // Long-poll: the server holds the request until something changes (up to ~7 s)
-  const wait = since && version ? 7000 : 0;
-  const watchdog = setTimeout(() => myCtrl.abort(), wait + 15000);
-  try {
-    // Tell the server what we've received / looked at (only when it changed)
-    const ack = {};
-    if (since && since > acked.delivered) ack.delivered = since;
-    if (since && !document.hidden && since > acked.read) ack.read = since;
-    const d = await api('poll', { since, version, wait, ack }, myCtrl.signal);
-    if (ack.delivered) acked.delivered = ack.delivered;
-    if (ack.read) acked.read = ack.read;
-    if (mySession !== session) return;
-    failures = 0; $('status').textContent = 'online';
-    const first = !since;
-    version = d.version || '';
-    const fresh = d.messages.filter(m => !seen.has(m.key));
-    for (const m of fresh) { addMessage(m); if (!first) notify(m); }
-    if (fresh.length) scrollDown();
-    renderSidebar(d);
-    receipts = d.receipts || [];
-    updateTicks();
-  } catch (err) {
-    if (rethrow) throw err;
-    if (mySession !== session || err.name === 'AbortError') return;
-    if (err.status === 401) { $('err').textContent = 'Password changed. Please log in again.'; return showLogin(); }
-    failures++; $('status').textContent = 'reconnecting…';
-  } finally {
-    clearTimeout(watchdog);
-    if (ctrl === myCtrl) polling = false;
-    if (mySession === session) {
-      clearTimeout(pollTimer);
-      // Immediately wait for the next change. Back off on errors, and pause a little when the tab is hidden.
-      const delay = failures ? Math.min(1000 * 2 ** failures, 15000) : (document.hidden ? 3000 : 0);
-      pollTimer = setTimeout(() => poll(mySession), delay);
-    }
-  }
-}
-function addMessage(m) {
-  seen.add(m.key);
-  if (m.key > since) since = m.key;
-  const el = m.cid && pending.get(m.cid);
-  if (el) { pending.delete(m.cid); el.classList.remove('pending'); el._msg = m; el.dataset.key = m.key; updateTicks(); return; }  // already shown optimistically
-  render(m);
-}
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden || $('app').classList.contains('hidden')) return;
-  // Coming back to the tab: restart the long-poll right away so "seen" is reported immediately
-  if (polling) ctrl?.abort(); else poll(session);
-});
-
-function render(m, isPending) {
-  const el = document.createElement('div');
-  el.className = 'msg' + (m.name === me.name ? ' mine' : '') + (isPending ? ' pending' : '');
-  el._msg = m; if (m.key) el.dataset.key = m.key;
-  const meta = document.createElement('div'); meta.className = 'meta';
-  const b = document.createElement('b'); b.textContent = m.name;
-  meta.append(b, ' · ' + new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-  if (m.name === me.name) {
-    const t = document.createElement('span'); t.className = 'ticks clock'; t.textContent = '🕓'; t.title = 'Sending…';
-    t.onclick = e => { e.stopPropagation(); const k = el.dataset.key; if (!k) return; openReceipts.has(k) ? openReceipts.delete(k) : openReceipts.add(k); updateTicks(); };
-    meta.append(t);
-  }
-  el.append(meta);
-  if (m.replyTo) {
-    const q = quoteEl(m.replyTo);
-    q.title = 'Go to message';
-    q.onclick = () => jumpTo(m.replyTo.key);
-    el.append(q);
-  }
-  if (m.gif) {
-    const img = document.createElement('img');
-    img.className = 'gif'; img.src = m.localUrl || m.gif.url; img.alt = m.gif.title || 'GIF'; img.loading = 'lazy';
-    if (m.gif.w && m.gif.h) { img.width = m.gif.w; img.height = m.gif.h; }
-    img.onclick = () => { $('viewer').querySelector('img').src = img.src; $('viewer').classList.remove('hidden'); };
-    img.onload = () => { const box = $('messages'); if (box.scrollHeight - box.scrollTop - box.clientHeight < 400) scrollDown(); };
-    el.append(img);
-  }
-  if (m.text) el.append(document.createTextNode(m.text));
-  const btn = document.createElement('button');
-  btn.type = 'button'; btn.className = 'reply-btn'; btn.textContent = '↩'; btn.title = 'Reply'; btn.setAttribute('aria-label', 'Reply');
-  btn.onclick = () => startReply(el);
-  const icon = document.createElement('div'); icon.className = 'swipe-icon'; icon.textContent = '↩';
-  el.append(btn, icon);
-  el.addEventListener('dblclick', e => { if (e.target.tagName !== 'IMG' && !window.getSelection().toString()) startReply(el); });
-  addSwipe(el, icon);
-  $('messages').append(el);
-  return el;
-}
-function quoteEl(r) {
-  const q = document.createElement('div'); q.className = 'quote';
-  const n = document.createElement('b'); n.textContent = r.name === me.name ? 'You' : r.name;
-  q.append(n, r.text);
-  return q;
-}
-function jumpTo(key) {
-  const target = [...$('messages').children].find(x => x.dataset.key === key);
-  if (!target) return;
-  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
-}
-function startReply(el) {
-  const m = el._msg;
-  if (!m?.key) return;                       // still sending
-  replyTo = { key: m.key, name: m.name, text: (m.text || '🎞️ GIF').slice(0, 140) };
-  $('replyName').textContent = m.name === me.name ? 'You' : m.name;
-  $('replyText').textContent = replyTo.text;
-  $('replyBar').classList.remove('hidden');
-  if (navigator.vibrate) navigator.vibrate(15);
-  $('text').focus();
-}
-function startReplyData(r) { startReply({ _msg: { key: r.key, name: r.name, text: r.text } }); }
-function cancelReply() { replyTo = null; $('replyBar').classList.add('hidden'); }
-$('replyCancel').onclick = () => { cancelReply(); $('text').focus(); };
-$('text').addEventListener('keydown', e => { if (e.key === 'Escape') cancelReply(); });
-
-// WhatsApp-style swipe to reply (touch screens; swipe left or right)
-function addSwipe(el, icon) {
-  const TRIGGER = 60, MAX = 90;
-  let x0 = 0, y0 = 0, dx = 0, mode = null;   // mode: null (undecided) | 'swipe' | 'scroll'
-  el.addEventListener('touchstart', e => {
-    const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; mode = null;
-  }, { passive: true });
-  el.addEventListener('touchmove', e => {
-    const t = e.touches[0], mx = t.clientX - x0, my = t.clientY - y0;
-    if (!mode) {
-      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
-      mode = Math.abs(mx) > Math.abs(my) * 1.3 ? 'swipe' : 'scroll';
-      if (mode === 'swipe') el.classList.add('dragging');
-    }
-    if (mode !== 'swipe') return;
-    e.preventDefault();
-    dx = Math.max(-MAX, Math.min(MAX, mx));
-    el.style.transform = `translateX(${dx}px)`;
-    const p = Math.min(Math.abs(dx) / TRIGGER, 1);
-    icon.style.opacity = p;
-    icon.style.left = dx > 0 ? `${-dx - 4}px` : '';
-    icon.style.right = dx < 0 ? `${dx - 4}px` : '';
-    icon.style.transform = `scale(${0.6 + 0.4 * p})`;
-  }, { passive: false });
-  const end = () => {
-    if (mode === 'swipe' && Math.abs(dx) >= TRIGGER) startReply(el);
-    el.classList.remove('dragging');
-    el.style.transform = ''; icon.style.opacity = 0;
-    mode = null; dx = 0;
-  };
-  el.addEventListener('touchend', end);
-  el.addEventListener('touchcancel', end);
-}
-// ✓ sent · ✓✓ grey delivered · ✓✓ blue seen. "Seen by …" under your latest message (or any message whose ticks you tap).
-function updateTicks() {
-  const others = receipts.filter(r => r.name !== me.name);
-  const mine = [...$('messages').children].filter(el => el.classList.contains('mine'));
-  const lastKey = mine.filter(el => el.dataset.key).pop()?.dataset.key;
-  for (const el of mine) {
-    const t = el.querySelector('.ticks'), key = el.dataset.key;
-    let line = el.querySelector('.seenby');
-    if (!key) continue;                                      // still sending
-    const readers = others.filter(r => r.read >= key).map(r => r.name);
-    const delivered = others.filter(r => r.delivered >= key && !(r.read >= key)).map(r => r.name);
-    t.classList.remove('clock');
-    t.classList.toggle('seen', readers.length > 0);
-    t.textContent = readers.length || delivered.length ? '✓✓' : '✓';
-    t.title = [readers.length && 'Seen by ' + readers.join(', '), delivered.length && 'Delivered to ' + delivered.join(', ')].filter(Boolean).join('\n') || 'Sent';
-    const open = openReceipts.has(key);
-    const show = open || (key === lastKey && readers.length);
-    if (!show) { line?.remove(); continue; }
-    if (!line) { line = document.createElement('div'); line.className = 'seenby'; el.append(line); }
-    line.classList.toggle('open', open);
-    line.textContent = open ? t.title.replace('\n', ' · ') : 'Seen by ' + summarize(readers);
-  }
-}
-function summarize(names) { return names.length <= 3 ? names.join(', ') : `${names.slice(0, 2).join(', ')} +${names.length - 2}`; }
-
-function scrollDown() { const m = $('messages'); m.scrollTop = m.scrollHeight; }
-
-function renderSidebar({ users, rooms }) {
-  const ul = $('users'); ul.innerHTML = '';
-  users.forEach(u => {
-    const li = document.createElement('li'); li.innerHTML = '<span class="dot"></span>'; li.append(u.name); ul.append(li);
-  });
-  const typing = users.filter(u => u.typing && u.name !== me.name).map(u => u.name);
-  $('typing').textContent = typing.length ? `${typing.join(', ')} ${typing.length > 1 ? 'are' : 'is'} typing…` : '';
-  const rl = $('rooms'); rl.innerHTML = '';
-  rooms.forEach(r => {
-    const li = document.createElement('li'); li.textContent = '#' + r;
-    if (r === me.room) li.className = 'active';
-    li.onclick = () => r !== me.room && join(r).catch(() => {});
-    rl.append(li);
-  });
-}
-
-function notify(m) {
-  if (m.name === me.name || !document.hidden) return;
-  const title = m.replyTo?.name === me.name ? `${m.name} replied to you in #${m.room}` : `${m.name} in #${m.room}`;
-  if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body: m.text || '🎞️ sent a GIF' });
-}
-
-$('composer').onsubmit = e => {
-  e.preventDefault();
-  const text = $('text').value.trim(); if (!text) return;
-  $('text').value = '';
-  sendMessage({ text });
-};
-
-// Shows the message right away (faded), then stores it. `upload` is a File to upload first (own GIFs/images).
-async function sendMessage({ text = '', gif, upload, localUrl }) {
-  const cid = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  const reply = replyTo; cancelReply();
-  const el = render({ name: me.name, text, gif, localUrl, ts: Date.now(), replyTo: reply || undefined }, true);
-  pending.set(cid, el); scrollDown();
-  try {
-    if (upload) {
-      const r = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': upload.type || 'application/octet-stream', 'X-Chat-Password': me.pw }, body: upload });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || 'upload failed');
-      gif = { ...gif, url: d.url };
-    }
-    const { message } = await api('send', { text, gif, cid, replyTo: reply });
-    if (pending.has(cid)) { pending.delete(cid); el.classList.remove('pending'); el._msg = message; el.dataset.key = message.key; seen.add(message.key); if (message.key > since) since = message.key; updateTicks(); }
-  } catch (err) {
-    pending.delete(cid); el.remove();
-    if (text && !gif) $('text').value = text;
-    $('status').textContent = 'send failed: ' + err.message;
-    if (reply) startReplyData(reply);
-  }
-}
-
-// ---- GIF picker ----
-let gifTimer = null, gifQuery = null, gifReq = 0;
-$('gifBtn').onclick = () => {
-  const open = $('gifPanel').classList.toggle('hidden') === false;
-  $('gifBtn').classList.toggle('active', open);
-  if (open) { if (gifQuery === null) loadGifs(''); $('gifSearch').focus(); }
-};
-function closeGifs() { $('gifPanel').classList.add('hidden'); $('gifBtn').classList.remove('active'); }
-$('gifSearch').oninput = () => { clearTimeout(gifTimer); gifTimer = setTimeout(() => loadGifs($('gifSearch').value.trim()), 350); };
-$('gifSearch').onkeydown = e => { if (e.key === 'Escape') closeGifs(); };
-async function loadGifs(q) {
-  gifQuery = q; const mine = ++gifReq;
-  $('gifNote').textContent = 'Loading…';
-  try {
-    const { gifs } = await api('gifs', { q });
-    if (mine !== gifReq) return;
-    const grid = $('gifGrid'); grid.innerHTML = '';
-    for (const g of gifs) {
-      const img = document.createElement('img');
-      img.src = g.preview.url; img.alt = g.title; img.title = g.title; img.loading = 'lazy';
-      img.width = g.preview.w; img.height = g.preview.h;
-      img.onclick = () => { closeGifs(); sendMessage({ gif: { ...g.full, title: g.title } }); };
-      grid.append(img);
-    }
-    $('gifNote').innerHTML = gifs.length ? 'Powered by GIPHY' : 'No GIFs found. Powered by GIPHY';
-  } catch (err) {
-    if (mine !== gifReq) return;
-    $('gifGrid').innerHTML = '';
-    $('gifNote').textContent = err.status === 501
-      ? 'GIF search isn’t set up yet (the admin needs to add a GIPHY_API_KEY). You can still upload your own GIF.'
-      : 'Couldn’t load GIFs: ' + err.message;
-  }
-}
-$('gifUpload').onclick = () => $('gifFile').click();
-$('gifFile').onchange = async () => {
-  const file = $('gifFile').files[0]; $('gifFile').value = '';
-  if (!file) return;
-  if (file.size > 4 * 1024 * 1024) { $('gifNote').textContent = 'That file is too large (max 4 MB).'; return; }
-  const localUrl = URL.createObjectURL(file);
-  const dims = await new Promise(res => { const i = new Image(); i.onload = () => res({ w: i.naturalWidth, h: i.naturalHeight }); i.onerror = () => res({}); i.src = localUrl; });
-  if (!dims.w) { $('gifNote').textContent = 'That doesn’t look like an image.'; return; }
-  closeGifs();
-  sendMessage({ gif: { ...dims, title: file.name.slice(0, 80) }, upload: file, localUrl });
-};
-$('viewer').onclick = () => $('viewer').classList.add('hidden');
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('viewer').classList.add('hidden'); });
-
-$('text').oninput = () => {
-  if (Date.now() - lastTyping < 2000) return;
-  lastTyping = Date.now();
-  api('typing', {}).catch(() => {});
-};
-</script>
+  <script src="app.js"></script>
 </body>
 </html>
