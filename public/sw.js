@@ -1,5 +1,5 @@
 /* Intra Chat service worker: offline app shell + WhatsApp-style push notifications */
-const CACHE = 'intra-chat-v5';
+const CACHE = 'intra-chat-v6';
 const SHELL = ['/', '/index.html', '/app.css', '/app.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', e => {
@@ -59,7 +59,7 @@ async function showMessage(d) {
   const line = d.name ? `${d.name}: ${d.body}` : d.body;
   const lines = [...(prev?.data?.lines || []), line].slice(-5);
   const count = (prev?.data?.count || 0) + 1;
-  const title = (d.replyToYou && d.replyToYou !== d.name ? '↩ ' : '') + (count > 1 ? `${d.title} (${count} messages)` : d.title);
+  const title = (d.replyToYou === true ? '↩ ' : '') + (count > 1 ? `${d.title} (${count} messages)` : d.title);
   await self.registration.showNotification(title, {
     body: count > 1 ? lines.join('\n') : line,
     tag, renotify: true,

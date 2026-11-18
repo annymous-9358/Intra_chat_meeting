@@ -31,9 +31,10 @@ function deviceSecret() {
   return s;
 }
 
-const me = { name: store.get('ic-name') || '', device: deviceSecret() };
-store.del('ic-pw');                                  // the old app-wide password is gone
-const keys = store.json('ic-keys', {});              // room -> access key for password-protected groups
+// The signed-in account (filled in after sign-in) and this browser's device id
+const me = { uid: null, username: '', name: '', token: store.get('ic-token') || '', device: deviceSecret() };
+for (const k of ['ic-pw', 'ic-keys', 'ic-name']) store.del(k);   // from before accounts existed
+const isMine = m => !!m && (m.uid ? m.uid === me.uid : m.name === me.name);
 const lastRead = store.json('ic-read', {});          // room -> newest message key seen, for unread dots
 let rooms = [], current = null;
 let since = '', version = '', seen = new Set(), pending = new Map(), replyTo = null;
@@ -50,22 +51,25 @@ async function api(route, body = {}, signal) {
   const room = body.room || current || 'general';
   const r = await fetch('/api/' + route, {
     method: 'POST', signal,
-    headers: { 'Content-Type': 'application/json', 'X-Chat-Device': me.device, ...(keys[room] ? { 'X-Room-Key': keys[room] } : {}) },
-    body: JSON.stringify({ name: me.name, room, ...body }),
+    headers: { 'Content-Type': 'application/json', 'X-Chat-Device': me.device, ...(me.token ? { Authorization: 'Bearer ' + me.token } : {}) },
+    body: JSON.stringify({ room, ...body }),
   });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(data.error || `Something went wrong (${r.status})`); e.status = r.status; e.code = data.code; e.data = data; throw e; }
+  if (!r.ok) {
+    const e = new Error(data.error || `Something went wrong (${r.status})`); e.status = r.status; e.code = data.code; e.field = data.field; e.data = data;
+    if (data.code === 'auth' && !route.startsWith('auth/')) sessionExpired();
+    throw e;
+  }
   return data;
 }
 async function upload(file) {
   const r = await fetch('/api/upload', { method: 'POST', body: file, headers: {
     'Content-Type': file.type || 'application/octet-stream', 'X-Chat-Device': me.device, 'X-Chat-Room': current,
-    ...(keys[current] ? { 'X-Room-Key': keys[current] } : {}) } });
+    Authorization: 'Bearer ' + me.token } });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || 'Upload failed');
   return d.url;
 }
-const saveKeys = () => store.setJson('ic-keys', keys);
 const markRead = (room, key) => { if (key && key > (lastRead[room] || '')) { lastRead[room] = key; store.setJson('ic-read', lastRead); } };
 
 /* ---------------- Toasts & popups (no browser alert/confirm/prompt) ---------------- */
@@ -163,23 +167,67 @@ const radiusToSlider = r => RANGES.reduce((best, x, i) => Math.abs(x - r) < Math
 const inviteLink = room => `${location.origin}${location.pathname}#/g/${encodeURIComponent(room)}`;
 const linkedRoom = () => { const m = location.hash.match(/^#\/g\/([a-z0-9_-]{1,30})$/i); return m ? m[1].toLowerCase() : null; };
 
-/* ---------------- Welcome ---------------- */
-$('name').value = me.name;
-const invited = linkedRoom();
-if (invited) {
-  $('welcomeTitle').textContent = 'You’re invited to a group';
-  $('welcomeText').textContent = 'Tell everyone your name and you’ll go straight into the chat.';
+/* ---------------- Sign in / create account ---------------- */
+let authMode = 'login';
+function setAuthMode(mode) {
+  authMode = mode;
+  const signup = mode === 'signup';
+  $('tabLogin').classList.toggle('on', !signup); $('tabLogin').setAttribute('aria-selected', String(!signup));
+  $('tabSignup').classList.toggle('on', signup); $('tabSignup').setAttribute('aria-selected', String(signup));
+  document.querySelectorAll('.signup-only').forEach(n => n.classList.toggle('hidden', !signup));
+  $('password').autocomplete = signup ? 'new-password' : 'current-password';
+  $('password').placeholder = signup ? 'At least 6 characters' : 'Your password';
+  $('loginBtn').textContent = signup ? 'Create account' : 'Sign in';
+  const inv = linkedRoom();
+  $('welcomeTitle').textContent = inv ? 'You’re invited to a group' : signup ? 'Create your account' : 'Welcome back';
+  $('welcomeText').textContent = inv ? (signup ? 'Create an account and you’ll go straight into the chat.' : 'Sign in and you’ll go straight into the chat.')
+    : signup ? 'Pick a username and the name people will see.' : 'Sign in to your Intra Chat account.';
+  $('authSwitch').innerHTML = '';
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'link-btn'; b.textContent = signup ? 'Sign in' : 'Create an account';
+  b.onclick = () => setAuthMode(signup ? 'login' : 'signup');
+  $('authSwitch').append(signup ? 'Already have an account? ' : 'New here? ', b);
+  $('err').textContent = '';
 }
-$('loginForm').onsubmit = e => {
+$('tabLogin').onclick = () => setAuthMode('login');
+$('tabSignup').onclick = () => setAuthMode('signup');
+$('switchToSignup').onclick = () => setAuthMode('signup');
+$('username').addEventListener('input', () => { const v = $('username').value, c = v.toLowerCase().replace(/^@/, '').replace(/\s/g, ''); if (c !== v) $('username').value = c; });
+$('loginForm').onsubmit = async e => {
   e.preventDefault();
-  const n = $('name').value.trim().replace(/\s+/g, ' ').slice(0, 24);
-  if (!n) { $('err').textContent = 'Please enter your name'; $('name').focus(); return; }
-  me.name = n; store.set('ic-name', n); $('err').textContent = '';
-  enterApp();
+  const username = $('username').value.trim(), password = $('password').value, name = $('name').value.trim();
+  const fail = (msg, field) => { $('err').textContent = msg; if (field) $(field).focus(); };
+  if (!username) return fail('Enter your username', 'username');
+  if (authMode === 'signup' && !name) return fail('Enter the name people will see', 'name');
+  if (!password) return fail('Enter your password', 'password');
+  $('loginBtn').disabled = true; $('err').textContent = '';
+  try {
+    const d = await api('auth/' + authMode, { username, password, name });
+    me.token = d.token; store.set('ic-token', d.token);
+    Object.assign(me, d.user); store.set('ic-user', JSON.stringify(d.user));
+    $('password').value = '';
+    enterApp();
+    if (authMode === 'signup') toast(`Welcome, ${d.user.name}! 👋`);
+  } catch (err) { fail(err.message, { username: 'username', name: 'name', password: 'password' }[err.field]); }
+  finally { $('loginBtn').disabled = false; }
 };
+function showLogin(msg) {
+  leaveRoom(); clearInterval(roomsTimer);
+  $('app').classList.add('hidden'); $('app').classList.remove('in-chat', 'has-room', 'info-open');
+  $('login').classList.remove('hidden'); setAuthMode('login');
+  if (me.username) $('username').value = me.username;
+  if (msg) $('err').textContent = msg;
+  setTimeout(() => ($('username').value ? $('password') : $('username')).focus(), 50);
+}
+let expiredShown = false;
+function sessionExpired() {
+  if (expiredShown) return; expiredShown = true;
+  me.token = ''; store.del('ic-token');
+  showLogin('Your session ended — please sign in again.');
+}
 function enterApp() {
+  expiredShown = false;
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
-  paintAvatar($('meAvatar'), me.name); $('meName').textContent = me.name;
+  paintAvatar($('meAvatar'), me.name); $('meName').textContent = `${me.name} · @${me.username}`;
   refreshRooms().then(() => {
     const target = linkedRoom() || (wide() ? (rooms.some(r => r.room === store.get('ic-room')) ? store.get('ic-room') : 'general') : null);
     if (target) openRoom(target);
@@ -189,7 +237,7 @@ function enterApp() {
   setupServiceWorker(); updateNotifBanner();
 }
 async function refreshRooms() {
-  try { setRooms((await api('rooms', { room: current || 'general', keys })).rooms); }
+  try { setRooms((await api('rooms', { room: current || 'general' })).rooms); }
   catch { if (!rooms.length) setRooms([{ room: 'general' }]); }
 }
 function setRooms(list) {
@@ -197,32 +245,39 @@ function setRooms(list) {
   rooms = list; renderRooms();
 }
 
-// Profile: change name or sign out
+// Profile: display name, password, notifications, install, sign out
 $('meBtn').onclick = async () => {
-  const extra = [];
+  const extra = [{ label: '🔑 Change password', onClick: changePassword }];
   if (pushSupported() && Notification.permission !== 'denied') extra.push(pushActive
     ? { label: '🔕 Turn off notifications on this device', onClick: disableNotifications }
     : { label: '🔔 Turn on notifications', onClick: enableNotifications, cls: 'primary' });
   if (installPrompt) extra.push({ label: '📲 Install Intra Chat app', onClick: installApp });
-  const name = await popup({ icon: '🙂', title: 'Your profile', text: 'This is the name others see on your messages.', ok: 'Save', cancel: 'Sign out',
-    input: { value: me.name, maxLength: 24, required: true, requiredMsg: 'Your name can’t be empty' }, extra });
+  const name = await popup({ icon: '🙂', title: me.name, text: `@${me.username} · this is the name people see on your messages`, ok: 'Save name', cancel: 'Sign out',
+    input: { value: me.name, maxLength: 24, required: true, requiredMsg: 'Your name can’t be empty' }, extra,
+    onConfirm: async v => { if (v === me.name) return null; try { const d = await api('auth/update', { name: v }); Object.assign(me, d.user); store.set('ic-user', JSON.stringify(d.user)); return null; } catch (e) { return e.message; } } });
   if (name === null) return signOut();
-  if (name && name !== me.name) {
-    me.name = name.replace(/\s+/g, ' ').slice(0, 24); store.set('ic-name', me.name);
-    paintAvatar($('meAvatar'), me.name); $('meName').textContent = me.name;
-    if (current) { const r = current; leaveRoom(); openRoom(r, true); }
-    toast('Name updated');
-  }
+  paintAvatar($('meAvatar'), me.name); $('meName').textContent = `${me.name} · @${me.username}`;
+  if (name !== true) toast('Profile saved');
 };
+async function changePassword() {
+  let current = null;
+  const ok1 = await popup({ icon: '🔑', title: 'Change password', text: 'First, enter your current password.', ok: 'Next',
+    input: { type: 'password', placeholder: 'Current password', maxLength: 128, required: true, requiredMsg: 'Enter your current password' },
+    onConfirm: async v => { current = v; return null; } });
+  if (ok1 === null) return;
+  const ok2 = await popup({ icon: '🔑', title: 'New password', text: 'At least 6 characters.', ok: 'Change password',
+    input: { type: 'password', placeholder: 'New password', maxLength: 128, required: true, requiredMsg: 'Enter a new password' },
+    onConfirm: async v => { if (v.length < 6) return 'Use at least 6 characters'; try { await api('auth/update', { password: current, newPassword: v }); return null; } catch (e) { return e.message; } } });
+  if (ok2 !== null) toast('Password changed');
+}
 async function signOut() {
-  const yes = await popup({ icon: '👋', title: 'Sign out?', text: 'You’ll need to enter your name again, and private groups will ask for their passwords again.', ok: 'Sign out', danger: true });
+  const yes = await popup({ icon: '👋', title: 'Sign out?', text: 'You can sign in again on any device with your username and password.', ok: 'Sign out', danger: true });
   if (!yes) return;
-  leaveRoom(); clearInterval(roomsTimer);
   await disableNotifications(true);
-  for (const k of Object.keys(keys)) delete keys[k]; saveKeys(); store.del('ic-name');
+  try { await api('auth/logout'); } catch {}
+  me.token = ''; store.del('ic-token'); store.del('ic-user');
   history.replaceState(null, '', location.pathname);
-  $('app').classList.add('hidden'); $('app').classList.remove('in-chat', 'has-room', 'info-open');
-  $('login').classList.remove('hidden'); $('name').value = '';
+  showLogin();
 }
 
 /* ---------------- Chat list ---------------- */
@@ -243,8 +298,8 @@ function renderRooms() {
     if (r.last?.ts) { const tm = document.createElement('span'); tm.className = 'room-time'; tm.textContent = listTime(r.last.ts); top.append(tm); }
     const bottom = document.createElement('div'); bottom.className = 'room-bottom';
     const sub = document.createElement('small');
-    if (r.last?.text) sub.textContent = (r.last.name === me.name ? 'You' : r.last.name) + ': ' + r.last.text;
-    else if (r.locked && !keys[r.room]) sub.textContent = '🔒 Private group · tap to enter password';
+    if (r.last?.text) sub.textContent = (isMine(r.last) ? 'You' : r.last.name) + ': ' + r.last.text;
+    else if (r.locked && !r.access) sub.textContent = '🔒 Private group · tap to enter password';
     else if (r.geo) sub.textContent = `📍 Location group · ${fmtDist(r.radius)} range`;
     else sub.textContent = r.room === 'general' ? 'Everyone' : 'No messages yet';
     bottom.append(sub);
@@ -266,8 +321,8 @@ function renderRooms() {
 $('roomSearch').oninput = renderRooms;
 // Unread = newer message than we've seen, not from us, and in a group we can actually open
 function isUnread(r) {
-  if (r.room === current || !r.last?.key || r.last.name === me.name) return false;
-  if (r.locked && !keys[r.room]) return false;
+  if (r.room === current || !r.last?.key || isMine(r.last)) return false;
+  if (r.locked && !r.access) return false;
   return r.last.key > (lastRead[r.room] || '');
 }
 
@@ -276,7 +331,7 @@ async function openRoom(room, force) {
   if (!force && current === room && $('app').classList.contains('in-chat')) return;
   const info = roomInfo(room);
   // Private group we haven't joined yet: ask for its password first
-  if (info.locked && !keys[room]) { if (!(await askPassword(room))) { if (linkedRoom() === room) history.replaceState(null, '', location.pathname); return; } }
+  if (info.locked && info.access === false) { if (!(await askPassword(room))) { if (linkedRoom() === room) history.replaceState(null, '', location.pathname); return; } }
   leaveRoom();
   current = room; store.set('ic-room', room);
   if (location.hash !== `#/g/${room}`) history.replaceState(null, '', `#/g/${room}`);
@@ -315,7 +370,7 @@ async function askPassword(room, again) {
     input: { type: 'password', placeholder: 'Group password', maxLength: 64, required: true, requiredMsg: 'Enter the group password' },
     ok: 'Join',
     onConfirm: async pw => {
-      try { const d = await api('group/join', { room, password: pw }); if (d.key) { keys[room] = d.key; saveKeys(); } return null; }
+      try { await api('group/join', { room, password: pw }); const r = roomInfo(room); r.access = true; return null; }
       catch (e) { return e.message; }
     },
   });
@@ -335,7 +390,7 @@ async function poll(mySession) {
     const ack = {};
     if (since && since > acked.delivered) ack.delivered = since;
     if (since && !document.hidden && since > acked.read) ack.read = since;
-    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, keys, xsince }, myCtrl.signal);
+    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, xsince }, myCtrl.signal);
     if (mySession !== session) return;
     if (ack.delivered) acked.delivered = ack.delivered;
     if (ack.read) { acked.read = ack.read; markRead(current, ack.read); }
@@ -346,7 +401,7 @@ async function poll(mySession) {
     for (const m of fresh) { addMessage(m); if (!first) notify(m); }
     if (fresh.length) {
       if (first || wasNear) scrollDown(true);
-      else { unseenBelow += fresh.filter(m => m.name !== me.name).length; updateToBottom(); }
+      else { unseenBelow += fresh.filter(m => !isMine(m)).length; updateToBottom(); }
     }
     if (d.edits) { for (const [k, e] of Object.entries(d.edits)) { edits[k] = e; applyEdit(k); } }
     if (d.xt) xsince = d.xt;
@@ -361,7 +416,7 @@ async function poll(mySession) {
     if (mySession !== session || err.name === 'AbortError') return;
     if (err.code === 'locked') {
       // Password was changed (or we never had a valid key): ask again
-      const room = current; delete keys[room]; saveKeys();
+      const room = current; roomInfo(room).access = false;
       leaveRoom();
       if (await askPassword(room, true)) openRoom(room, true); else $('backBtn').click();
       return;
@@ -383,13 +438,14 @@ document.addEventListener('visibilitychange', () => { tellSW(); if (!document.hi
 window.addEventListener('online', repoll);
 
 function renderPresence(users) {
-  const others = users.filter(u => u.name !== me.name);
+  const others = users.filter(u => u.uid !== me.uid);
   const typing = others.filter(u => u.typing).map(u => u.name);
   $('typing').textContent = typing.length ? `${typing.join(', ')} ${typing.length > 1 ? 'are' : 'is'} typing…` : '';
   let sub = typing.length ? 'typing…' : users.length > 1 ? `${users.length} online` : 'Only you here right now';
   if (group?.geo) sub += ` · 📍 ${fmtDist(group.radius)}`;
   if (group?.locked) sub += ' · 🔒 private';
   $('chatSub').textContent = sub;
+  if ($('app').classList.contains('info-open') && users.some(u => !(membersCache.list || []).some(m => m.uid === u.uid))) loadMembers();   // someone new joined
   presenceCache = users;
   if ($('app').classList.contains('info-open')) renderInfo();
 }
@@ -415,14 +471,17 @@ function render(m, isPending) {
     const sep = document.createElement('div'); sep.className = 'day'; sep.textContent = dayLabel(m.ts); box.append(sep);
     lastRendered = null;
   }
-  const mine = m.name === me.name;
-  const cont = lastRendered && lastRendered.name === m.name && m.ts - lastRendered.ts < 5 * 60_000;
-  lastRendered = { name: m.name, ts: m.ts, day };
+  const mine = isMine(m), who = m.uid || m.name;
+  const cont = lastRendered && lastRendered.who === who && m.ts - lastRendered.ts < 5 * 60_000;
+  lastRendered = { who, ts: m.ts, day };
 
   const el = document.createElement('div');
   el.className = 'msg' + (mine ? ' mine' : '') + (cont ? ' cont' : '') + (isPending ? ' pending' : '');
   el._msg = m; if (m.key) el.dataset.key = m.key;
-  if (!mine) { const who = document.createElement('span'); who.className = 'who'; who.textContent = m.name; who.style.color = nameColor(m.name); el.append(who); }
+  if (!mine) {
+    const av = document.createElement('div'); av.className = 'avatar m-avatar'; paintAvatar(av, m.name); av.setAttribute('aria-hidden', 'true');
+    const nm = document.createElement('span'); nm.className = 'who'; nm.textContent = m.name; nm.style.color = nameColor(m.name); el.append(av, nm);
+  }
   if (m.replyTo) {
     const q = quoteEl(m.replyTo); q.title = 'Go to message';
     q.onclick = e => { e.stopPropagation(); jumpTo(m.replyTo.key); };
@@ -477,7 +536,7 @@ $('toBottom').onclick = () => { const b = $('messages'); b.scrollTo({ top: b.scr
 
 function quoteEl(r) {
   const q = document.createElement('div'); q.className = 'quote';
-  const n = document.createElement('b'); n.textContent = r.name === me.name ? 'You' : r.name;
+  const n = document.createElement('b'); n.textContent = isMine(r) ? 'You' : r.name;
   q.append(n, r.text);
   return q;
 }
@@ -490,8 +549,8 @@ function jumpTo(key) {
 const previewText = m => m.text || (m.audio ? `🎤 Voice message (${fmtDur(m.audio.dur)})` : m.gif ? '🎞️ GIF' : '');
 
 function notify(m) {
-  if (m.name === me.name || !document.hidden || pushActive) return;   // push notifications take over when enabled
-  const title = m.replyTo?.name === me.name ? `${m.name} replied to you` : `${m.name} · ${roomTitle(m.room)}`;
+  if (isMine(m) || !document.hidden || pushActive) return;   // push notifications take over when enabled
+  const title = isMine(m.replyTo) ? `${m.name} replied to you` : `${m.name} · ${roomTitle(m.room)}`;
   if ('Notification' in window && Notification.permission === 'granted') {
     const n = new Notification(title, { body: previewText(m), tag: m.room });
     n.onclick = () => { window.focus(); n.close(); };
@@ -500,7 +559,7 @@ function notify(m) {
 
 /* ---------------- Seen ticks ---------------- */
 function updateTicks() {
-  const others = receipts.filter(r => r.name !== me.name);
+  const others = receipts.filter(r => r.uid !== me.uid);
   const mine = [...$('messages').children].filter(el => el.classList.contains('mine'));
   const lastKey = mine.filter(el => el.dataset.key).pop()?.dataset.key;
   for (const el of mine) {
@@ -527,13 +586,13 @@ function startReply(el) {
   const m = el._msg;
   if (!m?.key || el.classList.contains('deleted')) return;
   if (group?.me && !group.me.canChat) return toast('You can’t reply until you’re allowed to chat here');
-  replyTo = { key: m.key, name: m.name, text: previewText(m).slice(0, 140) };
+  replyTo = { key: m.key, name: m.name, uid: m.uid, text: previewText(m).slice(0, 140) };
   showReplyBar();
   if (navigator.vibrate) navigator.vibrate(15);
   $('text').focus();
 }
 function showReplyBar() {
-  $('replyName').textContent = replyTo.name === me.name ? 'You' : replyTo.name;
+  $('replyName').textContent = isMine(replyTo) ? 'You' : replyTo.name;
   $('replyText').textContent = replyTo.text;
   $('replyBar').classList.remove('hidden');
 }
@@ -596,7 +655,7 @@ async function sendMessage({ text: body = '', gif, audio, upload: file, localUrl
   if (group?.me && !group.me.canChat) { toast('You can’t send messages here right now'); return; }
   const cid = Math.random().toString(36).slice(2) + Date.now().toString(36);
   const reply = replyTo; cancelReply();
-  const el = render({ name: me.name, text: body, gif, audio, localUrl, ts: Date.now(), replyTo: reply || undefined }, true);
+  const el = render({ uid: me.uid, name: me.name, text: body, gif, audio, localUrl, ts: Date.now(), replyTo: reply || undefined }, true);
   pending.set(cid, el); scrollDown(true);
   try {
     if (file) {
@@ -899,7 +958,20 @@ async function shareInvite() {
 $('shareBtn').onclick = shareInvite;
 
 /* ---------------- Group info panel ---------------- */
-function openInfo() { if (!current) return; $('app').classList.add('info-open'); renderInfo(); }
+let membersCache = { room: null, list: null };
+async function loadMembers() {
+  const room = current; if (!room) return;
+  try { const d = await api('group/members', { room }); if (room === current) { membersCache = { room, list: d.members }; renderInfo(); } } catch {}
+}
+function openInfo() { if (!current) return; $('app').classList.add('info-open'); renderInfo(); loadMembers(); }
+async function makeAdmin(mm) {
+  const yes = await popup({ icon: '👑', title: `Make ${mm.name} the admin?`,
+    text: `${mm.name} will be able to change the group’s name, password${group?.geo ? ', range' : ''} and members. You’ll stay in the group, but you won’t be the admin any more.`,
+    ok: 'Make admin' });
+  if (!yes) return;
+  try { await api('group/transfer', { member: mm.uid }); toast(`👑 ${mm.name} is now the admin`); repoll(); loadMembers(); }
+  catch (e) { toast(e.message); }
+}
 $('infoBtn').onclick = () => $('app').classList.contains('info-open') ? $('app').classList.remove('info-open') : openInfo();
 $('chatHead').onclick = openInfo;
 $('infoClose').onclick = () => $('app').classList.remove('info-open');
@@ -940,7 +1012,7 @@ function renderInfo() {
   // Admin: access settings
   if (g?.isAdmin) {
     const ac = el('div', 'card'); ac.append(el('h3', null, 'Admin settings'));
-    ac.append(el('p', 'muted small', 'You created this group on this device, so only you see these settings. Admin rights stay with this device even if you change your name.'));
+    ac.append(el('p', 'muted small', 'You’re the admin, so only you see these settings — on any device you sign in on. To hand the group over, use “Make admin” next to a member below.'));
     const setting = (titleTxt, sub, btnLabel, fn, cls = '') => {
       const s = el('div', 'setting'); const m = el('div', 's-meta'); m.append(el('b', null, titleTxt), el('small', null, sub));
       const b = el('button', 'btn small ' + cls, btnLabel); b.onclick = fn; s.append(m, b); ac.append(s);
@@ -983,31 +1055,40 @@ function renderInfo() {
     }
     body.append(c);
 
-    if (g.isAdmin) {
-      const mc = el('div', 'card'); mc.append(el('h3', null, `Members (${(g.members || []).length})`));
-      if (!(g.members || []).length) mc.append(el('p', 'muted small', 'Nobody else has opened this group yet. Share the invite link above.'));
-      for (const mm of g.members || []) {
-        const r = el('div', 'member');
-        const a = el('div', 'avatar'); paintAvatar(a, mm.name);
-        const meta = el('div', 'm-meta'); meta.append(el('b', null, mm.name));
-        const where = mm.inside == null ? 'Location unknown' : `${mm.inside ? 'Inside' : 'Outside'} · ${fmtDist(mm.dist)} away`;
-        meta.append(el('small', null, where + (mm.approved ? ' · approved' : '')));
-        if (mm.req === 'pending' && mm.note) meta.append(el('small', 'note', `“${mm.note}”`));
-        const acts = el('div', 'm-actions');
-        const act = (label, cls, action) => { const b = el('button', 'btn small ' + cls, label); b.onclick = async () => { b.disabled = true; try { await api('group/decide', { member: mm.id, action }); toast(action === 'approve' ? `${mm.name} can chat now` : action === 'deny' ? 'Request declined' : 'Access revoked'); repoll(); } catch (e) { toast(e.message); b.disabled = false; } }; acts.append(b); };
-        if (mm.req === 'pending') { act('Approve', 'ok', 'approve'); act('Deny', 'ghost', 'deny'); }
-        else if (mm.approved) act('Revoke', 'ghost', 'revoke');
-        else if (mm.req === 'denied') acts.append(el('span', 'chip warn', 'Denied'));
-        else acts.append(el('span', 'chip ' + (mm.inside ? 'ok' : mm.inside === false ? 'warn' : ''), mm.inside ? 'Can chat' : mm.inside === false ? 'Read only' : '—'));
-        r.append(a, meta, acts); mc.append(r);
-      }
-      body.append(mc);
-    }
   }
 
-  const oc = el('div', 'card'); oc.append(el('h3', null, `Online now (${presenceCache.length})`));
-  for (const u of presenceCache) { const r = el('div', 'member'); const a = el('div', 'avatar'); paintAvatar(a, u.name); const meta = el('div', 'm-meta'); meta.append(el('b', null, u.name === me.name ? `${u.name} (you)` : u.name)); if (u.typing && u.name !== me.name) meta.append(el('small', null, 'typing…')); r.append(a, meta); oc.append(r); }
-  body.append(oc);
+  // Members: everyone who has opened the group, admin first, with online status.
+  // The admin can hand the group over, and (location groups) review requests to chat from outside the range.
+  const mc = el('div', 'card');
+  const list = membersCache.room === current ? membersCache.list : null;
+  const online = new Map(presenceCache.map(u => [u.uid, u]));
+  const geoBy = new Map((g?.members || []).map(m => [m.uid, m]));
+  mc.append(el('h3', null, list ? `Members (${list.length}) · ${presenceCache.length} online` : 'Members'));
+  if (!list) mc.append(el('p', 'muted small', 'Loading…'));
+  else if (list.length <= 1) mc.append(el('p', 'muted small', 'Nobody else has joined yet. Share the invite link above.'));
+  for (const mm of list || []) {
+    const r = el('div', 'member'), you = mm.uid === me.uid, on = online.get(mm.uid);
+    const a = el('div', 'avatar'); paintAvatar(a, mm.name);
+    const meta = el('div', 'm-meta'), nm = el('b', null, you ? `${mm.name} (you)` : mm.name);
+    if (mm.admin) nm.append(el('span', 'chip brand admin-chip', 'Admin'));
+    meta.append(nm);
+    const geoRec = geoBy.get(mm.uid);
+    const bits = [mm.username ? '@' + mm.username : null, on ? (on.typing && !you ? 'typing…' : 'online') : null];
+    if (geoRec) bits.push(geoRec.inside == null ? 'location unknown' : `${geoRec.inside ? 'inside' : 'outside'} · ${fmtDist(geoRec.dist)}${geoRec.approved ? ' · approved' : ''}`);
+    meta.append(el('small', null, bits.filter(Boolean).join(' · ')));
+    if (geoRec?.req === 'pending' && geoRec.note) meta.append(el('small', 'note', `“${geoRec.note}”`));
+    const acts = el('div', 'm-actions');
+    if (g?.isAdmin && !you) {
+      if (geoRec) {
+        const act = (label, cls, action) => { const b = el('button', 'btn small ' + cls, label); b.onclick = async () => { b.disabled = true; try { await api('group/decide', { member: mm.uid, action }); toast(action === 'approve' ? `${mm.name} can chat now` : action === 'deny' ? 'Request declined' : 'Access revoked'); repoll(); } catch (e) { toast(e.message); b.disabled = false; } }; acts.append(b); };
+        if (geoRec.req === 'pending') { act('Approve', 'ok', 'approve'); act('Deny', 'ghost', 'deny'); }
+        else if (geoRec.approved) act('Revoke', 'ghost', 'revoke');
+      }
+      const mk = el('button', 'btn small ghost', 'Make admin'); mk.onclick = () => makeAdmin(mm); acts.append(mk);
+    } else if (on) acts.append(el('span', 'dot', ''));
+    r.append(a, meta, acts); mc.append(r);
+  }
+  body.append(mc);
   body.scrollTop = scroll;
 }
 async function renameGroup() {
@@ -1019,7 +1100,7 @@ async function setGroupPassword(changing) {
   const pw = await popup({ icon: '🔒', title: changing ? 'Change password' : 'Add a password',
     text: changing ? 'Everyone except you will need the new password to keep chatting.' : 'New people will need this password to join. Share it only with people who should be here.',
     input: { type: 'password', placeholder: 'At least 4 characters', maxLength: 64, required: true, requiredMsg: 'Enter a password' }, ok: changing ? 'Change' : 'Add password',
-    onConfirm: async v => { if (v.length < 4) return 'Use at least 4 characters'; try { const d = await api('group/update', { password: v }); if (d.key) { keys[current] = d.key; saveKeys(); } return null; } catch (e) { return e.message; } } });
+    onConfirm: async v => { if (v.length < 4) return 'Use at least 4 characters'; try { await api('group/update', { password: v }); return null; } catch (e) { return e.message; } } });
   if (pw) { toast(changing ? 'Password changed' : 'Group is now private'); repoll(); refreshRooms(); }
 }
 async function removeGroupPassword() {
@@ -1088,7 +1169,6 @@ $('newGroupForm').onsubmit = async e => {
   $('ngCreate').disabled = true;
   try {
     const d = await api('group/create', { room, title, type, password, radius: sliderToRadius(+$('ngRadius').value), loc: type === 'geo' ? ngLoc : undefined });
-    if (d.key) { keys[room] = d.key; saveKeys(); }
     rooms = [{ room, ...d.group, last: null }, ...rooms.filter(r => r.room !== room)];
     $('newGroup').close(); openRoom(room);
     toast(`“${title}” created — share the invite link to add people`);
@@ -1117,8 +1197,9 @@ function renderReactions(el, reactions) {
   const wrap = document.createElement('div'); wrap.className = 'reacts';
   for (const [emoji, names] of entries) {
     const chip = document.createElement('button'); chip.type = 'button';
-    chip.className = 'react-chip' + (names.includes(me.name) ? ' mine' : '');
-    chip.title = names.map(n => n === me.name ? 'You' : n).join(', ');
+    const people = names.map(p => typeof p === 'string' ? { name: p } : p);   // older reactions stored just names
+    chip.className = 'react-chip' + (people.some(isMine) ? ' mine' : '');
+    chip.title = people.map(p => isMine(p) ? 'You' : p.name).join(', ');
     chip.setAttribute('aria-label', `${emoji} by ${chip.title}`);
     chip.append(emoji); if (names.length > 1) { const b = document.createElement('b'); b.textContent = names.length; chip.append(b); }
     chip.onclick = e => { e.stopPropagation(); react(el, emoji); };
@@ -1153,9 +1234,9 @@ function openMsgMenu(el) {
   menuFor = el;
   const m = el._msg || {}, deleted = el.classList.contains('deleted');
   const canChat = !(group?.me && !group.me.canChat);
-  const mine = m.name === me.name;
+  const mine = isMine(m);
   const reacts = $('mmReacts'); reacts.innerHTML = ''; reacts.classList.toggle('hidden', deleted || !canChat);
-  const myReact = Object.entries(edits[el.dataset.key]?.reactions || {}).find(([, n]) => n.includes(me.name))?.[0];
+  const myReact = Object.entries(edits[el.dataset.key]?.reactions || {}).find(([, n]) => n.some(p => isMine(typeof p === 'string' ? { name: p } : p)))?.[0];
   for (const e of REACTIONS) {
     const b = document.createElement('button'); b.type = 'button'; b.textContent = e; b.setAttribute('aria-label', 'React ' + e);
     if (e === myReact) b.className = 'on';
@@ -1188,7 +1269,7 @@ async function deleteMsg(el) {
   catch (e) { toast(e.message); }
 }
 function messageInfo(el) {
-  const key = el.dataset.key, others = receipts.filter(r => r.name !== me.name);
+  const key = el.dataset.key, others = receipts.filter(r => r.uid !== me.uid);
   const read = others.filter(r => r.read >= key).map(r => r.name), got = others.filter(r => r.delivered >= key && !(r.read >= key)).map(r => r.name);
   const lines = [read.length ? `✓✓ Seen by: ${read.join(', ')}` : 'Not seen yet', got.length ? `✓✓ Delivered to: ${got.join(', ')}` : ''].filter(Boolean);
   popup({ icon: 'ℹ️', title: 'Message info', text: `Sent ${new Date(el._msg.ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}\n${lines.join('\n')}`, ok: 'Done', cancel: '' });
@@ -1297,5 +1378,12 @@ async function muteGroup() {
 const fmtUntil = t => t > Date.now() + 365 * 864e5 ? 'you unmute it' : new Date(t).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 
 /* ---------------- Start ---------------- */
-if (me.name) enterApp();
-else setTimeout(() => $('name').focus(), 50);
+// Resume a saved session, otherwise show sign in (or create account when arriving from an invite)
+(async () => {
+  setAuthMode(linkedRoom() ? 'signup' : 'login');
+  try { Object.assign(me, JSON.parse(store.get('ic-user') || '{}')); } catch {}
+  if (!me.token) { $('login').classList.remove('hidden'); setTimeout(() => $('username').focus(), 50); return; }
+  enterApp();                                   // optimistic: show the app straight away
+  try { const d = await api('auth/me'); Object.assign(me, d.user); store.set('ic-user', JSON.stringify(d.user)); paintAvatar($('meAvatar'), me.name); $('meName').textContent = `${me.name} · @${me.username}`; }
+  catch (e) { if (e.code !== 'auth') { /* offline: keep going */ } }
+})();

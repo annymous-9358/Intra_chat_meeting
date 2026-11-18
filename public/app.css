@@ -417,3 +417,35 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .modal-choices .btn { width: 100%; }
 .modal-extra { display: grid; gap: 8px; margin-top: 14px; }
 #modalText { white-space: pre-line; }
+
+/* ======================================================================
+   v5: accounts screen, members, message avatars
+   ====================================================================== */
+.auth-wrap { width: 100%; max-width: 420px; display: grid; gap: 24px; align-items: center; }
+.auth-hero { display: none; }
+.mobile-only { display: grid; }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; margin: 18px 0 2px; }
+.auth-tabs button { border: 0; background: none; padding: 10px; border-radius: 10px; font-weight: 600; color: var(--muted); min-height: 42px; }
+.auth-tabs button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.field span small { font-weight: 500; }
+.field-hint { margin: 8px 0 0; }
+.link-btn { border: 0; background: none; color: var(--brand); font-weight: 600; padding: 4px; }
+.auth-switch { text-align: center; margin: 14px 0 0; }
+.me-handle { color: var(--muted); font-size: 13px; }
+@media (min-width: 900px) {
+  .auth-wrap { max-width: 920px; grid-template-columns: 1fr 420px; gap: 48px; }
+  .auth-hero { display: block; }
+  .auth-hero h2 { font-size: 40px; letter-spacing: -.03em; margin: 18px 0 6px; }
+  .auth-hero > p { font-size: 18px; color: var(--muted); margin: 0 0 8px; }
+  .auth-hero .feature-list { font-size: 16px; }
+  .auth-hero .brand-mark { width: 72px; height: 72px; border-radius: 22px; }
+  .auth-hero .brand-mark svg { width: 52px; height: 52px; }
+  .mobile-only { display: none; }
+}
+
+/* Others' messages show a small avatar at the start of each run */
+.msg:not(.mine) { margin-left: 34px; }
+.m-avatar { position: absolute; left: -34px; top: 0; width: 28px; height: 28px; font-size: 11px; }
+.msg.cont .m-avatar { display: none; }
+.member .admin-chip { margin-left: 6px; }
+.member .m-meta b { display: flex; align-items: center; gap: 4px; }

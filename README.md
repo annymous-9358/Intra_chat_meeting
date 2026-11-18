@@ -9,10 +9,13 @@ A quick group chat app. Run it in two ways with the same code:
 
 ## Features
 - Mobile-first design: chat list → chat on phones, side-by-side on tablets, plus a group-info column on desktop. Light/dark mode.
-- **No app-wide password** — first visit only asks for your name. Each group decides its own access:
-  - 💬 **Open**: anyone with the link · 🔒 **Private**: needs the group's own password · 📍 **Location**: works within a range (optionally with a password too)
-  - The group creator is its admin and can rename it, add/change/remove the password, and (for location groups) manage the range and requests.
-  - Changing a password signs everyone else out of that group until they enter the new one.
+- **Accounts**: sign up with a username, display name and password; sign in on any device. Your name comes from your
+  account (nobody can post as you), and your groups, admin rights, mutes and notifications follow you to every device.
+- **Group access**: 💬 **Open** (anyone with the link) · 🔒 **Private** (the group's own password, asked once per account)
+  · 📍 **Location** (works within a range, optionally with a password too)
+- **Group admin**: the creator is admin and can rename the group, add/change/remove the password, manage a location
+  group's range and requests, and **Make admin** — hand the group over to another member.
+- **Members list** in Group info for every group: who's in it, who's admin, who's online.
 - Invite links (`…/#/g/<group>`): share from the chat header; new people enter their name and go straight in (or get asked for the password)
 - Chat list with last-message previews, times, unread dots and an unread count in the tab title; previews of private groups are hidden from people who haven't joined
 - Custom popups and toasts everywhere (no browser alert/confirm/prompt), jump-to-latest button with new-message count, per-group drafts, profile (change name / sign out)
@@ -83,8 +86,6 @@ unless you put the server behind HTTPS (e.g. a reverse proxy with a certificate)
 - `server.js`: LAN server
 
 ## Location groups: how it works and limits
-- The admin is the device that created the group (a random id stored in that browser). Clearing site data or switching
-  browsers loses admin rights.
 - Each member's browser shares its position with the server while the group is open; the server checks the distance
   (allowing up to 150 m of GPS inaccuracy) every time they send. Exact coordinates are not shown to anyone; the admin only
   sees each member's distance and inside/outside status.
@@ -95,4 +96,5 @@ unless you put the server behind HTTPS (e.g. a reverse proxy with a certificate)
 ## Security notes
 - Anyone with the site link can open `#general` and other open groups, and create groups. Use private groups (own password) for anything sensitive.
 - Group passwords are stored only as salted scrypt hashes. Joining returns a per-group key kept in that browser; changing the password invalidates old keys. Repeated wrong guesses are slowed down and briefly blocked.
-- Admin rights belong to the browser that created the group (a random device id). Clearing site data loses them.
+- Account passwords and group passwords are stored only as salted scrypt hashes; sessions are random tokens (only their hash is stored). Repeated wrong sign-in attempts lock that username for a few minutes.
+- Groups created before accounts existed belonged to a device; the first account to sign in on that device becomes their admin.

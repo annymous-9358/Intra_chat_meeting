@@ -17,24 +17,40 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <!-- ============ Welcome (first visit: just your name) ============ -->
+  <!-- ============ Sign in / Create account ============ -->
   <main id="login" class="login">
-    <form id="loginForm" class="login-card" autocomplete="on" novalidate>
-      <div class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg>
-      </div>
-      <h1 id="welcomeTitle">Welcome to Intra Chat</h1>
-      <p class="muted" id="welcomeText">Group chat for your team. Join open groups, private groups with their own password, or location groups that work within a set range.</p>
-      <label class="field"><span>What should people call you?</span>
-        <input id="name" maxlength="24" required autocomplete="nickname" placeholder="Your name" enterkeyhint="go"></label>
-      <p id="err" class="error" role="alert"></p>
-      <button class="btn primary block" id="loginBtn">Continue</button>
-      <ul class="feature-list" aria-label="What you can do">
-        <li><span>💬</span>Open groups anyone with the link can join</li>
-        <li><span>🔒</span>Private groups with their own password</li>
-        <li><span>📍</span>Location groups that only work within a range</li>
-      </ul>
-    </form>
+    <div class="auth-wrap">
+      <section class="auth-hero" aria-hidden="true">
+        <div class="brand-mark"><svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg></div>
+        <h2>Intra Chat</h2>
+        <p>Group chat for your team.</p>
+        <ul class="feature-list">
+          <li><span>💬</span>Open groups anyone with the link can join</li>
+          <li><span>🔒</span>Private groups with their own password</li>
+          <li><span>📍</span>Location groups that only work within a range</li>
+          <li><span>🔔</span>Notifications, voice notes, GIFs and reactions</li>
+        </ul>
+      </section>
+      <form id="loginForm" class="login-card" novalidate>
+        <div class="brand-mark mobile-only" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg></div>
+        <h1 id="welcomeTitle">Welcome back</h1>
+        <p class="muted" id="welcomeText">Sign in to your Intra Chat account.</p>
+        <div class="auth-tabs" role="tablist" aria-label="Sign in or create an account">
+          <button type="button" role="tab" id="tabLogin" aria-selected="true" class="on">Sign in</button>
+          <button type="button" role="tab" id="tabSignup" aria-selected="false">Create account</button>
+        </div>
+        <label class="field"><span>Username</span>
+          <input id="username" maxlength="20" required autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="e.g. priya" enterkeyhint="next"></label>
+        <label class="field signup-only hidden"><span>Your name <small class="muted">— what people see</small></span>
+          <input id="name" maxlength="24" autocomplete="name" placeholder="e.g. Priya Sharma" enterkeyhint="next"></label>
+        <label class="field"><span>Password</span>
+          <div class="pw-wrap"><input id="password" type="password" maxlength="128" required autocomplete="current-password" placeholder="Your password" enterkeyhint="go"><button type="button" class="pw-eye" aria-label="Show password">Show</button></div></label>
+        <p class="field-hint signup-only hidden muted small">Username: 3–20 letters, numbers, dots or underscores. Password: at least 6 characters.</p>
+        <p id="err" class="error" role="alert"></p>
+        <button class="btn primary block" id="loginBtn">Sign in</button>
+        <p class="auth-switch muted small" id="authSwitch">New here? <button type="button" class="link-btn" id="switchToSignup">Create an account</button></p>
+      </form>
+    </div>
   </main>
 
   <!-- ============ App ============ -->
