@@ -12,7 +12,7 @@ const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_FILE = path.join(__dirname, 'data', 'store.json');
 const FILES_DIR = path.join(__dirname, 'data', 'files');
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json' };
 
 // In-memory key/value store persisted to disk
 const data = new Map();
@@ -50,7 +50,11 @@ http.createServer(async (req, res) => {
     for await (const c of req) { size += c.length; if (size > limit) { res.writeHead(413); return res.end(); } chunks.push(c); }
     const request = new Request(url, { method: req.method, headers: req.headers, body: req.method === 'POST' ? Buffer.concat(chunks) : undefined });
     // GIF search on a LAN install needs GIPHY_API_KEY in the environment (and internet access)
-    const response = await handle(request, store, { giphyKey: process.env.GIPHY_API_KEY });
+    const response = await handle(request, store, {
+      giphyKey: process.env.GIPHY_API_KEY,
+      vapid: { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY, subject: process.env.VAPID_SUBJECT },
+      waitUntil: p => p.catch(() => {}),     // send pushes in the background
+    });
     res.writeHead(response.status, Object.fromEntries(response.headers));
     return res.end(Buffer.from(await response.arrayBuffer()));
   }

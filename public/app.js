@@ -13,7 +13,11 @@ const ICON = {
   reply: '<svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v3"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg>',
   pause: '<svg viewBox="0 0 24 24"><rect x="6" y="4.5" width="4" height="15" rx="1"/><rect x="14" y="4.5" width="4" height="15" rx="1"/></svg>',
+  copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
+  info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
 };
+const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const finePointer = matchMedia('(pointer: fine)').matches;
 const wide = () => matchMedia('(min-width: 768px)').matches;
 
@@ -37,6 +41,9 @@ let receipts = [], acked = { delivered: '', read: '' }, openReceipts = new Set()
 let ctrl = null, pollTimer = null, polling = false, session = 0, failures = 0, lastTyping = 0;
 let group = null;                                    // info about the current group (null for #general)
 let lastRendered = null, unseenBelow = 0, presenceCache = [], roomsTimer = null;
+let xsince = 0, edits = {}, pushActive = false, muteChangedAt = 0;
+const mutes = store.json('ic-mutes', {});   // room -> muted until (ms)
+const isMuted = room => (mutes[room] || 0) > Date.now();
 
 /* ---------------- API ---------------- */
 async function api(route, body = {}, signal) {
@@ -71,7 +78,7 @@ function toast(msg) {
  * Custom popup. Resolves with true (confirm), the entered text (input), or null when cancelled.
  * onConfirm(value) may return an error string to keep the popup open and show it inline.
  */
-function popup({ icon = '', title, text = '', input = null, ok = 'OK', cancel = 'Cancel', danger = false, onConfirm = null }) {
+function popup({ icon = '', title, text = '', input = null, ok = 'OK', cancel = 'Cancel', danger = false, onConfirm = null, choices = null, extra = null }) {
   return new Promise(resolve => {
     const dlg = $('modal'), field = $('modalField'), inp = $('modalInput'), eye = $('modalEye');
     $('modalIcon').textContent = icon; $('modalIcon').classList.toggle('danger', danger);
@@ -88,6 +95,16 @@ function popup({ icon = '', title, text = '', input = null, ok = 'OK', cancel = 
     }
     let done = false;
     const finish = v => { if (done) return; done = true; dlg.close(); resolve(v); };
+    // Optional list of choices (resolves with the chosen value) and extra secondary buttons
+    let box = $('modalChoices');
+    if (!box) { box = document.createElement('div'); box.id = 'modalChoices'; box.className = 'modal-choices'; $('modalErr').after(box); }
+    let ex = $('modalExtra');
+    if (!ex) { ex = document.createElement('div'); ex.id = 'modalExtra'; ex.className = 'modal-extra'; dlg.querySelector('.modal-actions').after(ex); }
+    box.innerHTML = ''; ex.innerHTML = '';
+    for (const c of choices || []) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (c.cls || ''); b.textContent = c.label; b.onclick = () => finish(c.value); box.append(b); }
+    for (const x of extra || []) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (x.cls || 'ghost'); b.textContent = x.label; b.onclick = () => { finish(null); x.onClick(); }; ex.append(b); }
+    $('modalOk').classList.toggle('hidden', !ok);
+    dlg.querySelector('.modal-actions').classList.toggle('single', !cancel || !ok);
     $('modalForm').onsubmit = async e => {
       e.preventDefault();
       const value = input ? inp.value.trim() : true;
@@ -169,7 +186,7 @@ function enterApp() {
   });
   clearInterval(roomsTimer);
   roomsTimer = setInterval(() => { if (!current && !document.hidden) refreshRooms(); }, 15000);
-  if ('Notification' in window && Notification.permission === 'default') setTimeout(() => Notification.requestPermission(), 4000);
+  setupServiceWorker(); updateNotifBanner();
 }
 async function refreshRooms() {
   try { setRooms((await api('rooms', { room: current || 'general', keys })).rooms); }
@@ -182,8 +199,13 @@ function setRooms(list) {
 
 // Profile: change name or sign out
 $('meBtn').onclick = async () => {
+  const extra = [];
+  if (pushSupported() && Notification.permission !== 'denied') extra.push(pushActive
+    ? { label: '🔕 Turn off notifications on this device', onClick: disableNotifications }
+    : { label: '🔔 Turn on notifications', onClick: enableNotifications, cls: 'primary' });
+  if (installPrompt) extra.push({ label: '📲 Install Intra Chat app', onClick: installApp });
   const name = await popup({ icon: '🙂', title: 'Your profile', text: 'This is the name others see on your messages.', ok: 'Save', cancel: 'Sign out',
-    input: { value: me.name, maxLength: 24, required: true, requiredMsg: 'Your name can’t be empty' } });
+    input: { value: me.name, maxLength: 24, required: true, requiredMsg: 'Your name can’t be empty' }, extra });
   if (name === null) return signOut();
   if (name && name !== me.name) {
     me.name = name.replace(/\s+/g, ' ').slice(0, 24); store.set('ic-name', me.name);
@@ -196,6 +218,7 @@ async function signOut() {
   const yes = await popup({ icon: '👋', title: 'Sign out?', text: 'You’ll need to enter your name again, and private groups will ask for their passwords again.', ok: 'Sign out', danger: true });
   if (!yes) return;
   leaveRoom(); clearInterval(roomsTimer);
+  await disableNotifications(true);
   for (const k of Object.keys(keys)) delete keys[k]; saveKeys(); store.del('ic-name');
   history.replaceState(null, '', location.pathname);
   $('app').classList.add('hidden'); $('app').classList.remove('in-chat', 'has-room', 'info-open');
@@ -225,6 +248,7 @@ function renderRooms() {
     else if (r.geo) sub.textContent = `📍 Location group · ${fmtDist(r.radius)} range`;
     else sub.textContent = r.room === 'general' ? 'Everyone' : 'No messages yet';
     bottom.append(sub);
+    if (isMuted(r.room)) { const mu = document.createElement('span'); mu.className = 'room-mute'; mu.textContent = '🔕'; mu.title = 'Muted'; bottom.append(mu); }
     if (unread) { const dot = document.createElement('span'); dot.className = 'unread-dot'; dot.setAttribute('aria-label', 'Unread'); bottom.append(dot); }
     meta.append(top, bottom); b.append(av, meta);
     b.onclick = () => openRoom(r.room);
@@ -237,6 +261,7 @@ function renderRooms() {
   }
   const unreadCount = rooms.filter(isUnread).length;
   document.title = unreadCount ? `(${unreadCount}) Intra Chat` : 'Intra Chat';
+  try { if (navigator.setAppBadge) unreadCount ? navigator.setAppBadge(unreadCount) : navigator.clearAppBadge(); } catch {}
 }
 $('roomSearch').oninput = renderRooms;
 // Unread = newer message than we've seen, not from us, and in a group we can actually open
@@ -256,7 +281,7 @@ async function openRoom(room, force) {
   current = room; store.set('ic-room', room);
   if (location.hash !== `#/g/${room}`) history.replaceState(null, '', `#/g/${room}`);
   session++; since = ''; version = ''; seen = new Set(); pending = new Map(); receipts = [];
-  acked = { delivered: '', read: '' }; openReceipts = new Set(); group = null; lastRendered = null; unseenBelow = 0;
+  acked = { delivered: '', read: '' }; openReceipts = new Set(); group = null; lastRendered = null; unseenBelow = 0; xsince = 0; edits = {};
   cancelReply(); closeGifs(); updateToBottom();
   $('messages').innerHTML = '';
   text.value = drafts[room] || ''; autosize(); syncButtons();   // restore any unsent draft for this group
@@ -266,6 +291,7 @@ async function openRoom(room, force) {
   paintAvatar($('chatAvatar'), info.title || room, info);
   renderRooms(); updateComposerLock(); renderAdminBanner();
   if (info.geo) startLocation();
+  tellSW(); swPost({ type: 'read', room });
   poll(session);
   if (finePointer) $('text').focus();
 }
@@ -273,7 +299,7 @@ function leaveRoom() {
   session++; clearTimeout(pollTimer); ctrl?.abort(); polling = false;
   stopLocation(); stopAllAudio();
   if (current) markRead(current, since);
-  current = null; group = null;
+  current = null; group = null; tellSW();
 }
 $('backBtn').onclick = () => {
   leaveRoom(); history.replaceState(null, '', location.pathname);
@@ -303,12 +329,13 @@ async function poll(mySession) {
   ctrl = new AbortController();
   const myCtrl = ctrl;
   const wait = version ? 7000 : 0;    // first request returns at once; after that, wait for changes
+  const pollStart = Date.now();
   const watchdog = setTimeout(() => myCtrl.abort(), wait + 15000);
   try {
     const ack = {};
     if (since && since > acked.delivered) ack.delivered = since;
     if (since && !document.hidden && since > acked.read) ack.read = since;
-    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, keys }, myCtrl.signal);
+    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, keys, xsince }, myCtrl.signal);
     if (mySession !== session) return;
     if (ack.delivered) acked.delivered = ack.delivered;
     if (ack.read) { acked.read = ack.read; markRead(current, ack.read); }
@@ -321,6 +348,10 @@ async function poll(mySession) {
       if (first || wasNear) scrollDown(true);
       else { unseenBelow += fresh.filter(m => m.name !== me.name).length; updateToBottom(); }
     }
+    if (d.edits) { for (const [k, e] of Object.entries(d.edits)) { edits[k] = e; applyEdit(k); } }
+    if (d.xt) xsince = d.xt;
+    // (ignore a mute state from a request that started before we changed it ourselves)
+    if (typeof d.muteUntil === 'number' && pollStart > muteChangedAt && (mutes[current] || 0) !== d.muteUntil) { if (d.muteUntil) mutes[current] = d.muteUntil; else delete mutes[current]; store.setJson('ic-mutes', mutes); }
     setRooms(d.rooms);
     receipts = d.receipts || [];
     setGroup(d.group);
@@ -348,7 +379,7 @@ async function poll(mySession) {
   }
 }
 function repoll() { if (!current) return; if (polling) ctrl?.abort(); else poll(session); }
-document.addEventListener('visibilitychange', () => { if (!document.hidden && current) repoll(); });
+document.addEventListener('visibilitychange', () => { tellSW(); if (!document.hidden && current) { repoll(); swPost({ type: 'read', room: current }); } });
 window.addEventListener('online', repoll);
 
 function renderPresence(users) {
@@ -372,7 +403,7 @@ function addMessage(m) {
   render(m);
 }
 function confirmPending(el, m) {
-  el.classList.remove('pending'); el._msg = m; el.dataset.key = m.key;
+  el.classList.remove('pending'); el._msg = m; el.dataset.key = m.key; applyEdit(m.key);
   seen.add(m.key); if (m.key > since) since = m.key;
   updateTicks();
 }
@@ -406,8 +437,9 @@ function render(m, isPending) {
     el.append(img);
   }
   if (m.audio) el.append(voicePlayer(m.audio, m.localUrl));
-  if (m.text) { const body = document.createElement('span'); body.className = 'body'; body.textContent = m.text; el.append(body); }
-  if (!m.text) el.classList.add('media-only');
+  if (m.deleted) { el.classList.add('deleted'); const body = document.createElement('span'); body.className = 'body'; body.textContent = '🚫 This message was deleted'; el.append(body); }
+  else if (m.text) { const body = document.createElement('span'); body.className = 'body'; body.textContent = m.text; el.append(body); }
+  if (!m.text && !m.deleted) el.classList.add('media-only');
 
   const foot = document.createElement('span'); foot.className = 'foot';
   foot.append(timeLabel(m.ts));
@@ -422,10 +454,15 @@ function render(m, isPending) {
   btn.type = 'button'; btn.className = 'reply-btn'; btn.innerHTML = ICON.reply; btn.title = 'Reply'; btn.setAttribute('aria-label', 'Reply');
   btn.onclick = e => { e.stopPropagation(); startReply(el); };
   const icon = document.createElement('div'); icon.className = 'swipe-icon'; icon.innerHTML = ICON.reply;
-  el.append(btn, icon);
-  el.addEventListener('dblclick', e => { if (!e.target.closest('img, .voice') && !window.getSelection().toString()) startReply(el); });
-  addSwipe(el, icon);
+  const more = document.createElement('button');
+  more.type = 'button'; more.className = 'msg-btn'; more.textContent = '😊'; more.title = 'React and more'; more.setAttribute('aria-label', 'Message actions');
+  more.onclick = e => { e.stopPropagation(); openMsgMenu(el); };
+  el.append(btn, more, icon);
+  el.addEventListener('dblclick', e => { if (!e.target.closest('img, .voice, .reacts') && !window.getSelection().toString()) startReply(el); });
+  el.addEventListener('contextmenu', e => { if (e.target.closest('img')) return; e.preventDefault(); openMsgMenu(el); });
+  addSwipe(el, icon); addLongPress(el);
   box.append(el);
+  if (m.key) applyEdit(m.key);
   return el;
 }
 const nearBottom = (px = 160) => { const b = $('messages'); return b.scrollHeight - b.scrollTop - b.clientHeight < px; };
@@ -453,7 +490,7 @@ function jumpTo(key) {
 const previewText = m => m.text || (m.audio ? `🎤 Voice message (${fmtDur(m.audio.dur)})` : m.gif ? '🎞️ GIF' : '');
 
 function notify(m) {
-  if (m.name === me.name || !document.hidden) return;
+  if (m.name === me.name || !document.hidden || pushActive) return;   // push notifications take over when enabled
   const title = m.replyTo?.name === me.name ? `${m.name} replied to you` : `${m.name} · ${roomTitle(m.room)}`;
   if ('Notification' in window && Notification.permission === 'granted') {
     const n = new Notification(title, { body: previewText(m), tag: m.room });
@@ -488,7 +525,7 @@ const summarize = n => n.length <= 3 ? n.join(', ') : `${n.slice(0, 2).join(', '
 /* ---------------- Replies ---------------- */
 function startReply(el) {
   const m = el._msg;
-  if (!m?.key) return;
+  if (!m?.key || el.classList.contains('deleted')) return;
   if (group?.me && !group.me.canChat) return toast('You can’t reply until you’re allowed to chat here');
   replyTo = { key: m.key, name: m.name, text: previewText(m).slice(0, 140) };
   showReplyBar();
@@ -890,6 +927,16 @@ function renderInfo() {
   if (g?.locked) inv.append(el('p', 'muted small', 'People who open the link will be asked for the group password.'));
   body.append(inv);
 
+  // Notifications for this group on this device
+  const nc = el('div', 'card'); nc.append(el('h3', null, 'Notifications'));
+  const ns = el('div', 'setting'), nm = el('div', 's-meta');
+  const muted = isMuted(current);
+  nm.append(el('b', null, muted ? '🔕 Muted' : pushActive ? '🔔 On' : '🔔 Off on this device'),
+    el('small', null, muted ? `Until ${fmtUntil(mutes[current])}` : pushActive ? 'You’ll be notified of new messages, even when the app is closed' : 'Turn on notifications to hear about new messages'));
+  const nb = el('button', 'btn small ' + (!pushActive && !muted ? 'primary' : ''), muted ? 'Unmute' : pushActive ? 'Mute' : 'Turn on');
+  nb.onclick = () => (pushActive || muted) ? muteGroup() : enableNotifications().then(renderInfo);
+  ns.append(nm, nb); nc.append(ns); body.append(nc);
+
   // Admin: access settings
   if (g?.isAdmin) {
     const ac = el('div', 'card'); ac.append(el('h3', null, 'Admin settings'));
@@ -1048,6 +1095,206 @@ $('newGroupForm').onsubmit = async e => {
   } catch (err) { $('ngErr').textContent = err.message; }
   finally { $('ngCreate').disabled = false; }
 };
+
+
+/* ---------------- Reactions, deletions & the message menu ---------------- */
+function applyEdit(key) {
+  const e = edits[key]; if (!e) return;
+  const el = [...$('messages').children].find(x => x.dataset.key === key); if (!el) return;
+  if (e.deleted && !el.classList.contains('deleted')) {
+    el.classList.add('deleted'); el.classList.remove('media-only');
+    el.querySelectorAll('.gif, .voice, .body, .quote').forEach(n => n.remove());
+    const body = document.createElement('span'); body.className = 'body'; body.textContent = '🚫 This message was deleted';
+    el.insertBefore(body, el.querySelector('.foot'));
+    if (el._msg) el._msg = { ...el._msg, deleted: true, text: '', gif: null, audio: null };
+  }
+  renderReactions(el, e.deleted ? {} : e.reactions || {});
+}
+function renderReactions(el, reactions) {
+  el.querySelector('.reacts')?.remove();
+  const entries = Object.entries(reactions).filter(([, n]) => n.length);
+  if (!entries.length) return;
+  const wrap = document.createElement('div'); wrap.className = 'reacts';
+  for (const [emoji, names] of entries) {
+    const chip = document.createElement('button'); chip.type = 'button';
+    chip.className = 'react-chip' + (names.includes(me.name) ? ' mine' : '');
+    chip.title = names.map(n => n === me.name ? 'You' : n).join(', ');
+    chip.setAttribute('aria-label', `${emoji} by ${chip.title}`);
+    chip.append(emoji); if (names.length > 1) { const b = document.createElement('b'); b.textContent = names.length; chip.append(b); }
+    chip.onclick = e => { e.stopPropagation(); react(el, emoji); };
+    wrap.append(chip);
+  }
+  el.insertBefore(wrap, el.querySelector('.reply-btn'));
+}
+async function react(el, emoji) {
+  const key = el.dataset.key; if (!key) return;
+  if (group?.me && !group.me.canChat) return toast('You can’t react until you’re allowed to chat here');
+  try { const d = await api('react', { key, emoji }); edits[key] = d.edit; applyEdit(key); }
+  catch (e) { toast(e.message); }
+}
+
+// Press and hold (touch) opens the menu; a swipe or scroll cancels it
+function addLongPress(el) {
+  let timer = null, x0 = 0, y0 = 0;
+  const cancel = () => { clearTimeout(timer); timer = null; el.classList.remove('pressing'); };
+  el.addEventListener('touchstart', e => {
+    if (e.touches.length > 1 || e.target.closest('button, .wave, img')) return;
+    const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY;
+    el.classList.add('pressing');
+    timer = setTimeout(() => { timer = null; el.classList.remove('pressing'); if (navigator.vibrate) navigator.vibrate(25); openMsgMenu(el); }, 450);
+  }, { passive: true });
+  el.addEventListener('touchmove', e => { const t = e.touches[0]; if (Math.abs(t.clientX - x0) > 10 || Math.abs(t.clientY - y0) > 10) cancel(); }, { passive: true });
+  el.addEventListener('touchend', cancel); el.addEventListener('touchcancel', cancel);
+}
+
+let menuFor = null;
+function openMsgMenu(el) {
+  if (menuFor || !el.dataset.key) return;
+  menuFor = el;
+  const m = el._msg || {}, deleted = el.classList.contains('deleted');
+  const canChat = !(group?.me && !group.me.canChat);
+  const mine = m.name === me.name;
+  const reacts = $('mmReacts'); reacts.innerHTML = ''; reacts.classList.toggle('hidden', deleted || !canChat);
+  const myReact = Object.entries(edits[el.dataset.key]?.reactions || {}).find(([, n]) => n.includes(me.name))?.[0];
+  for (const e of REACTIONS) {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = e; b.setAttribute('aria-label', 'React ' + e);
+    if (e === myReact) b.className = 'on';
+    b.onclick = () => { closeMsgMenu(); react(el, e); };
+    reacts.append(b);
+  }
+  const acts = $('mmActions'); acts.innerHTML = '';
+  const add = (label, icon, fn, cls = '') => { const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.innerHTML = icon; b.append(label); b.onclick = () => { closeMsgMenu(); fn(); }; acts.append(b); };
+  if (!deleted && canChat) add('Reply', ICON.reply, () => startReply(el));
+  if (!deleted && m.text) add('Copy text', ICON.copy, async () => { try { await navigator.clipboard.writeText(m.text); toast('Copied'); } catch { toast('Couldn’t copy'); } });
+  if (mine) add('Message info', ICON.info, () => messageInfo(el));
+  if (!deleted && (mine || group?.isAdmin)) add(mine ? 'Delete for everyone' : 'Delete (admin)', ICON.trash, () => deleteMsg(el), 'danger');
+  $('msgMenu').classList.remove('hidden');
+  // Position the card next to the message, kept inside the screen
+  const card = $('mmCard'), r = el.getBoundingClientRect(), cw = card.offsetWidth, ch = card.offsetHeight;
+  const left = Math.min(Math.max(12, mine ? r.right - cw : r.left), innerWidth - cw - 12);
+  let top = r.bottom + 8; if (top + ch > innerHeight - 12) top = Math.max(12, r.top - ch - 8);
+  card.style.left = left + 'px'; card.style.top = top + 'px';
+  (reacts.querySelector('button') || acts.querySelector('button'))?.focus();
+}
+function closeMsgMenu() { $('msgMenu').classList.add('hidden'); menuFor = null; }
+$('msgMenu').addEventListener('click', e => { if (e.target === $('msgMenu')) closeMsgMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && menuFor) closeMsgMenu(); });
+$('messages').addEventListener('scroll', () => { if (menuFor) closeMsgMenu(); }, { passive: true });
+
+async function deleteMsg(el) {
+  const yes = await popup({ icon: '🗑️', title: 'Delete for everyone?', text: 'The message will be replaced with “This message was deleted” for everyone in the group.', ok: 'Delete', danger: true });
+  if (!yes) return;
+  try { await api('delete', { key: el.dataset.key }); edits[el.dataset.key] = { ...(edits[el.dataset.key] || {}), deleted: true }; applyEdit(el.dataset.key); toast('Message deleted'); }
+  catch (e) { toast(e.message); }
+}
+function messageInfo(el) {
+  const key = el.dataset.key, others = receipts.filter(r => r.name !== me.name);
+  const read = others.filter(r => r.read >= key).map(r => r.name), got = others.filter(r => r.delivered >= key && !(r.read >= key)).map(r => r.name);
+  const lines = [read.length ? `✓✓ Seen by: ${read.join(', ')}` : 'Not seen yet', got.length ? `✓✓ Delivered to: ${got.join(', ')}` : ''].filter(Boolean);
+  popup({ icon: 'ℹ️', title: 'Message info', text: `Sent ${new Date(el._msg.ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}\n${lines.join('\n')}`, ok: 'Done', cancel: '' });
+}
+
+/* ---------------- Notifications (Web Push) & installable app ---------------- */
+let swReg = null, installPrompt = null;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+function swPost(msg) { try { navigator.serviceWorker?.controller?.postMessage(msg); } catch {} }
+function tellSW() { swPost({ type: 'viewing', room: current, visible: !document.hidden }); }
+
+async function setupServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    swReg = await navigator.serviceWorker.register('/sw.js');
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data?.type === 'open' && e.data.room) openRoom(e.data.room);
+    });
+    navigator.serviceWorker.addEventListener('controllerchange', tellSW);
+    await navigator.serviceWorker.ready; tellSW();
+    // Already allowed on this device? Make sure the server has a fresh subscription.
+    if (pushSupported() && Notification.permission === 'granted') await subscribePush(false);
+  } catch { /* service worker unsupported or blocked */ }
+  updateNotifBanner();
+}
+function b64ToBytes(b64) { const s = atob((b64 + '='.repeat((4 - b64.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(s, c => c.charCodeAt(0)); }
+async function subscribePush(loud) {
+  try {
+    const reg = swReg || await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const { publicKey } = await api('push/key');
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+    }
+    await api('push/subscribe', { subscription: sub.toJSON() });
+    pushActive = true;
+    if (loud) toast('🔔 Notifications are on');
+  } catch (e) {
+    pushActive = false;
+    if (loud) toast('Couldn’t turn on notifications: ' + e.message);
+  }
+  updateNotifBanner();
+}
+async function enableNotifications() {
+  if (!pushSupported()) {
+    if (isIOS && !isStandalone()) return iosHelp();
+    return toast('This browser can’t show notifications');
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') { updateNotifBanner(); return toast(perm === 'denied' ? 'Notifications are blocked — allow them in your browser’s site settings' : 'Notifications not turned on'); }
+  await subscribePush(true);
+}
+async function disableNotifications(silent) {
+  try { const sub = await (swReg || await navigator.serviceWorker?.ready)?.pushManager?.getSubscription(); await sub?.unsubscribe(); } catch {}
+  try { await api('push/unsubscribe'); } catch {}
+  pushActive = false; updateNotifBanner();
+  if (silent !== true) toast('Notifications turned off on this device');
+}
+function iosHelp() {
+  popup({ icon: '📲', title: 'Notifications on iPhone', text: 'On iPhone and iPad, notifications work once Intra Chat is on your Home Screen:\n1. Tap the Share button in Safari\n2. Choose “Add to Home Screen”\n3. Open Intra Chat from the new icon and turn notifications on', ok: 'Got it', cancel: '' });
+}
+function updateNotifBanner() {
+  const b = $('notifBanner');
+  const dismissed = (+store.get('ic-nb-dismissed') || 0) > Date.now();
+  let show = false;
+  if (!dismissed && !pushActive) {
+    if (pushSupported() && Notification.permission === 'default') {
+      show = true; $('nbTitle').textContent = 'Get notified about new messages'; $('nbText').textContent = 'Even when Intra Chat is closed — like WhatsApp.'; $('nbAction').textContent = 'Turn on'; $('nbAction').onclick = enableNotifications;
+    } else if (isIOS && !isStandalone()) {
+      show = true; $('nbTitle').textContent = 'Add Intra Chat to your Home Screen'; $('nbText').textContent = 'Needed on iPhone to get message notifications.'; $('nbAction').textContent = 'How'; $('nbAction').onclick = iosHelp;
+    } else if (installPrompt) {
+      show = true; $('nbTitle').textContent = 'Install the Intra Chat app'; $('nbText').textContent = 'Opens full-screen from your home screen.'; $('nbAction').textContent = 'Install'; $('nbAction').onclick = installApp;
+    }
+  }
+  b.classList.toggle('hidden', !show);
+}
+$('nbClose').onclick = () => { store.set('ic-nb-dismissed', String(Date.now() + 3 * 864e5)); updateNotifBanner(); };
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; updateNotifBanner(); });
+async function installApp() {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  const { outcome } = await installPrompt.userChoice.catch(() => ({}));
+  installPrompt = null; updateNotifBanner();
+  if (outcome === 'accepted') toast('Installed — find Intra Chat on your home screen');
+}
+
+/* Mute a group on this device */
+async function muteGroup() {
+  const room = current;                     // remember which group, in case you navigate away while saving
+  const muted = isMuted(room);
+  const choice = await popup({ icon: muted ? '🔔' : '🔕', title: muted ? 'Unmute this group?' : 'Mute notifications',
+    text: muted ? `Muted until ${fmtUntil(mutes[room])}.` : 'You won’t get notifications from this group. You’ll still see new messages when you open it.',
+    ok: '', cancel: 'Cancel',
+    choices: muted ? [{ label: 'Unmute', value: 0, cls: 'primary' }] : [{ label: '8 hours', value: Date.now() + 8 * 36e5 }, { label: '1 week', value: Date.now() + 7 * 864e5 }, { label: 'Always', value: -1 }] });
+  if (typeof choice !== 'number') return;
+  try {
+    muteChangedAt = Date.now();
+    const d = await api('push/mute', { room, until: choice });
+    if (d.muteUntil) mutes[room] = d.muteUntil; else delete mutes[room];
+    store.setJson('ic-mutes', mutes); renderRooms(); if (current === room) renderInfo();
+    toast(d.muteUntil ? '🔕 Group muted' : '🔔 Group unmuted');
+  } catch (e) { toast(e.message); }
+}
+const fmtUntil = t => t > Date.now() + 365 * 864e5 ? 'you unmute it' : new Date(t).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 
 /* ---------------- Start ---------------- */
 if (me.name) enterApp();

@@ -8,6 +8,12 @@
 <meta name="description" content="Group chat for your team — open groups, private groups with their own password, and location groups.">
 <title>Intra Chat</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%234f46e5'/%3E%3Cpath d='M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z' fill='white'/%3E%3C/svg%3E">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Intra Chat">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -44,6 +50,12 @@
       <div class="search-wrap">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         <input id="roomSearch" type="search" placeholder="Search groups" autocomplete="off" aria-label="Search groups">
+      </div>
+      <div id="notifBanner" class="notif-banner hidden" role="region" aria-label="Notifications">
+        <span class="nb-icon" aria-hidden="true">🔔</span>
+        <div class="nb-text"><b id="nbTitle">Get notified about new messages</b><small id="nbText">Even when Intra Chat is closed — just like WhatsApp.</small></div>
+        <button class="btn small primary" id="nbAction">Turn on</button>
+        <button class="icon-btn nb-close" id="nbClose" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <ul id="roomList" class="room-list"></ul>
       <button class="fab" id="newGroupBtn" aria-label="New group">
@@ -170,6 +182,14 @@
       </div>
     </form>
   </dialog>
+
+  <!-- Message actions (long-press / right-click) -->
+  <div id="msgMenu" class="msg-menu hidden" role="dialog" aria-label="Message actions">
+    <div class="mm-card" id="mmCard">
+      <div class="mm-reacts" id="mmReacts" role="group" aria-label="React"></div>
+      <div class="mm-actions" id="mmActions"></div>
+    </div>
+  </div>
 
   <div id="viewer" class="viewer hidden" role="dialog" aria-label="Image viewer"><img alt=""></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

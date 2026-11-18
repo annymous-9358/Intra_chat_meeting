@@ -4,8 +4,15 @@
   "description": "Quick chat app: runs on your LAN with Node.js or on Netlify (Functions + Blobs)",
   "type": "module",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18" },
-  "dependencies": { "@netlify/blobs": "^11.1.9" },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^11.1.9",
+    "web-push": "^3.6.7"
+  },
   "license": "MIT"
 }

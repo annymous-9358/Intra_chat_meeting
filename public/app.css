@@ -374,3 +374,46 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
   .type-cards span { min-height: 0; flex-direction: row; align-items: center; gap: 10px; }
   .type-cards i { margin: 0; }
 }
+
+/* ======================================================================
+   v4: notifications banner, message menu, reactions, deleted messages
+   ====================================================================== */
+.notif-banner { display: flex; align-items: center; gap: 10px; margin: 0 12px 6px; padding: 10px 6px 10px 12px; border-radius: 14px; background: var(--brand-soft); }
+.nb-icon { font-size: 22px; }
+.nb-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.nb-text b { font-size: 14px; }
+.nb-text small { font-size: 12px; color: var(--muted); }
+.nb-close { width: 34px; height: 34px; }
+.nb-close svg { width: 18px; height: 18px; }
+.room-mute { font-size: 12px; opacity: .7; flex: none; }
+
+/* Reactions under a bubble */
+.reacts { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 -2px; clear: both; }
+.react-chip { display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 1px 7px; font-size: 13px; line-height: 1.5; }
+.react-chip.mine { border-color: var(--brand); background: var(--brand-soft); }
+.react-chip b { font-size: 11px; color: var(--muted); font-weight: 700; }
+.msg.deleted .body { font-style: italic; color: var(--muted); }
+.msg.pressing { transform: scale(.98); }
+.msg-btn { position: absolute; top: 4px; right: 36px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--surface); color: var(--muted); box-shadow: var(--shadow); display: grid; place-items: center; opacity: 0; transition: opacity .12s; font-size: 15px; }
+.msg:hover .msg-btn, .msg-btn:focus-visible { opacity: 1; }
+@media (hover: none) { .msg-btn { display: none; } }
+
+/* Message menu */
+.msg-menu { position: fixed; inset: 0; z-index: 30; background: rgba(10, 12, 25, .35); }
+.mm-card { position: absolute; min-width: 240px; max-width: calc(100vw - 24px); background: var(--surface); border-radius: 18px; box-shadow: 0 18px 50px -12px rgba(0, 0, 0, .45); overflow: hidden; animation: mm-in .14s ease; }
+@keyframes mm-in { from { transform: scale(.94); opacity: 0; } }
+.mm-reacts { display: flex; justify-content: space-between; gap: 2px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.mm-reacts button { width: 40px; height: 40px; border: 0; border-radius: 50%; background: none; font-size: 22px; display: grid; place-items: center; transition: transform .1s; }
+.mm-reacts button:hover { transform: scale(1.18); background: var(--surface-2); }
+.mm-reacts button.on { background: var(--brand-soft); }
+.mm-actions button { display: flex; width: 100%; align-items: center; gap: 12px; padding: 13px 16px; border: 0; background: none; text-align: left; font-size: 15px; }
+.mm-actions button:hover { background: var(--surface-2); }
+.mm-actions button.danger { color: var(--danger); }
+.mm-actions svg { width: 20px; height: 20px; color: var(--muted); }
+.mm-actions button.danger svg { color: var(--danger); }
+
+/* Choice list inside popups (e.g. mute for 8 hours / 1 week / always) */
+.modal-choices { display: grid; gap: 8px; margin-top: 16px; }
+.modal-choices .btn { width: 100%; }
+.modal-extra { display: grid; gap: 8px; margin-top: 14px; }
+#modalText { white-space: pre-line; }

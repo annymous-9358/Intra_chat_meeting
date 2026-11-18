@@ -16,7 +16,15 @@ A quick group chat app. Run it in two ways with the same code:
 - Invite links (`…/#/g/<group>`): share from the chat header; new people enter their name and go straight in (or get asked for the password)
 - Chat list with last-message previews, times, unread dots and an unread count in the tab title; previews of private groups are hidden from people who haven't joined
 - Custom popups and toasts everywhere (no browser alert/confirm/prompt), jump-to-latest button with new-message count, per-group drafts, profile (change name / sign out)
-- Group chats, online list, typing indicator, desktop notifications
+- **Push notifications like WhatsApp**: members get notified of new messages even when the app is closed, the phone is
+  locked, or they're outside a location group's range. Notifications stack per group ("Floor (3 messages)"), tapping one
+  opens that chat, and nothing is shown for the chat you're already looking at. Mute a group for 8 hours, 1 week or always.
+- **Installable app** (PWA): "Install" / "Add to Home Screen" gives an app icon, full-screen window and unread badge.
+  On iPhone/iPad, notifications only work after adding to the Home Screen (iOS 16.4+).
+- **Message actions**: press and hold (phone) or right-click / 😊 (desktop) a message for emoji reactions
+  (👍 ❤️ 😂 😮 😢 🙏, one per person), Reply, Copy text, Message info (seen/delivered) and Delete for everyone
+  (your own messages; group admins can delete any message in their group)
+- Group chats, online list, typing indicator
 - **Voice messages**: hold the mic to record, slide left to cancel, release to send (max 2 min). Waveform, seek, 1×/1.5×/2× speed.
 - **Location groups**: the creator (admin) sets a range around their location (50 m – 50 km).
   Members inside the range can chat. Members outside stay in the group read-only and can **ask to chat**;
@@ -39,6 +47,10 @@ Your own messages appear immediately.
 Or with the CLI: `npx netlify-cli deploy --prod` (after `netlify login` / `netlify link`).
 
 Netlify Blobs needs no setup; it is enabled automatically for the site.
+
+**Push notifications** need a VAPID key pair in the environment variables `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and
+`VAPID_SUBJECT` (your site URL). Generate one with `npx web-push generate-vapid-keys`. If they're missing, the server
+creates a pair on first use and stores it in Netlify Blobs.
 
 **GIF search (optional):** create a free API key at https://developers.giphy.com/dashboard/ (choose "API"),
 add it as the `GIPHY_API_KEY` environment variable in Netlify, then redeploy. Without it, uploading your own GIFs
