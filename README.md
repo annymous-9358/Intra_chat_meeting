@@ -24,6 +24,10 @@ A quick group chat app. Run it in two ways with the same code:
   opens that chat, and nothing is shown for the chat you're already looking at. Mute a group for 8 hours, 1 week or always.
 - **Installable app** (PWA): "Install" / "Add to Home Screen" gives an app icon, full-screen window and unread badge.
   On iPhone/iPad, notifications only work after adding to the Home Screen (iOS 16.4+).
+- **Satellite range map** for location groups (Group info and the New group sheet): satellite or street view, the
+  range drawn as a circle, a 📍 centre pin and a blue "You" dot. The admin can drag the pin to move the centre and sees
+  the circle resize live while changing the range. Members see the group's centre; members' own positions are never shared.
+  Map library: Leaflet 1.9.4 (bundled in `public/vendor/leaflet`, BSD-2 licence). Imagery © Esri / Maxar; streets © OpenStreetMap.
 - **📻 Walkie-talkie**: open it from the chat header and **hold to talk** (or hold the Space bar on a computer).
   Everyone with the walkie-talkie open hears you live (about 1–2 s behind), one person talks at a time, and people
   who aren't listening see "X is talking — Listen". Each transmission is also saved in the chat as a 📻 voice message

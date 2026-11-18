@@ -352,7 +352,7 @@ async function openRoom(room, force) {
 }
 function leaveRoom() {
   session++; clearTimeout(pollTimer); ctrl?.abort(); polling = false;
-  stopLocation(); stopAllAudio(); closeWalkie();
+  stopLocation(); stopAllAudio(); closeWalkie(); groupMap.destroy();
   if (current) markRead(current, since);
   current = null; group = null; tellSW();
 }
@@ -1030,7 +1030,7 @@ function renderInfo() {
 
   if (g?.geo) {
     const c = el('div', 'card'); c.append(el('h3', null, 'Range'));
-    c.append(radar(g));
+    c.append(groupMap.element(g));
     const m = g.me || {};
     const kv = (k, v) => { const r = el('div', 'kv'); r.append(el('span', null, k), v instanceof Node ? v : el('span', null, v)); c.append(r); };
     kv('Range', fmtDist(g.radius));
@@ -1043,18 +1043,18 @@ function renderInfo() {
       const sr = el('div', 'slider-row');
       const slider = el('input'); slider.type = 'range'; slider.min = 0; slider.max = RANGES.length - 1; slider.step = 1; slider.value = radiusToSlider(g.radius); slider.setAttribute('aria-label', 'Group range');
       const out = el('output', null, fmtDist(g.radius));
-      slider.oninput = () => out.textContent = fmtDist(sliderToRadius(+slider.value));
+      slider.oninput = () => { out.textContent = fmtDist(sliderToRadius(+slider.value)); groupMap.previewRadius(sliderToRadius(+slider.value)); };
       sr.append(slider, out);
       const save = el('button', 'btn small primary', 'Save range');
       save.onclick = async () => { try { await api('group/update', { radius: sliderToRadius(+slider.value) }); toast('Range updated'); slider.blur(); repoll(); } catch (e) { toast(e.message); } };
-      const recBtn = el('button', 'btn small', 'Move centre here');
+      const recBtn = el('button', 'btn small', 'Use my location as centre');
       recBtn.onclick = async () => {
         const yes = await popup({ icon: '📍', title: 'Move the centre here?', text: 'The group’s centre will be set to where you are now, and everyone’s range status will be checked again.', ok: 'Move centre' });
         if (!yes) return;
         try { const loc = await getLocationOnce(); await api('group/update', { recenter: true, loc }); toast('Centre moved'); repoll(); } catch (e) { toast(e.message); }
       };
       const btns = el('div', 'btn-row'); btns.append(save, recBtn);
-      c.append(el('h3', null, 'Change range'), sr, btns);
+      c.append(el('h3', null, 'Change range'), sr, btns, el('p', 'muted small', 'Tip: drag the 📍 pin on the map to move the centre.'));
     }
     body.append(c);
 
@@ -1149,13 +1149,22 @@ $('newGroupBtn').onclick = () => {
 };
 $('ngClose').onclick = () => $('newGroup').close();
 $('newGroup').onclick = e => { if (e.target === $('newGroup')) $('newGroup').close(); };
-$('ngRadius').oninput = () => $('ngRadiusOut').textContent = fmtDist(sliderToRadius(+$('ngRadius').value));
+$('ngRadius').oninput = () => { $('ngRadiusOut').textContent = fmtDist(sliderToRadius(+$('ngRadius').value)); ngMapView?.setRadius(sliderToRadius(+$('ngRadius').value)); };
+let ngMapView = null;
+function closeNgMap() { try { ngMapView?.map.remove(); } catch {} ngMapView = null; $('ngMap').classList.add('hidden'); }
+$('newGroup').addEventListener('close', closeNgMap);
 $('ngGeoPw').onchange = syncNewGroup;
 for (const r of document.querySelectorAll('input[name=ngType]')) r.onchange = async () => {
   syncNewGroup();
   if (ngType() === 'geo' && !ngLoc) {
     const s = $('ngLoc'); s.className = 'loc-status'; s.textContent = 'Getting your location…';
-    try { ngLoc = await getLocationOnce(); s.className = 'loc-status ok'; s.textContent = `✓ Location found (±${fmtDist(ngLoc.acc)}). This will be the centre.`; }
+    try {
+      ngLoc = await getLocationOnce(); s.className = 'loc-status ok'; s.textContent = `✓ Location found (±${fmtDist(ngLoc.acc)}). Drag the 📍 pin to adjust the centre.`;
+      $('ngMap').classList.remove('hidden');
+      rangeMap($('ngMap'), { center: ngLoc, radius: sliderToRadius(+$('ngRadius').value), draggable: true,
+        onMove: ll => { ngLoc = { lat: ll.lat, lng: ll.lng, acc: 0 }; s.textContent = '✓ Centre set where you dropped the pin.'; return true; } })
+        .then(v => { ngMapView = v; v.setYou(null); }).catch(() => $('ngMap').classList.add('hidden'));
+    }
     catch (e) { s.className = 'loc-status bad'; s.textContent = e.message; }
   }
 };
@@ -1557,6 +1566,104 @@ const typingInField = () => /^(INPUT|TEXTAREA)$/.test(document.activeElement?.ta
 document.addEventListener('keydown', e => { if (e.code === 'Space' && walkie.on && !e.repeat && !typingInField() && !ptt.disabled) { e.preventDefault(); startTalking(); } });
 document.addEventListener('keyup', e => { if (e.code === 'Space' && walkie.talking) { e.preventDefault(); stopTalking(true); } });
 window.addEventListener('blur', () => { if (walkie.talking) stopTalking(true); });
+
+
+/* ---------------- Satellite map of a location group's range ---------------- */
+// Leaflet is bundled with the app (/vendor/leaflet) and loaded only when a map is needed.
+let leafletLoading = null;
+function loadLeaflet() {
+  if (window.L) return Promise.resolve(window.L);
+  return leafletLoading ||= new Promise((resolve, reject) => {
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = '/vendor/leaflet/leaflet.css'; document.head.append(css);
+    const js = document.createElement('script'); js.src = '/vendor/leaflet/leaflet.js';
+    js.onload = () => resolve(window.L); js.onerror = () => { leafletLoading = null; reject(new Error('Map couldn’t load')); };
+    document.head.append(js);
+  });
+}
+const pinIcon = L => L.divIcon({ className: 'map-pin', html: '<span>📍</span><b>Centre</b>', iconSize: [70, 40], iconAnchor: [35, 34] });
+const youIcon = L => L.divIcon({ className: 'map-you', html: '<i></i><b>You</b>', iconSize: [60, 34], iconAnchor: [30, 8] });
+function baseLayers(L) {
+  const satellite = L.layerGroup([
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics' }),
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, opacity: .9 }),
+  ]);
+  const streets = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' });
+  return { Satellite: satellite, Map: streets };
+}
+/**
+ * A map showing a circle (the range), a centre pin and the viewer's own position.
+ * opts.draggable: let the admin drag the pin; onMove(latlng) is called when they drop it.
+ */
+async function rangeMap(container, { center, radius, draggable = false, onMove = null }) {
+  const L = await loadLeaflet();
+  const map = L.map(container, { zoomControl: true, attributionControl: true, scrollWheelZoom: false, tap: true }).setView([center.lat, center.lng], 16);
+  const layers = baseLayers(L);
+  layers.Satellite.addTo(map);
+  L.control.layers(layers, null, { position: 'topright' }).addTo(map);
+  const circle = L.circle([center.lat, center.lng], { radius, color: '#2dd4bf', weight: 2, dashArray: '6 6', fillColor: '#2dd4bf', fillOpacity: .14 }).addTo(map);
+  const pin = L.marker([center.lat, center.lng], { icon: pinIcon(L), draggable, keyboard: draggable, title: draggable ? 'Drag to move the centre' : 'Group centre', zIndexOffset: 500 }).addTo(map);
+  let you = null;
+  if (draggable) {
+    pin.on('drag', e => circle.setLatLng(e.target.getLatLng()));
+    pin.on('dragend', async e => {
+      const ll = e.target.getLatLng();
+      const keep = await onMove?.(ll);
+      if (keep === false) { pin.setLatLng(circle._origin || [center.lat, center.lng]); circle.setLatLng(pin.getLatLng()); }
+    });
+  }
+  circle._origin = [center.lat, center.lng];
+  const fit = () => {
+    const b = circle.getBounds();
+    if (you) b.extend(you.getLatLng());
+    map.fitBounds(b, { padding: [24, 24], maxZoom: 18 });
+  };
+  fit();
+  return {
+    map,
+    setCenter(c) { circle._origin = [c.lat, c.lng]; circle.setLatLng(circle._origin); pin.setLatLng(circle._origin); },
+    setRadius(r) { circle.setRadius(r); },
+    setYou(loc) {
+      if (!loc) { if (you) { you.remove(); you = null; } return; }
+      if (!you) { you = L.marker([loc.lat, loc.lng], { icon: youIcon(L), interactive: false }).addTo(map); fit(); }
+      else you.setLatLng([loc.lat, loc.lng]);
+    },
+    fit,
+    resize() { map.invalidateSize(); },
+  };
+}
+
+// The Group info panel re-renders often, so the map is created once per group and re-attached
+const groupMap = {
+  room: null, wrap: null, view: null, key: '',
+  element(g) {
+    if (this.room !== current || !this.wrap) this.create(g);
+    const key = `${g.center?.lat},${g.center?.lng},${g.radius}`;
+    if (this.view && key !== this.key) { this.view.setCenter(g.center); this.view.setRadius(g.radius); this.view.fit(); }
+    this.key = key;
+    this.view?.setYou(geo.loc);
+    setTimeout(() => this.view?.resize(), 0);
+    return this.wrap;
+  },
+  create(g) {
+    this.destroy();
+    this.room = current; this.key = `${g.center?.lat},${g.center?.lng},${g.radius}`;
+    const wrap = this.wrap = el('div', 'range-map-wrap');
+    const box = el('div', 'range-map'); box.setAttribute('role', 'img'); box.setAttribute('aria-label', `Map of the group’s ${fmtDist(g.radius)} range`);
+    wrap.append(box, el('div', 'map-legend', '📍 group centre · dashed circle = range · 🔵 you'));
+    if (!g.center) { wrap.replaceChildren(radar(g)); return; }
+    rangeMap(box, { center: g.center, radius: g.radius, draggable: !!g.isAdmin, onMove: ll => this.confirmMove(ll) })
+      .then(v => { if (this.wrap === wrap) { this.view = v; v.setYou(geo.loc); } else v.map.remove(); })
+      .catch(() => { if (this.wrap === wrap) wrap.replaceChildren(radar(g)); });   // offline or blocked: fall back to the radar
+  },
+  async confirmMove(ll) {
+    const yes = await popup({ icon: '📍', title: 'Move the centre here?', text: 'The range will be centred on the point where you dropped the pin, and everyone’s status will be checked again.', ok: 'Move centre' });
+    if (!yes) return false;
+    try { await api('group/update', { recenter: true, loc: { lat: ll.lat, lng: ll.lng, acc: 0 } }); toast('Centre moved'); repoll(); return true; }
+    catch (e) { toast(e.message); return false; }
+  },
+  previewRadius(r) { this.view?.setRadius(r); },
+  destroy() { try { this.view?.map.remove(); } catch {} this.view = null; this.wrap = null; this.room = null; },
+};
 
 /* ---------------- Start ---------------- */
 // Resume a saved session, otherwise show sign in (or create account when arriving from an invite)
