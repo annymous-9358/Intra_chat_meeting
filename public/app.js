@@ -3393,17 +3393,42 @@ function personalCard(d, onChange) {
   card.append(top);
   if (d.steps >= d.goal) card.append(el('p', 'sm-cheer', 'Goal reached today — great job!'));
   else card.append(el('p', 'sm-cheer muted', `${fmtN(d.goal - d.steps)} steps to go · about ${Math.ceil((d.goal - d.steps) / 110)} min of walking`));
-  // week bars
-  const wk = el('div', 'sm-week'); const max = Math.max(d.goal, ...d.week.map(x => x.steps));
+  // week chart: value on every bar, tap a bar for that day's details
+  const kfmt = n => n >= 10000 ? Math.round(n / 1000) + 'k' : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(Math.round(n));
+  const dayName = (ds, long) => new Date(ds + 'T12:00').toLocaleDateString([], long ? { weekday: 'long', day: 'numeric', month: 'short' } : { weekday: 'short' });
+  const total = d.week.reduce((a, x) => a + x.steps, 0), hits = d.week.filter(x => x.steps >= d.goal).length;
+  const sum = el('div', 'sm-sum');
+  sum.append(el('span', null, `This week: ${fmtN(total)} steps`), el('span', null, `avg ${fmtN(total / 7)}/day · goal hit ${hits} of 7`));
+  card.append(sum);
+  const detail = el('div', 'sm-detail'); card.append(detail);
+  const wk = el('div', 'sm-week'); const max = Math.max(d.goal, ...d.week.map(x => x.steps)) * 1.16;
+  const bars = el('div', 'sm-bars');
+  const goalLine = el('div', 'sm-goal-line'); goalLine.style.bottom = `calc((100% - 18px) * ${(d.goal / max).toFixed(4)})`;   // bars sit below an 18px label row
+  goalLine.append(el('span', null, `goal ${kfmt(d.goal)}`));
+  bars.append(goalLine);
+  const cols = [];
+  const show = (x, col) => {
+    cols.forEach(c => c.classList.toggle('sel', c === col));
+    const pct = Math.round(x.steps / d.goal * 100);
+    detail.replaceChildren(el('b', null, x.date === d.today ? 'Today' : dayName(x.date, true)),
+      el('span', null, `${fmtN(x.steps)} steps · ${kmOf(x.steps).toFixed(1)} km · ${pct}% of goal${x.steps >= d.goal ? ' ✓' : ''}`));
+  };
   for (const x of d.week) {
-    const col = el('div', 'sm-day' + (x.steps >= d.goal ? ' hit' : '') + (x.date === d.today ? ' today' : ''));
-    const bar = el('i'); bar.style.height = Math.max(4, x.steps / max * 100) + '%'; bar.title = `${fmtN(x.steps)} steps`;
-    col.append(bar, el('small', null, new Date(x.date + 'T12:00').toLocaleDateString([], { weekday: 'narrow' })));
-    wk.append(col);
+    const col = el('button', 'sm-day' + (x.steps >= d.goal ? ' hit' : '') + (x.date === d.today ? ' today' : '')); col.type = 'button';
+    col.setAttribute('aria-label', `${dayName(x.date, true)}: ${fmtN(x.steps)} steps`);
+    const val = el('em', null, x.steps ? kfmt(x.steps) : '–');
+    const bar = el('i'); bar.style.height = Math.max(3, x.steps / max * 100) + '%';
+    const stack = el('div', 'sm-stack'); stack.append(val, bar);
+    col.append(stack);
+    col.onclick = () => show(x, col);
+    cols.push(col); bars.append(col);
   }
-  const goalLine = el('div', 'sm-goal-line'); goalLine.style.bottom = `calc(${d.goal / max * 100}% * .78 + 18px)`;
-  wk.append(goalLine);
+  const labels = el('div', 'sm-labels');
+  for (const x of d.week) labels.append(el('small', x.date === d.today ? 'today' : '', x.date === d.today ? 'Today' : dayName(x.date)));
+  wk.append(bars, labels);
   card.append(wk);
+  const todayIdx = d.week.findIndex(x => x.date === d.today);
+  show(d.week[todayIdx >= 0 ? todayIdx : 6], cols[todayIdx >= 0 ? todayIdx : 6]);
   const btns = el('div', 'btn-row sm-btns');
   const walkB = el('button', 'btn primary with-ic'); walkB.type = 'button'; walkB.append(icoEl('footprints'), 'Start walk'); walkB.onclick = () => startWalk(onChange);
   const addB = el('button', 'btn with-ic'); addB.type = 'button'; addB.append(icoEl('plus'), 'Add steps'); addB.onclick = () => addStepsManually(d, onChange);

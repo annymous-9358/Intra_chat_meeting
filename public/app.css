@@ -1310,13 +1310,6 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .sm-stat:first-child .ic { color: #f97316; }
 .sm-stat b { font-size: 17px; line-height: 1.1; } .sm-stat small { color: var(--muted); font-size: 12px; }
 .sm-cheer { margin: 0; font-weight: 600; font-size: 14px; }
-.sm-week { position: relative; display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; height: 110px; align-items: end; }
-.sm-day { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
-.sm-day i { width: 100%; max-width: 26px; border-radius: 6px 6px 3px 3px; background: color-mix(in srgb, var(--brand) 35%, transparent); max-height: 78%; }
-.sm-day.hit i { background: var(--brand); }
-.sm-day.today small { color: var(--text); font-weight: 700; }
-.sm-day small { font-size: 11px; color: var(--muted); }
-.sm-goal-line { position: absolute; left: 0; right: 0; border-top: 1.5px dashed color-mix(in srgb, var(--muted) 60%, transparent); pointer-events: none; }
 .sm-btns { margin-top: 0; }
 .sm-btns .btn { flex: 1; min-width: 0; padding-left: 10px; padding-right: 10px; }
 .sm-badges h3 { margin: 4px 0 8px; font-size: 14px; color: var(--muted); font-weight: 500; }
@@ -1399,3 +1392,24 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .hb-mid { flex: 1; min-width: 150px; display: flex; flex-direction: column; gap: 2px; }
 .hb-mid b { font-size: 14px; } .hb-mid small { font-size: 12px; color: var(--muted); }
 .hb-acts { display: flex; gap: 6px; }
+
+/* week step chart */
+.sm-sum { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--muted); }
+.sm-sum span:first-child { color: var(--text); font-weight: 600; }
+.sm-detail { display: flex; flex-direction: column; gap: 1px; padding: 8px 12px; border-radius: 12px; background: var(--surface-2); font-size: 13px; }
+.sm-detail b { font-size: 14px; } .sm-detail span { color: var(--muted); }
+.sm-week { display: flex; flex-direction: column; gap: 6px; }
+.sm-bars { position: relative; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; height: 140px; align-items: end; padding-top: 18px; }
+.sm-day { height: 100%; border: 0; background: none; padding: 0; display: flex; align-items: flex-end; justify-content: center; cursor: pointer; border-radius: 10px; color: var(--text); }
+.sm-day.sel { background: color-mix(in srgb, var(--brand) 10%, transparent); }
+.sm-stack { position: relative; width: 100%; max-width: 30px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+.sm-stack em { font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--muted); margin-bottom: 3px; white-space: nowrap; }
+.sm-day.sel .sm-stack em, .sm-day.hit .sm-stack em { color: var(--text); }
+.sm-stack i { width: 100%; border-radius: 6px 6px 3px 3px; background: color-mix(in srgb, var(--brand) 35%, transparent); transition: height .5s ease; }
+.sm-day.hit i { background: var(--brand); }
+.sm-day.sel i { box-shadow: 0 0 0 2px var(--brand); }
+.sm-goal-line { position: absolute; left: 0; right: 0; border-top: 1.5px dashed color-mix(in srgb, var(--muted) 60%, transparent); pointer-events: none; z-index: 1; }
+.sm-goal-line span { position: absolute; right: 0; top: -16px; font-size: 10px; color: var(--muted); background: var(--surface); padding: 0 4px; border-radius: 4px; }
+.sm-labels { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; text-align: center; }
+.sm-labels small { font-size: 11px; color: var(--muted); }
+.sm-labels small.today { color: var(--text); font-weight: 700; }
