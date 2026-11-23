@@ -1764,7 +1764,7 @@ for (const ev of ['pointerdown', 'touchend', 'keydown']) document.addEventListen
 function closeWalkie() {
   if (walkie.talking) stopTalking(false);
   walkie.on = false;
-  if (!autoWalkie() || walkie.autoOff) stopBackgroundAudio(); else { walkie.mediaText = ''; updateMediaSession(); }
+  if (!autoWalkie() || walkie.autoOff) stopBackgroundAudio(); else { nativeWalkie(false); walkie.mediaText = ''; updateMediaSession(); }
   $('walkiePanel').classList.add('hidden'); $('walkieBtn').classList.remove('on'); $('walkieBtn').setAttribute('aria-pressed', 'false');
   renderWalkie();
 }
@@ -1802,7 +1802,27 @@ function enqueueChunk(c) {
 // Keep-alive while the walkie-talkie is on: all walkie sound goes into ONE continuous media stream played by an
 // <audio> element (plus an inaudible 30 Hz tone), so Chrome treats the page like a music player and keeps it running
 // with the screen locked or another app open. A media notification shows who's talking and lets you switch it off.
+// In the Android app, a native foreground service keeps the walkie-talkie alive in the background
+const isNativeApp = () => !!window.Capacitor?.isNativePlatform?.() && window.Capacitor.getPlatform?.() === 'android';
+let nativeWalkieOn = false, nativeWalkieText = '';
+function nativeWalkie(on, text) {
+  if (!isNativeApp()) return;
+  if (!nativeWalkie.listening) {
+    nativeWalkie.listening = true;
+    window.Capacitor.addListener('Walkie', 'stop', () => { walkie.autoOff = true; closeWalkie(); stopBackgroundAudio(); repoll(); toast('Walkie-talkie off'); });
+  }
+  if (on) {
+    const t = text || 'Listening — you’ll hear people live';
+    if (nativeWalkieOn && t === nativeWalkieText) return;
+    nativeWalkieOn = true; nativeWalkieText = t;
+    window.Capacitor.nativePromise('Walkie', 'start', { title: `Walkie-talkie · ${roomTitle(current)}`, text: t }).catch(() => { nativeWalkieOn = false; });
+  } else if (nativeWalkieOn) {
+    nativeWalkieOn = false; nativeWalkieText = '';
+    window.Capacitor.nativePromise('Walkie', 'stop').catch(() => {});
+  }
+}
 function startBackgroundAudio() {
+  if (walkie.on) nativeWalkie(true);
   const ctx = walkie.ctx; if (!ctx) return;
   try {
     if (!walkie.out && ctx.createMediaStreamDestination) {
@@ -1818,6 +1838,7 @@ function startBackgroundAudio() {
   updateMediaSession();
 }
 function stopBackgroundAudio() {
+  nativeWalkie(false);
   if (walkie.out) { try { walkie.out.osc.stop(); walkie.out.el.pause(); walkie.out.el.srcObject = null; } catch {} walkie.out = null; }
   if ('mediaSession' in navigator) { try { navigator.mediaSession.playbackState = 'none'; navigator.mediaSession.metadata = null; } catch {} }
   walkie.mediaText = '';
@@ -1825,6 +1846,7 @@ function stopBackgroundAudio() {
 // Play through the continuous stream when it's running, otherwise straight to the speakers
 const walkieOutput = () => (walkie.out?.ok ? walkie.out.dest : walkie.ctx.destination);
 function updateMediaSession(text = 'Walkie-talkie · listening') {
+  if (walkie.on) nativeWalkie(true, /talking/.test(text) ? text : 'Listening — you’ll hear people live');
   if (!('mediaSession' in navigator) || !walkieListening() || walkie.mediaText === text) return;
   walkie.mediaText = text;
   try {

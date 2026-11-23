@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(StepSyncPlugin.class);   // background Health Connect step sync
+        registerPlugin(WalkiePlugin.class);     // keeps the walkie-talkie alive in the background
         super.onCreate(savedInstanceState);
 
         // Back gesture / button: step back through the app's own screens (pop-up → chat → tab), like the website.
