@@ -282,6 +282,7 @@ function linkIntent() {
   if (h === '#/new') return { act: 'new' };
   if (h === '#/friends') return { act: 'friends' };
   if (h === '#/stories') return { act: 'stories' };
+  if (h.startsWith('#/steps')) { const q = new URLSearchParams(h.split('?')[1] || ''); return { act: 'health', ok: q.get('health') === 'ok', msg: q.get('msg'), today: q.get('today') }; }
   const room = linkedRoom(); if (!room) return null;
   const q = new URLSearchParams(h.split('?')[1] || '');
   return { room, act: q.get('a') || 'open', key: q.get('k') || null };
@@ -290,6 +291,11 @@ let pendingIntent = null;
 function runIntent(intent) {
   if (!intent) return;
   if (intent.act === 'new') { history.replaceState(history.state, '', location.pathname); return openNewGroup(); }
+  if (intent.act === 'health') {
+    history.replaceState(history.state, '', location.pathname);
+    setTimeout(() => { openMyStepsSheet(); toast(intent.ok ? `Google Health connected${intent.today ? ` · today ${fmtN(+intent.today)} steps` : ''}` : (intent.msg || 'Couldn’t connect Google Health')); }, 300);
+    return;
+  }
   if (intent.act === 'stories') { history.replaceState(history.state, '', location.pathname); setTab('chats'); return loadStories().then(() => { const p = storyFeed.people.find(x => !x.mine && !x.allSeen && !x.muted); if (p) openStories(p.uid); }); }
   if (intent.act === 'friends') { history.replaceState(history.state, '', location.pathname); return setTab('friends'); }
   pendingIntent = intent.act === 'open' ? null : intent;
@@ -3189,7 +3195,57 @@ const localDay = () => { const d = new Date(); return new Date(d - d.getTimezone
 const fmtN = n => Math.round(n || 0).toLocaleString();
 const kmOf = n => (n * 0.75 / 1000);
 let myStepsData = null, stepsBoard = null, stepsRange = 'today';
-async function loadMySteps() { try { myStepsData = await api('steps/me', { room: current || 'general', today: localDay() }); } catch {} return myStepsData; }
+async function loadMySteps() {
+  const [me1, hs] = await Promise.all([api('steps/me', { room: current || 'general', today: localDay() }).catch(() => null), api('health/status', { room: current || 'general' }).catch(() => null)]);
+  if (me1) myStepsData = me1; if (hs) healthStatus = hs;
+  // keep Google Health fresh while you look at your steps (the server also syncs every 30 minutes on its own)
+  if (healthStatus?.connected && !healthStatus.error && Date.now() - healthStatus.lastSync > 10 * 60_000 && !healthSyncing) syncHealthNow(true);
+  return myStepsData;
+}
+/* Google Health (Health Connect / Fitbit / Pixel Watch) automatic step sync */
+let healthStatus = null, healthSyncing = false;
+async function connectHealth() {
+  try { const { url } = await api('health/start', { room: current || 'general', tz: new Date().getTimezoneOffset() }); location.href = url; }
+  catch (e) { toast(e.message); }
+}
+async function syncHealthNow(quiet) {
+  healthSyncing = true;
+  try {
+    const r = await api('health/sync', { room: current || 'general', tz: new Date().getTimezoneOffset() });
+    if (!quiet) toast(`Synced from Google Health · today ${fmtN(r.today)} steps`);
+    healthStatus = { ...healthStatus, lastSync: Date.now(), error: null, today: r.today };
+    if (r.updated) { await loadMySteps(); if (infoMode === 'steps') { await loadBoard(); renderSteps(); } refreshMyStepsSheet?.(); renderStepsBanner(); }
+  } catch (e) { if (!quiet) toast(e.message); healthStatus = { ...healthStatus, error: e.code || 'sync_failed' }; }
+  finally { healthSyncing = false; }
+}
+async function disconnectHealth(onChange) {
+  const yes = await popup({ icon: 'link', title: 'Disconnect Google Health?', text: 'Steps already synced stay. Automatic syncing stops until you connect again.', ok: 'Disconnect', danger: true });
+  if (!yes) return;
+  try { await api('health/disconnect', { room: current || 'general' }); healthStatus = { ...healthStatus, connected: false, error: null }; toast('Google Health disconnected'); onChange?.(); } catch (e) { toast(e.message); }
+}
+function healthBox(onChange) {
+  const hs = healthStatus; if (!hs?.configured) return null;
+  const box = el('div', 'health-box' + (hs.connected && !hs.error ? ' on' : ''));
+  const ic = icoEl('sparkles', 'hb-ic'); const mid = el('div', 'hb-mid'); const acts = el('div', 'hb-acts');
+  const btn = (label, cls, fn) => { const b = el('button', 'btn small ' + cls, label); b.type = 'button'; b.onclick = fn; acts.append(b); return b; };
+  if (!hs.connected) {
+    mid.append(el('b', null, 'Auto-sync from Google Health'), el('small', null, 'Phone steps (Health Connect), Fitbit and Pixel Watch — synced every 30 minutes, no need to open the app.'));
+    btn('Connect', 'primary', connectHealth);
+  } else if (hs.error === 'expired') {
+    mid.append(el('b', null, 'Google Health sign-in expired'), el('small', null, 'Reconnect to keep your steps syncing automatically.'));
+    btn('Reconnect', 'primary', connectHealth);
+  } else if (hs.error === 'not_linked') {
+    mid.append(el('b', null, 'Almost there'), el('small', null, 'Install the Google Health app, sign in with the same Google account, then tap Sync now.'));
+    btn('Sync now', 'primary', () => syncHealthNow().then(onChange));
+    btn('Disconnect', 'ghost', () => disconnectHealth(onChange));
+  } else {
+    mid.append(el('b', null, 'Google Health connected'), el('small', null, hs.lastSync ? `Synced ${agoText(hs.lastSync)} · updates every 30 min` : 'Syncing…'));
+    const sb = btn('Sync now', '', async () => { sb.disabled = true; await syncHealthNow(); sb.disabled = false; onChange?.(); });
+    btn('Disconnect', 'ghost', () => disconnectHealth(onChange));
+  }
+  box.append(ic, mid, acts);
+  return box;
+}
 async function loadBoard() { if (!current) return null; try { stepsBoard = await api('steps/board', { range: stepsRange, today: localDay() }); } catch (e) { stepsBoard = { error: e.message }; } return stepsBoard; }
 
 function ringSvg(pct, size = 148) {
@@ -3229,6 +3285,7 @@ function personalCard(d, onChange) {
   const addB = el('button', 'btn with-ic'); addB.type = 'button'; addB.append(icoEl('plus'), 'Add steps'); addB.onclick = () => addStepsManually(d, onChange);
   const goalB = el('button', 'btn ghost with-ic'); goalB.type = 'button'; goalB.append(icoEl('flag'), 'Goal'); goalB.onclick = () => editStepGoal(d, onChange);
   btns.append(walkB, addB, goalB); card.append(btns);
+  const hb = healthBox(onChange); if (hb) card.append(hb);
   // badges
   const bw = el('div', 'sm-badges'); bw.append(el('h3', null, `Badges · ${d.badges.filter(b => b.got).length} of ${d.badges.length}`));
   const grid = el('div', 'badge-grid');
@@ -3257,10 +3314,12 @@ function celebrate() {
   toast('Daily goal reached!');
 }
 
+let refreshMyStepsSheet = null;
 async function openMyStepsSheet() {
   await loadMySteps(); if (!myStepsData) return toast('Couldn’t load your steps');
   const { d, inner } = sheet('myStepsSheet', 'My steps');
   const draw = async () => { await loadMySteps(); inner.querySelector('.steps-me')?.replaceWith(personalCard(myStepsData, draw)); };
+  refreshMyStepsSheet = () => { if (d.open) inner.querySelector('.steps-me')?.replaceWith(personalCard(myStepsData, draw)); };
   inner.append(personalCard(myStepsData, draw));
   inner.append(el('p', 'muted small', 'Tip: open any group’s menu → Step challenge to compete with friends.'));
   d.showModal();

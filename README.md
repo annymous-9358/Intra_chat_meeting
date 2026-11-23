@@ -97,6 +97,18 @@ Messages arrive almost instantly via long-polling: each browser keeps one reques
 answers it the moment someone sends a message or starts typing (~0.5–1 s on Netlify, <0.2 s on a LAN).
 Your own messages appear immediately.
 
+## Google Health step sync (optional)
+Steps can sync automatically from the **Google Health API** (phone steps via Health Connect, Fitbit, Pixel Watch).
+1. Google Cloud console → create a project → **APIs & Services → Library** → enable **Google Health API**.
+2. **Google Auth Platform**: configure the consent screen (External), add your team under **Audience → Test users**,
+   and under **Data Access** add the scope `https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly`.
+3. **Clients → Create client → Web application**, authorized redirect URI: `https://<your-site>/api/health/callback`.
+4. In Netlify → Site configuration → Environment variables add `GOOGLE_HEALTH_CLIENT_ID` and `GOOGLE_HEALTH_CLIENT_SECRET`
+   (mark the secret as secret), then redeploy. Each person needs the **Google Health** app signed in with the same Google account.
+While the Google app is in *Testing*, only test users can connect and each connection lasts 7 days (then tap Reconnect).
+For everyone / no weekly reconnect, publish the app and complete Google's verification for the restricted Health scope.
+The server syncs connected accounts every 30 minutes (scheduled function) and on "Sync now"; it never lowers a day's count.
+
 ## Deploy on Netlify
 1. Push this repo to GitHub, then in Netlify choose **Add new site → Import an existing project** and pick the repo.
    Build settings come from `netlify.toml` automatically.

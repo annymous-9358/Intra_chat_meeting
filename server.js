@@ -41,7 +41,8 @@ const store = {
 };
 
 // Deliver scheduled messages and reminders
-setInterval(() => runScheduler(store, { vapidEnv: { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY, subject: process.env.VAPID_SUBJECT } }).catch(() => {}), 30_000);
+const healthEnv = { clientId: process.env.GOOGLE_HEALTH_CLIENT_ID, clientSecret: process.env.GOOGLE_HEALTH_CLIENT_SECRET };
+setInterval(() => runScheduler(store, { vapidEnv: { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY, subject: process.env.VAPID_SUBJECT }, health: healthEnv }).catch(() => {}), 30_000);
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -57,6 +58,7 @@ http.createServer(async (req, res) => {
       giphyKey: process.env.GIPHY_API_KEY,
       vapid: { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY, subject: process.env.VAPID_SUBJECT },
       waitUntil: p => p.catch(() => {}),     // send pushes in the background
+      health: healthEnv,                      // Google Health step sync (optional)
     });
     res.writeHead(response.status, Object.fromEntries(response.headers));
     return res.end(Buffer.from(await response.arrayBuffer()));

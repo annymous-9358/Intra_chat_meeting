@@ -7,6 +7,7 @@ export default async (req, context) => {
     giphyKey: Netlify.env.get('GIPHY_API_KEY'),
     vapid: { publicKey: Netlify.env.get('VAPID_PUBLIC_KEY'), privateKey: Netlify.env.get('VAPID_PRIVATE_KEY'), subject: Netlify.env.get('VAPID_SUBJECT') },
     waitUntil: context?.waitUntil?.bind(context),
+    health: { clientId: Netlify.env.get('GOOGLE_HEALTH_CLIENT_ID'), clientSecret: Netlify.env.get('GOOGLE_HEALTH_CLIENT_SECRET') },
   });
 };
 
