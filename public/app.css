@@ -412,7 +412,7 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 0; }
 .sheet-head h2 { margin: 0; font-size: 19px; font-weight: 500; }
-.type-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0 4px; }
+.type-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 16px 0 4px; }
 .type-cards label { position: relative; }
 .type-cards input { position: absolute; opacity: 0; }
 .type-cards span { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 10px; border: 1.5px solid var(--line); border-radius: 12px; cursor: pointer; min-height: 96px; height: 100%; }
@@ -1413,3 +1413,8 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .sm-labels { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; text-align: center; }
 .sm-labels small { font-size: 11px; color: var(--muted); }
 .sm-labels small.today { color: var(--text); font-weight: 700; }
+
+.type-cards span { min-height: 0; }
+.pick-list { max-height: 50dvh; overflow-y: auto; margin: 6px -18px 8px; }
+.pick-row { cursor: pointer; }
+.pick-row input { width: 22px; height: 22px; accent-color: var(--brand); }

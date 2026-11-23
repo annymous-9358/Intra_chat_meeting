@@ -273,7 +273,7 @@ const roomTitle = r => roomInfo(r).title || '#' + r;
 const RANGES = [50, 100, 150, 200, 300, 400, 500, 750, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 30000, 50000];
 const sliderToRadius = v => RANGES[Math.min(Math.max(Math.round(v), 0), RANGES.length - 1)];
 const radiusToSlider = r => RANGES.reduce((best, x, i) => Math.abs(x - r) < Math.abs(RANGES[best] - r) ? i : best, 0);
-const inviteLink = room => `${location.origin}${location.pathname}#/g/${encodeURIComponent(room)}`;
+const inviteLink = room => `${location.origin}${location.pathname}#/g/${encodeURIComponent(room)}` + (room === current && group?.invite && group.inviteCode ? `?i=${encodeURIComponent(group.inviteCode)}` : '');
 const linkedRoom = () => { const m = location.hash.match(/^#\/g\/([a-z0-9_-]{1,30})(\?.*)?$/i); return m ? m[1].toLowerCase() : null; };
 // What a link / notification button asks for: open a group and then talk, reply or play a message
 function linkIntent() {
@@ -285,9 +285,9 @@ function linkIntent() {
   if (h.startsWith('#/steps')) { const q = new URLSearchParams(h.split('?')[1] || ''); return { act: 'health', ok: q.get('health') === 'ok', msg: q.get('msg'), today: q.get('today') }; }
   const room = linkedRoom(); if (!room) return null;
   const q = new URLSearchParams(h.split('?')[1] || '');
-  return { room, act: q.get('a') || 'open', key: q.get('k') || null };
+  return { room, act: q.get('a') || 'open', key: q.get('k') || null, code: q.get('i') || null };
 }
-let pendingIntent = null;
+let pendingIntent = null; const inviteCodes = {};
 function runIntent(intent) {
   if (!intent) return;
   if (intent.act === 'new') { history.replaceState(history.state, '', location.pathname); return openNewGroup(); }
@@ -298,6 +298,7 @@ function runIntent(intent) {
   }
   if (intent.act === 'stories') { history.replaceState(history.state, '', location.pathname); setTab('chats'); return loadStories().then(() => { const p = storyFeed.people.find(x => !x.mine && !x.allSeen && !x.muted); if (p) openStories(p.uid); }); }
   if (intent.act === 'friends') { history.replaceState(history.state, '', location.pathname); return setTab('friends'); }
+  if (intent.code && intent.room) inviteCodes[intent.room] = intent.code;    // private invite link: join on open
   pendingIntent = intent.act === 'open' ? null : intent;
   if (intent.room !== current) openRoom(intent.room); else applyIntent();
 }
@@ -403,8 +404,21 @@ function readsPayload() {
   return out;
 }
 let lastCountsAt = 0;
+// Nearby location groups only show up for people in range: send a rough position with the chat list,
+// but only if location is already allowed (we never ask just for the list)
+let listLoc = null, listLocAt = 0;
+async function refreshListLoc() {
+  if (Date.now() - listLocAt < 3 * 60_000 || !navigator.geolocation) return;
+  listLocAt = Date.now();
+  try {
+    const st = await navigator.permissions?.query({ name: 'geolocation' });
+    if (st?.state !== 'granted') return;
+    navigator.geolocation.getCurrentPosition(p => { const had = !!listLoc; listLoc = { lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) }; if (!had) refreshRooms(); }, () => {}, { enableHighAccuracy: false, maximumAge: 5 * 60_000, timeout: 15000 });
+  } catch {}
+}
 async function refreshRooms() {
-  try { setRooms((await api('rooms', { room: current || 'general', reads: readsPayload() })).rooms); lastCountsAt = Date.now(); }
+  refreshListLoc();
+  try { setRooms((await api('rooms', { room: current || 'general', reads: readsPayload(), loc: geo.loc || undefined, listLoc: listLoc || undefined })).rooms); lastCountsAt = Date.now(); }
   catch { if (!rooms.length) setRooms([{ room: 'general' }]); }
 }
 function setRooms(list) {
@@ -469,6 +483,7 @@ function renderRooms() {
     const sub = document.createElement('small');
     if (r.last?.text) { const kind = mediaKind(r.last.text); sub.replaceChildren((isMine(r.last) ? (r.dm ? '' : 'You: ') : r.dm ? '' : r.last.name + ': ')); if (kind) sub.append(icoText(kind[0], kind[1], 'ic-inline')); else sub.append(r.last.text); }
     else if (r.dm) sub.textContent = r.peer?.status ? statusText(r.peer.status) : `@${r.peer?.username || ''} · say hi`;
+    else if (r.invite) sub.replaceChildren(icoText('userPlus', 'Invite-only group'));
     else if (r.locked && !r.access) sub.replaceChildren(icoText('lock', 'Private group · tap to enter password'));
     else if (r.geo) sub.replaceChildren(icoText('pin', `Location group · ${fmtDist(r.radius)} range`));
     else sub.textContent = r.room === 'general' ? 'Everyone' : 'No messages yet';
@@ -582,7 +597,7 @@ async function poll(mySession) {
     if (since && since > acked.delivered) ack.delivered = since;
     if (since && !document.hidden && since > acked.read) ack.read = since;
     const wantCounts = Date.now() - lastCountsAt > 20000;
-    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, xsince, walkie: walkieListening(), tsince: walkie.tsince ? walkie.tsince - 5000 : 0, ...(wantCounts ? { reads: readsPayload() } : {}) }, myCtrl.signal);
+    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, listLoc: listLoc || undefined, xsince, walkie: walkieListening(), tsince: walkie.tsince ? walkie.tsince - 5000 : 0, ...(wantCounts ? { reads: readsPayload() } : {}) }, myCtrl.signal);
     if (wantCounts) lastCountsAt = Date.now();
     if (mySession !== session) return;
     if (ack.delivered) acked.delivered = ack.delivered;
@@ -611,6 +626,16 @@ async function poll(mySession) {
   } catch (err) {
     if (mySession !== session || err.name === 'AbortError') return;
     if (err.code === 'deleted') { groupGone(current, err.message); return; }
+    if (err.code === 'invite_only') {
+      const room = current, code = inviteCodes[room];
+      if (code) {
+        delete inviteCodes[room];
+        try { await api('group/join', { room, code }); toast('You joined the group'); await refreshRooms(); openRoom(room, true); return; }
+        catch (e) { toast(e.message); }
+      } else popup({ icon: 'lock', title: 'Invite-only group', text: err.message, ok: 'OK', cancel: '' });
+      leaveRoom(); history.replaceState(history.state, '', location.pathname); $('app').classList.remove('in-chat', 'info-open', 'has-room'); renderRooms();
+      return;
+    }
     if (err.code === 'locked') {
       // Password was changed (or we never had a valid key): ask again
       const room = current; roomInfo(room).access = false;
@@ -1330,10 +1355,11 @@ function renderInfo() {
       const b = el('button', 'btn small ' + cls, btnLabel); b.onclick = fn; s.append(m, b); ac.append(s);
     };
     setting('Group name', title, 'Rename', renameGroup);
-    if (g.locked) {
-      setting('Password', 'Members need it to join', 'Change', () => setGroupPassword(true));
-      setting('Remove password', 'Anyone with the link can join', 'Remove', removeGroupPassword, 'ghost');
-    } else setting('Password', 'No password — anyone with the link can join', 'Add', () => setGroupPassword(false));
+    const who = g.invite ? 'Invite only — hidden from everyone else' : g.locked ? 'Password — members need it to join' : 'Anyone with the link';
+    setting('Who can join', who, 'Change', chooseAccess);
+    if (g.locked) setting('Password', 'Change the group password', 'Change', () => setGroupPassword(true), 'ghost');
+    setting('Location limit', g.geo ? `On — only within ${fmtDist(g.radius)} of the group’s centre` : 'Off — chat from anywhere', g.geo ? 'Turn off' : 'Turn on', toggleLocationLimit, 'ghost');
+    setting('Add people', 'Add friends straight into the group', 'Add', addPeople, 'primary');
     body.append(ac);
   }
 
@@ -1414,6 +1440,71 @@ function renderInfo() {
   }
   body.scrollTop = scroll;
 }
+// Who can join: anyone with the link / password / invite only
+async function chooseAccess() {
+  const cur = group.invite ? 'invite' : group.locked ? 'password' : 'open';
+  const v = await popup({ icon: 'users', title: 'Who can join?', ok: '', cancel: 'Cancel', choices: [
+    { value: 'open', label: 'Anyone with the link', icon: cur === 'open' ? 'check' : 'link' },
+    { value: 'password', label: 'People who know the password', icon: cur === 'password' ? 'check' : 'lock' },
+    { value: 'invite', label: 'Invite only (hidden, you add people)', icon: cur === 'invite' ? 'check' : 'userPlus' }] });
+  if (typeof v !== 'string' || v === cur) return;
+  let password;
+  if (v === 'password') {
+    password = await popup({ icon: 'lock', title: 'Group password', text: 'Members will need it to join. People already in the group are asked once.', ok: 'Save', input: { type: 'password', placeholder: 'At least 4 characters', maxLength: 64, required: true },
+      onConfirm: async x => x.length >= 4 ? null : 'Use at least 4 characters' });
+    if (password === null) return;
+  }
+  try { await api('group/update', { access: v, password }); toast({ open: 'Anyone with the link can join now', password: 'Password set', invite: 'Group is invite-only now — current members stay in' }[v]); repoll(); refreshRooms(); }
+  catch (e) { toast(e.message); }
+}
+async function toggleLocationLimit() {
+  if (group.geo) {
+    const yes = await popup({ icon: 'pin', title: 'Turn off the location limit?', text: 'Members can chat from anywhere.', ok: 'Turn off' });
+    if (!yes) return;
+    try { await api('group/update', { location: false }); toast('Location limit off'); repoll(); refreshRooms(); } catch (e) { toast(e.message); }
+    return;
+  }
+  const r = await popup({ icon: 'pin', title: 'Limit to a place', text: 'The centre is where you are now. Pick the range:', ok: '', cancel: 'Cancel',
+    choices: [100, 200, 500, 1000, 5000].map(m => ({ value: m, label: fmtDist(m) })) });
+  if (typeof r !== 'number') return;
+  try { const loc = await getLocationOnce(); await api('group/update', { location: true, radius: r, loc }); toast(`Only within ${fmtDist(r)} now`); repoll(); refreshRooms(); }
+  catch (e) { toast(e.message); }
+}
+// Add friends to the group (owner / admins)
+async function addPeople() {
+  await loadFriends();
+  const inGroup = new Set((membersCache.room === current ? membersCache.list : []).map(x => x.uid));
+  const list = friends.friends.filter(f => !inGroup.has(f.uid));
+  const chosen = new Set();
+  const { d, inner } = sheet('addPeople', 'Add people');
+  inner.append(el('p', 'muted small', group?.invite ? 'Only people you add (or who get the invite link) can see and join this group.' : 'They’ll be added straight in and get a notification.'));
+  if (!list.length) inner.append(el('p', 'empty-note', friends.friends.length ? 'All your friends are already here.' : 'Add friends first (Friends tab), then add them here.'));
+  const box = el('div', 'pick-list');
+  for (const f of list) {
+    const lab = el('label', 'person pick-row'); const cb = el('input'); cb.type = 'checkbox'; cb.onchange = () => cb.checked ? chosen.add(f.uid) : chosen.delete(f.uid);
+    const a = el('div', 'avatar'); paintAvatar(a, f.name, { photo: f.photo });
+    const m = el('div', 'p-meta'); m.append(el('b', null, f.name), el('small', null, '@' + f.username));
+    lab.append(a, m, cb); box.append(lab);
+  }
+  inner.append(box);
+  const go = el('button', 'btn primary block', 'Add'); go.type = 'button';
+  go.onclick = async () => {
+    if (!chosen.size) return toast('Pick at least one friend');
+    go.disabled = true;
+    try { const r = await api('group/invite', { uids: [...chosen] }); toast(`Added ${r.added.map(x => x.name).join(', ') || 'nobody'}`); d.close(); loadMembers(); repoll(); }
+    catch (e) { toast(e.message); go.disabled = false; }
+  };
+  inner.append(go);
+  if (group?.invite && group.inviteCode) {
+    const ln = el('div', 'invite-row'); ln.append(el('code', null, inviteLink(current)));
+    const sh = el('button', 'btn small', 'Share link'); sh.onclick = shareInvite; ln.append(sh);
+    inner.append(el('h3', 'sec-title', 'Or share the private invite link'), ln);
+    const rs = el('button', 'link-btn', 'Reset link (old link stops working)'); rs.type = 'button';
+    rs.onclick = async () => { try { await api('group/update', { resetLink: true }); toast('New invite link made'); d.close(); repoll(); } catch (e) { toast(e.message); } };
+    inner.append(rs);
+  }
+  d.showModal();
+}
 async function renameGroup() {
   const title = await popup({ icon: '✏️', title: 'Rename group', input: { value: group.title, maxLength: 40, required: true, requiredMsg: 'Enter a name' }, ok: 'Save',
     onConfirm: async v => { try { await api('group/update', { title: v }); return null; } catch (e) { return e.message; } } });
@@ -1459,8 +1550,8 @@ function syncNewGroup() {
   const t = ngType();
   $('ngGeo').classList.toggle('hidden', t !== 'geo');
   $('ngPwWrap').classList.toggle('hidden', !(t === 'private' || (t === 'geo' && $('ngGeoPw').checked)));
-  $('ngHint').textContent = { open: 'Anyone with the invite link can read and chat.', private: 'Only people who know the password can join.', geo: 'People inside the range can chat. Anyone outside can read and ask you to chat.' }[t];
-  $('ngCreate').textContent = { open: 'Create open group', private: 'Create private group', geo: 'Create location group' }[t];
+  $('ngHint').textContent = { open: 'Anyone with the invite link can read and chat.', private: 'Only people who know the password can join.', geo: 'People inside the range can chat. It only shows up for people nearby or who have chatted there.', invite: 'Hidden from everyone else. You add friends, or share the group’s private invite link.' }[t];
+  $('ngCreate').textContent = { open: 'Create open group', private: 'Create private group', geo: 'Create location group', invite: 'Create invite-only group' }[t];
 }
 function openNewGroup() {
   $('newGroupForm').reset(); $('ngErr').textContent = ''; ngLoc = null;
@@ -1503,7 +1594,7 @@ $('newGroupForm').onsubmit = async e => {
     const d = await api('group/create', { room, title, type, password, radius: sliderToRadius(+$('ngRadius').value), loc: type === 'geo' ? ngLoc : undefined });
     rooms = [{ room, ...d.group, last: null }, ...rooms.filter(r => r.room !== room)];
     $('newGroup').close(); openRoom(room);
-    toast(`“${title}” created — share the invite link to add people`);
+    if (type === 'invite') setTimeout(() => addPeople(), 600); else toast(`“${title}” created — share the invite link to add people`);
   } catch (err) { $('ngErr').textContent = err.message; }
   finally { $('ngCreate').disabled = false; }
 };
@@ -1747,14 +1838,14 @@ function openWalkie() {
   } catch {}
   walkie.on = true; walkie.autoOff = false; walkie.nextTime = 0;
   startBackgroundAudio();
-  setTimeout(askClosedWalkie, 1500);
   $('walkiePanel').classList.remove('hidden'); $('walkieBtn').classList.add('on'); $('walkieBtn').setAttribute('aria-pressed', 'true');
   closeGifs(); renderWalkie(); repoll();
 }
 // Auto-play: once you've tapped anywhere in the app, walkie-talkie audio in the open chat plays straight away
 // (no "Listen" tap), also with the screen locked or another app in front, like music.
 const autoWalkie = () => store.get('ic-wk-auto') !== '0';
-const walkieListening = () => walkie.on || (autoWalkie() && !walkie.autoOff && walkie.ctx?.state === 'running');
+// auto-play only while the app is on screen; in the background the open walkie-talkie (or the native player) takes over
+const walkieListening = () => walkie.on || (autoWalkie() && !walkie.autoOff && walkie.ctx?.state === 'running' && !document.hidden);
 function unlockAudio() {
   if (!autoWalkie() && !walkie.on) return;
   try {
@@ -1922,8 +2013,18 @@ function lkUnpublish() {
   if (t && lk.room) try { lk.room.localParticipant.unpublishTrack(t, false); } catch {}
 }
 
+// Tell the Android app which chat the web app is playing live, so its closed-app player handles all the others
+let nativeListenRoom;
+function syncNativeListen() {
+  if (!isNativeApp()) return;
+  const r = current && walkieListening() ? current : '';
+  if (r === nativeListenRoom) return;
+  nativeListenRoom = r;
+  window.Capacitor.nativePromise('Walkie', 'setListening', { room: r }).catch(() => {});
+}
+document.addEventListener('visibilitychange', () => { if (typeof walkie !== 'undefined') { syncNativeListen(); lkEnsure(); } });
 function renderWalkie() {
-  lkEnsure();
+  lkEnsure(); syncNativeListen();
   const f = walkie.floor, othersTalking = f && f.uid !== me.uid, hearing = performance.now() < walkie.hearingUntil;
   const listeners = presenceCache.filter(u => u.walkie && u.uid !== me.uid).length;
   const canTalk = !(group?.me && !group.me.canChat);
@@ -3402,7 +3503,7 @@ async function setupNativePush(ask = true) {
 }
 /* Walkie-talkie with the app closed (Android): Firebase wakes the phone when someone starts talking and the app
    plays it live natively. Per-phone setting, asked once the first time you open the walkie-talkie. */
-const closedWalkieOn = () => store.get('ic-wk-closed') === '1';
+const closedWalkieOn = () => store.get('ic-wk-closed') !== '0';     // on unless turned off
 async function configureNativeWalkie() {
   if (!isNativeApp() || !me.token) return;
   try {

@@ -14,8 +14,10 @@ class IntraMessagingService : MessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         val d = remoteMessage.data
         if (d["type"] == "walkie") {
-            // The app is on screen, or its own walkie-talkie is already listening: it plays the audio itself.
-            if (MainActivity.visible || WalkieService.running || WalkieListenService.running) return
+            // The web app is already playing this chat live (on screen, or its walkie-talkie is on in the background):
+            // let it. Any other chat — or the app closed / on the chat list — is played natively.
+            val room = d["room"]
+            if (room != null && room == WalkiePlugin.listeningRoom && (MainActivity.visible || WalkieService.running)) return
             if (!AuthPrefs(this).ready) return
             val i = Intent(this, WalkieListenService::class.java)
                 .putExtra("room", d["room"])

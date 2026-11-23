@@ -55,7 +55,17 @@ class WalkiePlugin : Plugin() {
         call.resolve(JSObject().put("room", r))
     }
 
+    /** The chat the web app is playing live right now ('' = none); the closed-app player handles every other chat. */
+    @PluginMethod
+    fun setListening(call: PluginCall) {
+        listeningRoom = call.getString("room")?.takeIf { it.isNotEmpty() }
+        call.resolve()
+    }
+
     fun emitStop() { notifyListeners("stop", JSObject(), true) }
 
-    companion object { @Volatile var instance: WalkiePlugin? = null }
+    companion object {
+        @Volatile var instance: WalkiePlugin? = null
+        @Volatile var listeningRoom: String? = null
+    }
 }
