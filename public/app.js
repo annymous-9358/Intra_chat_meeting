@@ -42,7 +42,7 @@ let receipts = [], acked = { delivered: '', read: '' }, openReceipts = new Set()
 let ctrl = null, pollTimer = null, polling = false, session = 0, failures = 0, lastTyping = 0;
 let group = null;                                    // info about the current group (null for #general)
 let lastRendered = null, unseenBelow = 0, presenceCache = [], roomsTimer = null;
-let xsince = 0, edits = {}, pushActive = false, muteChangedAt = 0;
+let xsince = 0, edits = {}, pushActive = false, muteChangedAt = 0, pollNow = false;
 const mutes = store.json('ic-mutes', {});   // room -> muted until (ms)
 const isMuted = room => (mutes[room] || 0) > Date.now();
 
@@ -171,6 +171,7 @@ function linkIntent() {
   const h = location.hash;
   if (h === '#/walkie') return { room: store.get('ic-room') || 'general', act: 'walkie' };
   if (h === '#/new') return { act: 'new' };
+  if (h === '#/friends') return { act: 'friends' };
   const room = linkedRoom(); if (!room) return null;
   const q = new URLSearchParams(h.split('?')[1] || '');
   return { room, act: q.get('a') || 'open', key: q.get('k') || null };
@@ -178,7 +179,8 @@ function linkIntent() {
 let pendingIntent = null;
 function runIntent(intent) {
   if (!intent) return;
-  if (intent.act === 'new') { history.replaceState(null, '', location.pathname); return $('newGroupBtn').click(); }
+  if (intent.act === 'new') { history.replaceState(null, '', location.pathname); return openNewGroup(); }
+  if (intent.act === 'friends') { history.replaceState(null, '', location.pathname); return setTab('friends'); }
   pendingIntent = intent.act === 'open' ? null : intent;
   if (intent.room !== current) openRoom(intent.room); else applyIntent();
 }
@@ -267,32 +269,41 @@ function enterApp() {
     if (target) openRoom(target);
   });
   clearInterval(roomsTimer);
-  roomsTimer = setInterval(() => { if (!current && !document.hidden) refreshRooms(); }, 15000);
-  setupServiceWorker(); updateNotifBanner();
+  roomsTimer = setInterval(() => { if (document.hidden) return; if (!current) refreshRooms(); loadFriends(); }, 15000);
+  setupServiceWorker(); updateNotifBanner(); loadFriends(); renderSettings();
 }
+// Which messages we've read per chat → the server answers with unread counts for the list
+function readsPayload() {
+  const out = {};
+  for (const r of rooms) {
+    if (lastRead[r.room]) out[r.room] = lastRead[r.room];
+    else if (r.dm) out[r.room] = '';            // a 1:1 chat you've never opened: everything is unread
+  }
+  return out;
+}
+let lastCountsAt = 0;
 async function refreshRooms() {
-  try { setRooms((await api('rooms', { room: current || 'general' })).rooms); }
+  try { setRooms((await api('rooms', { room: current || 'general', reads: readsPayload() })).rooms); lastCountsAt = Date.now(); }
   catch { if (!rooms.length) setRooms([{ room: 'general' }]); }
 }
 function setRooms(list) {
-  if (!list || JSON.stringify(list) === JSON.stringify(rooms)) return;
+  if (!list) return;
+  // poll responses without counts keep the last known counts
+  for (const r of list) if (r.unread === undefined) { const old = rooms.find(x => x.room === r.room); if (old?.unread !== undefined) r.unread = old.unread; }
+  if (JSON.stringify(list) === JSON.stringify(rooms)) return;
   rooms = list; renderRooms();
 }
 
-// Profile: display name, password, notifications, install, sign out
-$('meBtn').onclick = async () => {
-  const extra = [{ label: '🔑 Change password', onClick: changePassword }];
-  if (pushSupported() && Notification.permission !== 'denied') extra.push(pushActive
-    ? { label: '🔕 Turn off notifications on this device', onClick: disableNotifications }
-    : { label: '🔔 Turn on notifications', onClick: enableNotifications, cls: 'primary' });
-  if (installPrompt) extra.push({ label: '📲 Install Intra Chat app', onClick: installApp });
-  const name = await popup({ icon: '🙂', title: me.name, text: `@${me.username} · this is the name people see on your messages`, ok: 'Save name', cancel: 'Sign out',
-    input: { value: me.name, maxLength: 24, required: true, requiredMsg: 'Your name can’t be empty' }, extra,
+// Profile & settings live in the Settings tab
+$('meBtn').onclick = () => setTab('settings');
+async function editName() {
+  const name = await popup({ icon: '🙂', title: 'Your name', text: 'This is the name people see on your messages.', ok: 'Save',
+    input: { value: me.name, maxLength: 24, required: true, requiredMsg: 'Your name can’t be empty' },
     onConfirm: async v => { if (v === me.name) return null; try { const d = await api('auth/update', { name: v }); Object.assign(me, d.user); store.set('ic-user', JSON.stringify(d.user)); return null; } catch (e) { return e.message; } } });
-  if (name === null) return signOut();
-  paintAvatar($('meAvatar'), me.name); $('meName').textContent = `${me.name} · @${me.username}`;
-  if (name !== true) toast('Profile saved');
-};
+  if (name === null) return;
+  paintAvatar($('meAvatar'), me.name); $('meName').textContent = `${me.name} · @${me.username}`; renderSettings();
+  toast('Name saved');
+}
 async function changePassword() {
   let current = null;
   const ok1 = await popup({ icon: '🔑', title: 'Change password', text: 'First, enter your current password.', ok: 'Next',
@@ -311,18 +322,20 @@ async function signOut() {
   try { await api('auth/logout'); } catch {}
   me.token = ''; store.del('ic-token'); store.del('ic-user');
   history.replaceState(null, '', location.pathname);
-  showLogin();
+  setTab('chats'); showLogin();
 }
 
 /* ---------------- Chat list ---------------- */
+let roomFilter = 'all';
 function renderRooms() {
   const q = $('roomSearch').value.trim().toLowerCase();
   const list = $('roomList'); list.innerHTML = '';
-  const shown = rooms.filter(r => !q || r.room.includes(q) || (r.title || '').toLowerCase().includes(q));
+  const shown = rooms.filter(r => (!q || r.room.includes(q) || (r.title || '').toLowerCase().includes(q) || (r.peer?.username || '').includes(q))
+    && (roomFilter === 'all' || (roomFilter === 'unread' && unreadCount(r)) || (roomFilter === 'dm' && r.dm) || (roomFilter === 'groups' && !r.dm)));
   for (const r of shown) {
-    const unread = isUnread(r);
+    const n = unreadCount(r);
     const li = document.createElement('li');
-    li.className = (r.room === current ? 'active ' : '') + (unread ? 'unread' : '');
+    li.className = (r.room === current ? 'active ' : '') + (n ? 'unread' : '');
     const b = document.createElement('button');
     const av = document.createElement('div'); av.className = 'avatar'; paintAvatar(av, r.title || r.room, r);
     const meta = document.createElement('div'); meta.className = 'room-meta';
@@ -332,33 +345,42 @@ function renderRooms() {
     if (r.last?.ts) { const tm = document.createElement('span'); tm.className = 'room-time'; tm.textContent = listTime(r.last.ts); top.append(tm); }
     const bottom = document.createElement('div'); bottom.className = 'room-bottom';
     const sub = document.createElement('small');
-    if (r.last?.text) sub.textContent = (isMine(r.last) ? 'You' : r.last.name) + ': ' + r.last.text;
+    if (r.last?.text) sub.textContent = (isMine(r.last) ? (r.dm ? '' : 'You: ') : r.dm ? '' : r.last.name + ': ') + r.last.text;
+    else if (r.dm) sub.textContent = `@${r.peer?.username || ''} · say hi 👋`;
     else if (r.locked && !r.access) sub.textContent = '🔒 Private group · tap to enter password';
     else if (r.geo) sub.textContent = `📍 Location group · ${fmtDist(r.radius)} range`;
     else sub.textContent = r.room === 'general' ? 'Everyone' : 'No messages yet';
     bottom.append(sub);
     if (isMuted(r.room)) { const mu = document.createElement('span'); mu.className = 'room-mute'; mu.textContent = '🔕'; mu.title = 'Muted'; bottom.append(mu); }
-    if (unread) { const dot = document.createElement('span'); dot.className = 'unread-dot'; dot.setAttribute('aria-label', 'Unread'); bottom.append(dot); }
+    if (n) { const dot = document.createElement('span'); dot.className = 'unread-dot'; dot.textContent = n === true ? '' : n > 99 ? '99+' : n; dot.setAttribute('aria-label', 'Unread'); bottom.append(dot); }
     meta.append(top, bottom); b.append(av, meta);
     b.onclick = () => openRoom(r.room);
     li.append(b); list.append(li);
   }
   if (!shown.length) {
     const li = document.createElement('li'); li.className = 'room-empty';
-    li.textContent = q ? `No groups match “${q}”.` : 'No groups yet — create the first one.';
+    li.textContent = q ? `No chats match “${q}”.` : roomFilter === 'unread' ? 'No unread chats 🎉' : roomFilter === 'dm' ? 'No friend chats yet — add a friend in the Friends tab.' : 'No chats yet — tap ＋ to start one.';
     list.append(li);
   }
-  const unreadCount = rooms.filter(isUnread).length;
-  document.title = unreadCount ? `(${unreadCount}) Intra Chat` : 'Intra Chat';
-  try { if (navigator.setAppBadge) unreadCount ? navigator.setAppBadge(unreadCount) : navigator.clearAppBadge(); } catch {}
+  const unreadChats = rooms.filter(r => unreadCount(r)).length;
+  document.title = unreadChats ? `(${unreadChats}) Intra Chat` : 'Intra Chat';
+  $('navChatsBadge').textContent = unreadChats; $('navChatsBadge').classList.toggle('hidden', !unreadChats);
+  try { if (navigator.setAppBadge) unreadChats ? navigator.setAppBadge(unreadChats) : navigator.clearAppBadge(); } catch {}
+}
+for (const c of document.querySelectorAll('#filterChips .chip-btn')) c.onclick = () => {
+  roomFilter = c.dataset.filter;
+  document.querySelectorAll('#filterChips .chip-btn').forEach(x => x.classList.toggle('on', x === c));
+  renderRooms();
+};
+// Unread count for a chat: the server's count when we have it, else a dot (true) from the newest message
+function unreadCount(r) {
+  if (r.room === current || !r.last?.key || isMine(r.last)) return 0;
+  if (r.locked && !r.access) return 0;
+  if (!(r.last.key > (lastRead[r.room] || ''))) return 0;
+  return typeof r.unread === 'number' && r.unread > 0 ? r.unread : true;
 }
 $('roomSearch').oninput = renderRooms;
-// Unread = newer message than we've seen, not from us, and in a group we can actually open
-function isUnread(r) {
-  if (r.room === current || !r.last?.key || isMine(r.last)) return false;
-  if (r.locked && !r.access) return false;
-  return r.last.key > (lastRead[r.room] || '');
-}
+const isUnread = r => !!unreadCount(r);
 
 /* ---------------- Opening / leaving a room ---------------- */
 async function openRoom(room, force) {
@@ -376,7 +398,8 @@ async function openRoom(room, force) {
   text.value = drafts[room] || ''; autosize(); syncButtons();   // restore any unsent draft for this group
   $('app').classList.add('in-chat', 'has-room');
   $('chatBar').classList.remove('hidden'); $('composerWrap').classList.remove('hidden');
-  $('chatTitle').textContent = roomTitle(room); $('chatSub').textContent = 'connecting…';
+  $('chatTitle').textContent = roomTitle(room); $('chatSub').textContent = info.dm ? lastSeenText(info.peer?.lastSeen) : 'tap here for info';
+  $('messages').classList.toggle('dm', !!info.dm); applyWallpaper(room); closeEmoji();
   paintAvatar($('chatAvatar'), info.title || room, info);
   renderRooms(); updateComposerLock(); renderAdminBanner();
   if (info.geo) startLocation();
@@ -417,14 +440,17 @@ async function poll(mySession) {
   polling = true;
   ctrl = new AbortController();
   const myCtrl = ctrl;
-  const wait = version ? 7000 : 0;    // first request returns at once; after that, wait for changes
+  const wait = version && !pollNow ? 7000 : 0;    // first request returns at once; after that, wait for changes
+  pollNow = false;
   const pollStart = Date.now();
   const watchdog = setTimeout(() => myCtrl.abort(), wait + 15000);
   try {
     const ack = {};
     if (since && since > acked.delivered) ack.delivered = since;
     if (since && !document.hidden && since > acked.read) ack.read = since;
-    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, xsince, walkie: walkie.on, tsince: walkie.tsince ? walkie.tsince - 5000 : 0 }, myCtrl.signal);
+    const wantCounts = Date.now() - lastCountsAt > 20000;
+    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, xsince, walkie: walkie.on, tsince: walkie.tsince ? walkie.tsince - 5000 : 0, ...(wantCounts ? { reads: readsPayload() } : {}) }, myCtrl.signal);
+    if (wantCounts) lastCountsAt = Date.now();
     if (mySession !== session) return;
     if (ack.delivered) acked.delivered = ack.delivered;
     if (ack.read) { acked.read = ack.read; markRead(current, ack.read); }
@@ -479,9 +505,16 @@ function renderPresence(users) {
   const others = users.filter(u => u.uid !== me.uid);
   const typing = others.filter(u => u.typing).map(u => u.name);
   $('typing').textContent = typing.length ? `${typing.join(', ')} ${typing.length > 1 ? 'are' : 'is'} typing…` : '';
-  let sub = typing.length ? 'typing…' : users.length > 1 ? `${users.length} online` : 'Only you here right now';
-  if (group?.geo) sub += ` · 📍 ${fmtDist(group.radius)}`;
-  if (group?.locked) sub += ' · 🔒 private';
+  let sub;
+  if (group?.dm) {
+    const peerOnline = others.some(u => u.uid === group.peer?.uid);
+    sub = typing.length ? 'typing…' : peerOnline ? 'online' : lastSeenText(group.peer?.lastSeen);
+    $('typing').textContent = '';
+  } else {
+    sub = typing.length ? `${typing.join(', ')} typing…` : users.length > 1 ? `${users.length} online` : 'tap here for group info';
+    if (group?.geo) sub += ` · 📍 ${fmtDist(group.radius)}`;
+    if (group?.locked) sub += ' · 🔒';
+  }
   $('chatSub').textContent = sub;
   if ($('app').classList.contains('info-open') && users.some(u => !(membersCache.list || []).some(m => m.uid === u.uid))) loadMembers();   // someone new joined
   presenceCache = users;
@@ -688,14 +721,14 @@ text.addEventListener('input', () => {
   lastTyping = Date.now(); api('typing').catch(() => {});
 });
 text.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { cancelReply(); closeGifs(); }
+  if (e.key === 'Escape') { cancelReply(); closeGifs(); closeEmoji(); }
   // Enter sends on keyboards; on phones Enter adds a new line (like WhatsApp)
   if (e.key === 'Enter' && !e.shiftKey && finePointer && !e.isComposing) { e.preventDefault(); $('composer').requestSubmit(); }
 });
 $('composer').onsubmit = e => {
   e.preventDefault();
   const t = text.value.trim(); if (!t) return;
-  text.value = ''; delete drafts[current]; autosize(); syncButtons();
+  text.value = ''; delete drafts[current]; autosize(); syncButtons(); closeEmoji();
   sendMessage({ text: t });
   if (!finePointer) text.focus();
 };
@@ -880,6 +913,7 @@ function voicePlayer(a, localUrl) {
 /* ---------------- GIF picker ---------------- */
 let gifTimer = null, gifQuery = null, gifReq = 0;
 $('gifBtn').onclick = () => {
+  closeEmoji();
   const open = $('gifPanel').classList.toggle('hidden') === false;
   $('gifBtn').classList.toggle('active', open);
   if (open) { if (gifQuery === null) loadGifs(''); if (finePointer) $('gifSearch').focus(); }
@@ -927,17 +961,30 @@ function startLocation() {
   if (geo.watch != null) return;
   if (!navigator.geolocation) { geo.error = 'unsupported'; return; }
   geo.error = null;
-  geo.watch = navigator.geolocation.watchPosition(p => {
+  const got = p => {
     const first = !geo.loc;
-    geo.loc = { lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) };
-    geo.error = null;
-    if (first) repoll();       // report position straight away
-  }, err => {
-    geo.error = err.code === 1 ? 'denied' : 'unavailable';
+    const loc = { lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) };
+    if (geo.loc && loc.acc > geo.loc.acc * 2 && Date.now() - geo.at < 60_000) return;   // keep a recent, more precise fix
+    geo.loc = loc; geo.at = Date.now(); geo.error = null;
+    clearTimeout(geo.slow);
+    if (first) { pollNow = true; repoll(); updateComposerLock(); }       // report position straight away (no long-poll wait)
+  };
+  const fail = err => {
+    if (err.code === 1) geo.error = 'denied';
+    else if (!geo.loc) geo.error = 'unavailable';
     updateComposerLock();
-  }, { enableHighAccuracy: true, maximumAge: 20000, timeout: 30000 });
+  };
+  // A quick approximate fix first (network/Wi-Fi, accepts a recent cached one), then keep a precise GPS watch
+  navigator.geolocation.getCurrentPosition(got, fail, { enableHighAccuracy: false, maximumAge: 120000, timeout: 10000 });
+  geo.watch = navigator.geolocation.watchPosition(got, fail, { enableHighAccuracy: true, maximumAge: 30000, timeout: 20000 });
+  clearTimeout(geo.slow);
+  geo.slow = setTimeout(() => { if (!geo.loc && !geo.error) { geo.error = 'unavailable'; updateComposerLock(); } }, 15000);
 }
-function stopLocation() { if (geo.watch != null) navigator.geolocation.clearWatch(geo.watch); geo.watch = null; geo.loc = null; }
+function retryLocation() {
+  stopLocation(); geo.error = null; $('lockedBar').dataset.key = ''; updateComposerLock();
+  startLocation(); toast('Checking your location…');
+}
+function stopLocation() { if (geo.watch != null) navigator.geolocation.clearWatch(geo.watch); clearTimeout(geo.slow); geo.watch = null; geo.loc = null; }
 function getLocationOnce() {
   return new Promise((res, rej) => {
     if (!navigator.geolocation) return rej(new Error('Location isn’t available in this browser'));
@@ -954,6 +1001,7 @@ function setGroup(g) {
   if (group) {
     const r = roomInfo(current);
     $('chatTitle').textContent = group.title; paintAvatar($('chatAvatar'), group.title, { geo: group.geo, locked: group.locked });
+    $('messages').classList.toggle('dm', !!group.dm);
     if (r.title !== group.title) { r.title = group.title; renderRooms(); }
   }
   updateComposerLock(); renderAdminBanner();
@@ -969,7 +1017,8 @@ function updateComposerLock() {
   let icon = '📍', msg, action = null;
   if (geo.error === 'denied') { msg = `This group only works within ${range}. Allow location access in your browser to chat.`; action = ['Try again', () => { stopLocation(); startLocation(); }]; }
   else if (geo.error === 'unsupported') msg = 'Your browser can’t share location, so you can only read this group.';
-  else if (!m.hasLocation && !geo.loc) msg = `Checking your location… This group only works within ${range}.`;
+  else if (geo.error === 'unavailable' && !geo.loc) { icon = '📡'; msg = `Couldn’t get your location. Turn on location (GPS) on your phone, or step near a window, then try again. This group only works within ${range}.`; action = ['Try again', retryLocation]; }
+  else if (!m.hasLocation) { msg = `Checking your location… This group only works within ${range}.`; action = ['Try again', retryLocation]; }
   else if (m.req === 'pending') { icon = '⏳'; msg = `You’re ${fmtDist(m.dist)} away, outside the ${range} range. Your request was sent to ${admin} — you can chat once they approve.`; }
   else if (m.req === 'denied') { icon = '🚫'; msg = `${admin} declined your request to chat from outside the ${range} range. You can still read messages.`; action = ['Ask again', requestAccess]; }
   else { msg = `You’re ${fmtDist(m.dist)} away — outside this group’s ${range} range. You can still read messages.`; action = ['Ask to chat', requestAccess]; }
@@ -1029,6 +1078,7 @@ async function makeAdmin(mm) {
   catch (e) { toast(e.message); }
 }
 $('infoBtn').onclick = () => $('app').classList.contains('info-open') ? $('app').classList.remove('info-open') : openInfo();
+$('chatMenuBtn').onclick = e => openChatMenu(e.currentTarget);
 $('chatHead').onclick = openInfo;
 $('infoClose').onclick = () => $('app').classList.remove('info-open');
 
@@ -1038,6 +1088,8 @@ function renderInfo() {
   if (body.contains(document.activeElement) && document.activeElement.type === 'range') return;   // don't disturb a slider mid-drag
   const scroll = body.scrollTop;
   body.innerHTML = '';
+  $('infoTitle').textContent = group?.dm ? 'Contact info' : 'Group info';
+  if (group?.dm) { renderContactInfo(body); body.scrollTop = scroll; return; }
   const g = group, ri = roomInfo(current), title = g?.title || roomTitle(current);
   const isGeoRoom = g ? g.geo : ri.geo, isLocked = g ? g.locked : ri.locked;   // fall back to the chat list until group details load
   const hero = el('div', 'info-hero');
@@ -1195,11 +1247,11 @@ function syncNewGroup() {
   $('ngHint').textContent = { open: 'Anyone with the invite link can read and chat.', private: 'Only people who know the password can join.', geo: 'People inside the range can chat. Anyone outside can read and ask you to chat.' }[t];
   $('ngCreate').textContent = { open: 'Create open group', private: 'Create private group', geo: 'Create location group' }[t];
 }
-$('newGroupBtn').onclick = () => {
+function openNewGroup() {
   $('newGroupForm').reset(); $('ngErr').textContent = ''; ngLoc = null;
   $('ngRadiusOut').textContent = fmtDist(sliderToRadius(+$('ngRadius').value));
   syncNewGroup(); $('newGroup').showModal(); if (finePointer) $('ngName').focus();
-};
+}
 $('ngClose').onclick = () => $('newGroup').close();
 $('newGroup').onclick = e => { if (e.target === $('newGroup')) $('newGroup').close(); };
 $('ngRadius').oninput = () => { $('ngRadiusOut').textContent = fmtDist(sliderToRadius(+$('ngRadius').value)); ngMapView?.setRadius(sliderToRadius(+$('ngRadius').value)); };
@@ -1689,7 +1741,8 @@ function baseLayers(L) {
  */
 async function rangeMap(container, { center, radius, draggable = false, onMove = null }) {
   const L = await loadLeaflet();
-  const map = L.map(container, { zoomControl: true, attributionControl: true, scrollWheelZoom: false, tap: true }).setView([center.lat, center.lng], 16);
+  // no zoom/fade animations: closing a sheet mid-animation would otherwise throw inside Leaflet
+  const map = L.map(container, { zoomControl: true, attributionControl: true, scrollWheelZoom: false, tap: true, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false }).setView([center.lat, center.lng], 16);
   const layers = baseLayers(L);
   layers.Satellite.addTo(map);
   L.control.layers(layers, null, { position: 'topright' }).addTo(map);
@@ -1758,7 +1811,303 @@ const groupMap = {
   destroy() { try { this.view?.map.remove(); } catch {} this.view = null; this.wrap = null; this.room = null; },
 };
 
+
+/* ---------------- Tabs: Chats / Friends / Settings ---------------- */
+let currentTab = 'chats';
+function setTab(tab) {
+  currentTab = tab;
+  for (const b of document.querySelectorAll('.nav-btn')) b.classList.toggle('on', b.dataset.tab === tab);
+  $('viewChats').classList.toggle('hidden', tab !== 'chats');
+  $('viewFriends').classList.toggle('hidden', tab !== 'friends');
+  $('viewSettings').classList.toggle('hidden', tab !== 'settings');
+  if (!wide() && $('app').classList.contains('in-chat')) $('backBtn').click();
+  if (tab === 'friends') { loadFriends(); if (finePointer) $('friendSearch').focus(); }
+  if (tab === 'settings') renderSettings();
+}
+for (const b of document.querySelectorAll('.nav-btn')) b.onclick = () => setTab(b.dataset.tab);
+function lastSeenText(ts) {
+  if (!ts) return 'tap here for contact info';
+  const d = new Date(ts), now = new Date(), y = new Date(); y.setDate(now.getDate() - 1);
+  if (Date.now() - ts < 90_000) return 'online';
+  const t = timeLabel(ts);
+  if (d.toDateString() === now.toDateString()) return `last seen today at ${t}`;
+  if (d.toDateString() === y.toDateString()) return `last seen yesterday at ${t}`;
+  return `last seen ${d.toLocaleDateString([], { day: 'numeric', month: 'short' })} at ${t}`;
+}
+function simpleMenu(anchor, items) {
+  if (menuFor) return;
+  menuFor = 'menu';
+  $('mmReacts').classList.add('hidden');
+  const acts = $('mmActions'); acts.innerHTML = '';
+  for (const it of items) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = it.danger ? 'danger' : '';
+    const ic = document.createElement('span'); ic.className = 'mm-emoji'; ic.textContent = it.icon || '';
+    b.append(ic, it.label); b.onclick = () => { closeMsgMenu(); it.onClick(); }; acts.append(b);
+  }
+  $('msgMenu').classList.remove('hidden');
+  const card = $('mmCard'), r = anchor.getBoundingClientRect(), cw = card.offsetWidth, ch = card.offsetHeight;
+  card.style.left = Math.max(12, Math.min(r.right - cw, innerWidth - cw - 12)) + 'px';
+  card.style.top = Math.max(12, Math.min(r.bottom + 4, innerHeight - ch - 12)) + 'px';
+  acts.querySelector('button')?.focus();
+}
+$('listMenuBtn').onclick = e => simpleMenu(e.currentTarget, [
+  { icon: '👥', label: 'New group', onClick: openNewGroup },
+  { icon: '➕', label: 'Add a friend', onClick: () => setTab('friends') },
+  { icon: '🎨', label: 'Chat wallpaper', onClick: () => openWallpaper(null) },
+  { icon: '⚙️', label: 'Settings', onClick: () => setTab('settings') },
+]);
+function openChatMenu(anchor) {
+  if (!current) return;
+  const items = [{ icon: 'ℹ️', label: group?.dm ? 'Contact info' : 'Group info', onClick: openInfo }];
+  if (!group?.dm) items.push({ icon: '🔗', label: 'Invite people', onClick: shareInvite });
+  items.push({ icon: '🎨', label: 'Wallpaper', onClick: () => openWallpaper(current) });
+  items.push({ icon: isMuted(current) ? '🔔' : '🔕', label: isMuted(current) ? 'Unmute notifications' : 'Mute notifications', onClick: () => pushActive || isMuted(current) ? muteGroup() : enableNotifications() });
+  items.push({ icon: '📻', label: walkie.on ? 'Close walkie-talkie' : 'Walkie-talkie', onClick: () => $('walkieBtn').click() });
+  simpleMenu(anchor, items);
+}
+
+/* ---------------- Friends & 1:1 chats ---------------- */
+let friends = { friends: [], incoming: [], outgoing: [] }, friendResults = null, friendTimer = null;
+async function loadFriends() {
+  try { friends = await api('friends/list'); } catch { return; }
+  const n = friends.incoming.length;
+  $('navFriendsBadge').textContent = n; $('navFriendsBadge').classList.toggle('hidden', !n);
+  if (currentTab === 'friends') renderFriends();
+  if ($('newChat').open) renderNewChat();
+}
+$('friendSearch').oninput = () => {
+  clearTimeout(friendTimer);
+  const q = $('friendSearch').value.trim().replace(/^@/, '').toLowerCase();
+  if (q.length < 2) { friendResults = null; renderFriends(); return; }
+  friendTimer = setTimeout(async () => { try { friendResults = (await api('friends/search', { q })).users; } catch { friendResults = []; } renderFriends(); }, 300);
+};
+function personRow(p, actions = [], onClick = null) {
+  const row = el(onClick ? 'button' : 'div', 'person' + (onClick ? ' click' : ''));
+  if (onClick) { row.type = 'button'; row.onclick = onClick; }
+  const a = el('div', 'avatar'); paintAvatar(a, p.name);
+  const meta = el('div', 'p-meta'); meta.append(el('b', null, p.name), el('small', null, `@${p.username}` + (p.lastSeen ? ` · ${lastSeenText(p.lastSeen).replace('tap here for contact info', '')}` : '')));
+  const acts = el('div', 'p-acts');
+  for (const [label, cls, fn] of actions) { const b = el('button', 'btn small ' + cls, label); b.type = 'button'; b.onclick = e => { e.stopPropagation(); fn(b); }; acts.append(b); }
+  row.append(a, meta, acts);
+  return row;
+}
+async function friendAction(route, uid, okMsg, btn) {
+  if (btn) btn.disabled = true;
+  try { const d = await api('friends/' + route, { uid }); if (okMsg) toast(okMsg); await loadFriends(); if (friendResults) $('friendSearch').dispatchEvent(new Event('input')); return d; }
+  catch (e) { toast(e.message); if (btn) btn.disabled = false; }
+}
+function renderFriends() {
+  const body = $('friendsBody'); body.innerHTML = '';
+  if (friendResults) {
+    body.append(el('h3', 'sec-title', 'Search results'));
+    if (!friendResults.length) body.append(el('p', 'empty-note', 'No one with that username. Check the spelling — usernames look like @priya.'));
+    for (const u of friendResults) {
+      const acts = u.state === 'friends' ? [['Message', 'primary', () => openDm(u.uid)]]
+        : u.state === 'out' ? [['Requested', 'ghost', b => friendAction('remove', u.uid, 'Request cancelled', b)]]
+        : u.state === 'in' ? [['Accept', 'primary', b => friendAction('respond', u.uid, `You and ${u.name} are now friends`, b).then(() => {})]]
+        : [['Add friend', 'primary', b => friendAction('request', u.uid, `Friend request sent to ${u.name}`, b)]];
+      if (u.state === 'in') acts[0][2] = b => respond(u, true, b);
+      body.append(personRow(u, acts));
+    }
+    return;
+  }
+  if (friends.incoming.length) {
+    body.append(el('h3', 'sec-title', `Friend requests (${friends.incoming.length})`));
+    for (const u of friends.incoming) body.append(personRow(u, [['Accept', 'primary', b => respond(u, true, b)], ['Decline', 'ghost', b => respond(u, false, b)]]));
+  }
+  body.append(el('h3', 'sec-title', `Friends (${friends.friends.length})`));
+  if (!friends.friends.length) {
+    const e = el('div', 'empty-note'); e.append(el('span', 'big', '🤝'), 'No friends yet. Search for someone’s @username above and tap “Add friend”. Once they accept, you can chat 1:1.');
+    body.append(e);
+  }
+  for (const u of friends.friends) body.append(personRow(u, [['Message', 'primary', () => openDm(u.uid)]], () => openDm(u.uid)));
+  if (friends.outgoing.length) {
+    body.append(el('h3', 'sec-title', 'Sent requests'));
+    for (const u of friends.outgoing) body.append(personRow(u, [['Cancel', 'ghost', b => friendAction('remove', u.uid, 'Request cancelled', b)]]));
+  }
+}
+async function respond(u, accept, btn) {
+  if (btn) btn.disabled = true;
+  try { await api('friends/respond', { uid: u.uid, accept }); toast(accept ? `🤝 You and ${u.name} are now friends` : 'Request declined'); await loadFriends(); if (friendResults) $('friendSearch').dispatchEvent(new Event('input')); }
+  catch (e) { toast(e.message); if (btn) btn.disabled = false; }
+}
+async function openDm(uid) {
+  try {
+    const { room } = await api('friends/dm', { uid });
+    $('newChat').open && $('newChat').close();
+    if (!rooms.some(r => r.room === room)) await refreshRooms();
+    setTab('chats');
+    openRoom(room);
+  } catch (e) { toast(e.message); }
+}
+async function removeFriend(peer) {
+  const yes = await popup({ icon: '👋', title: `Remove ${peer.name}?`, text: 'You’ll stop being friends. Your chat history stays, but neither of you can start new 1:1 chats until you’re friends again.', ok: 'Remove', danger: true });
+  if (!yes) return;
+  await friendAction('remove', peer.uid, `${peer.name} removed from friends`);
+}
+
+/* ---------------- New chat sheet ---------------- */
+$('newChatBtn').onclick = () => { renderNewChat(); $('newChat').showModal(); loadFriends(); };
+$('ncClose').onclick = () => $('newChat').close();
+$('newChat').onclick = e => { if (e.target === $('newChat')) $('newChat').close(); };
+$('ncGroup').onclick = () => { $('newChat').close(); openNewGroup(); };
+$('ncFriend').onclick = () => { $('newChat').close(); setTab('friends'); setTimeout(() => $('friendSearch').focus(), 50); };
+function renderNewChat() {
+  const box = $('ncFriends'); box.innerHTML = '';
+  if (!friends.friends.length) { box.append(el('p', 'empty-note', 'Add friends to chat with them 1:1.')); return; }
+  for (const u of friends.friends) box.append(personRow(u, [], () => openDm(u.uid)));
+}
+
+/* ---------------- Contact info (1:1 chats) ---------------- */
+function renderContactInfo(body) {
+  const peer = group.peer || {};
+  const hero = el('div', 'info-hero');
+  const av = el('div', 'avatar'); paintAvatar(av, peer.name || '?');
+  const online = presenceCache.some(u => u.uid === peer.uid && u.uid !== me.uid);
+  hero.append(av, el('h2', null, peer.name), el('span', 'muted', `@${peer.username || ''}`), el('span', 'muted small', online ? 'online' : lastSeenText(peer.lastSeen)));
+  body.append(hero);
+  const c = el('div', 'card');
+  const row = (icon, title, sub, fn, cls = '') => { const b = el('button', 'set-row ' + cls); b.type = 'button'; b.onclick = fn; const i = el('span', 's-ico', icon); const m = el('div', 's-meta'); m.append(el('b', null, title)); if (sub) m.append(el('small', null, sub)); b.append(i, m); c.append(b); };
+  row('📻', 'Walkie-talkie', 'Push to talk with ' + (peer.name || '').split(' ')[0], () => { $('app').classList.remove('info-open'); if (!walkie.on) $('walkieBtn').click(); });
+  row(isMuted(current) ? '🔔' : '🔕', isMuted(current) ? 'Unmute notifications' : 'Mute notifications', isMuted(current) ? `Muted until ${fmtUntil(mutes[current])}` : null, () => pushActive || isMuted(current) ? muteGroup() : enableNotifications());
+  row('🎨', 'Wallpaper', 'Choose a wallpaper just for this chat', () => openWallpaper(current));
+  row('🔒', 'Private chat', 'Only you and ' + (peer.name || '').split(' ')[0] + ' can see these messages', () => {});
+  const isFriend = friends.friends.some(f => f.uid === peer.uid);
+  if (isFriend) row('👋', `Remove ${peer.name} from friends`, null, () => removeFriend(peer), 'danger');
+  else row('➕', `Add ${peer.name} as a friend`, null, () => friendAction('request', peer.uid, 'Friend request sent'));
+  body.append(c);
+}
+
+/* ---------------- Settings ---------------- */
+function renderSettings() {
+  const body = $('settingsBody'); if (!body) return;
+  body.innerHTML = '';
+  const prof = el('button', 'profile-card'); prof.type = 'button'; prof.onclick = editName;
+  const av = el('div', 'avatar'); paintAvatar(av, me.name || '?');
+  const pm = el('div', 'p-meta'); pm.append(el('b', null, me.name), el('small', 'muted', `@${me.username} · tap to change your name`));
+  prof.append(av, pm); body.append(prof);
+  const row = (icon, title, sub, fn, cls = '') => { const b = el('button', 'set-row ' + cls); b.type = 'button'; b.onclick = fn; const m = el('div', 's-meta'); m.append(el('b', null, title)); if (sub) m.append(el('small', null, sub)); b.append(el('span', 's-ico', icon), m); body.append(b); };
+  const themeName = { system: 'System default', light: 'Light', dark: 'Dark' }[store.get('ic-theme') || 'system'];
+  body.append(el('h3', 'sec-title', 'Chats'));
+  row('🌓', 'Theme', themeName, chooseTheme);
+  row('🎨', 'Chat wallpaper', wallpaperName(store.get('ic-wall') || 'doodle'), () => openWallpaper(null));
+  body.append(el('h3', 'sec-title', 'Notifications'));
+  if (pushSupported() && Notification.permission !== 'denied') row(pushActive ? '🔔' : '🔕', 'Message notifications', pushActive ? 'On for this device' : 'Off — tap to turn on', () => (pushActive ? disableNotifications() : enableNotifications()).then(renderSettings));
+  else row('🔕', 'Message notifications', isIOS && !isStandalone() ? 'Add Intra Chat to your Home Screen first' : 'Blocked in your browser’s site settings', () => (isIOS && !isStandalone() ? iosHelp() : toast('Allow notifications for this site in your browser settings')));
+  if (installPrompt) row('📲', 'Install the app', 'Full screen, from your home screen', installApp);
+  body.append(el('h3', 'sec-title', 'Account'));
+  row('🔑', 'Change password', null, changePassword);
+  row('🚪', 'Sign out', null, signOut, 'danger');
+  body.append(el('p', 'muted small empty-note', 'Intra Chat · chats with friends are private to the two of you'));
+}
+async function chooseTheme() {
+  const cur = store.get('ic-theme') || 'system';
+  const v = await popup({ icon: '🌓', title: 'Choose theme', ok: '', cancel: 'Cancel',
+    choices: [['system', 'System default'], ['light', 'Light'], ['dark', 'Dark']].map(([value, label]) => ({ value, label: (value === cur ? '✓ ' : '') + label, cls: value === cur ? 'primary' : '' })) });
+  if (typeof v !== 'string') return;
+  store.set('ic-theme', v); applyTheme(); renderSettings();
+}
+function applyTheme() {
+  const t = store.get('ic-theme') || 'system';
+  if (t === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  $('metaTheme').setAttribute('content', dark ? '#202c33' : '#008069');
+  if (current) applyWallpaper(current);
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
+
+/* ---------------- Wallpapers ---------------- */
+// Our own doodle pattern (chat bubbles, hearts, stars) drawn as a tiny SVG tile
+const doodle = color => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'><g fill='none' stroke='${color}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M14 18h22a5 5 0 0 1 5 5v10a5 5 0 0 1-5 5H24l-7 6v-6h-3a5 5 0 0 1-5-5V23a5 5 0 0 1 5-5z'/><path d='M96 22c3-6 12-6 12 1 0 6-12 13-12 13s-12-7-12-13c0-7 9-7 12-1z'/><path d='M62 70l3 7 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z'/><circle cx='112' cy='86' r='8'/><path d='M20 96c6 0 6 8 12 8s6-8 12-8'/><path d='M84 116h16M92 108v16'/><rect x='50' y='112' width='14' height='18' rx='3'/><path d='M120 120l8-8M70 26l6 6'/></g></svg>`)}")`;
+const WALLPAPERS = [
+  { id: 'doodle', name: 'Doodles', light: ['#efeae2', doodle('rgba(0,0,0,.07)')], dark: ['#0b141a', doodle('rgba(255,255,255,.05)')] },
+  { id: 'plain', name: 'Plain', light: ['#efeae2'], dark: ['#0b141a'] },
+  { id: 'mint', name: 'Mint', light: ['#d1f2e3', doodle('rgba(0,80,50,.07)')], dark: ['#0f2a22', doodle('rgba(255,255,255,.05)')] },
+  { id: 'sky', name: 'Sky', light: ['#d6ebf7', doodle('rgba(0,50,90,.07)')], dark: ['#0e2230', doodle('rgba(255,255,255,.05)')] },
+  { id: 'lavender', name: 'Lavender', light: ['#e6e0f5', doodle('rgba(60,30,110,.07)')], dark: ['#1e1a2e', doodle('rgba(255,255,255,.05)')] },
+  { id: 'peach', name: 'Peach', light: ['#fbe3d3', doodle('rgba(110,50,0,.07)')], dark: ['#2c1d15', doodle('rgba(255,255,255,.05)')] },
+  { id: 'rose', name: 'Rose', light: ['#f8dde4'], dark: ['#2a161c'] },
+  { id: 'slate', name: 'Slate', light: ['#dfe4ea'], dark: ['#161b22'] },
+  { id: 'sunset', name: 'Sunset', light: ['#ffd8b8', 'linear-gradient(160deg,#ffe0c2,#f8c3d4 55%,#d7c6f5)'], dark: ['#2a1f2b', 'linear-gradient(160deg,#3a2430,#2a2240 60%,#16203a)'] },
+  { id: 'ocean', name: 'Ocean', light: ['#cfeef0', 'linear-gradient(160deg,#d9f6f0,#c6e3f7 60%,#d8d6f6)'], dark: ['#0f2430', 'linear-gradient(160deg,#0e2e33,#10243a 60%,#161a36)'] },
+  { id: 'forest', name: 'Forest', light: ['#dcefd6', 'linear-gradient(160deg,#e6f4d8,#cfe8d8 60%,#c9e1e6)'], dark: ['#12261b', 'linear-gradient(160deg,#16301f,#11281f 60%,#0f2028)'] },
+  { id: 'night', name: 'Night', light: ['#2b3a55', 'linear-gradient(160deg,#283a5e,#1d2a44)'], dark: ['#0a1020', 'linear-gradient(160deg,#121a33,#070b16)'] },
+];
+const isDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+const wallpaperName = id => (WALLPAPERS.find(w => w.id === id) || WALLPAPERS[0]).name;
+const wallFor = room => (room && store.get('ic-wall:' + room)) || store.get('ic-wall') || 'doodle';
+function wallStyle(id) {
+  const w = WALLPAPERS.find(x => x.id === id) || WALLPAPERS[0];
+  const [bg, img] = isDark() ? w.dark : w.light;
+  return { bg, img: img || 'none', size: img?.startsWith('linear') ? 'cover' : '190px' };
+}
+function applyWallpaper(room) {
+  const st = wallStyle(wallFor(room)), m = $('messages');
+  m.style.setProperty('--wall', st.bg); m.style.setProperty('--wall-img', st.img); m.style.setProperty('--wall-size', st.size);
+  for (const x of [$('typing'), $('composerWrap'), $('chatPane')]) x.style.setProperty('--wall', st.bg);
+}
+let wallTarget = null;
+function openWallpaper(room) {
+  wallTarget = room;
+  $('wallTitle').textContent = room ? 'Wallpaper for this chat' : 'Chat wallpaper';
+  $('wallNote').textContent = room ? 'Only changes this chat, on this device. Pick “Default” to use your main wallpaper.' : 'Used for all chats on this device (unless a chat has its own).';
+  renderWallGrid(); $('wallSheet').showModal();
+}
+function renderWallGrid() {
+  const grid = $('wallGrid'); grid.innerHTML = '';
+  const chosen = wallTarget ? store.get('ic-wall:' + wallTarget) || 'default' : store.get('ic-wall') || 'doodle';
+  const opts = (wallTarget ? [{ id: 'default', name: 'Default' }] : []).concat(WALLPAPERS);
+  for (const w of opts) {
+    const st = wallStyle(w.id === 'default' ? (store.get('ic-wall') || 'doodle') : w.id);
+    const b = el('button', 'wall-opt' + (w.id === chosen ? ' on' : '')); b.type = 'button'; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(w.id === chosen)); b.setAttribute('aria-label', w.name);
+    b.style.backgroundColor = st.bg; b.style.backgroundImage = st.img; if (st.size === 'cover') b.style.backgroundSize = 'cover';
+    b.append(el('span', null, w.name));
+    b.onclick = () => {
+      if (wallTarget) { if (w.id === 'default') store.del('ic-wall:' + wallTarget); else store.set('ic-wall:' + wallTarget, w.id); }
+      else store.set('ic-wall', w.id);
+      if (current) applyWallpaper(current);
+      renderWallGrid(); renderSettings();
+    };
+    grid.append(b);
+  }
+  const pv = $('wallPreview'), st = wallStyle(chosen === 'default' ? (store.get('ic-wall') || 'doodle') : chosen);
+  pv.style.setProperty('--pv-bg', st.bg); pv.style.setProperty('--pv-img', st.img); pv.style.setProperty('--pv-size', st.size);
+}
+$('wallClose').onclick = () => $('wallSheet').close();
+$('wallSheet').onclick = e => { if (e.target === $('wallSheet')) $('wallSheet').close(); };
+
+/* ---------------- Emoji picker ---------------- */
+const EMOJI = {
+  'Smileys': '😀 😃 😄 😁 😆 😅 🤣 😂 🙂 😉 😊 😇 🥰 😍 🤩 😘 😋 😛 😜 🤪 🤗 🤭 🤫 🤔 😐 😏 😒 🙄 😬 😌 😔 😴 🤒 🤯 🥳 😎 🤓 😕 😟 😮 😲 🥺 😢 😭 😱 😤 😡 🤬 😈 💀 💩 🤡 👻',
+  'Gestures': '👍 👎 👌 ✌️ 🤞 🤟 🤘 👋 🤙 💪 🙏 👏 🙌 🤝 ✋ 👀 🫶',
+  'Hearts & symbols': '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💔 💯 ✨ 🔥 🎉 🎊 ⭐ 🌟 ⚡ 💥 ✅ ❌ ❓ ❗ 💤 🎂 🍕 ☕ 🍺 🚀 🏆 📍 📞 ⏰',
+};
+let emojiBuilt = false;
+function buildEmoji() {
+  if (emojiBuilt) return; emojiBuilt = true;
+  const p = $('emojiPanel');
+  for (const [title, list] of Object.entries(EMOJI)) {
+    p.append(el('h4', null, title));
+    for (const e of list.split(' ')) { const b = el('button', null, e); b.type = 'button'; b.setAttribute('aria-label', e); b.onclick = () => insertText(e); p.append(b); }
+  }
+}
+function insertText(t) {
+  const ta = $('text'), a = ta.selectionStart ?? ta.value.length, b = ta.selectionEnd ?? ta.value.length;
+  ta.value = ta.value.slice(0, a) + t + ta.value.slice(b);
+  const pos = a + t.length; ta.setSelectionRange?.(pos, pos);
+  ta.dispatchEvent(new Event('input'));
+  if (finePointer) ta.focus();
+}
+function closeEmoji() { $('emojiPanel').classList.add('hidden'); $('emojiBtn').classList.remove('active'); }
+$('emojiBtn').onclick = () => {
+  buildEmoji();
+  const open = $('emojiPanel').classList.toggle('hidden') === false;
+  $('emojiBtn').classList.toggle('active', open);
+  if (open) { closeGifs(); $('text').blur(); }
+};
+
 /* ---------------- Start ---------------- */
+applyTheme();
 // Resume a saved session, otherwise show sign in (or create account when arriving from an invite)
 (async () => {
   setAuthMode(linkedRoom() ? 'signup' : 'login');

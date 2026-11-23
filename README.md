@@ -8,6 +8,13 @@ A quick group chat app. Run it in two ways with the same code:
 | **Netlify** | Netlify Functions + Netlify Blobs | Anyone with the link (groups can have their own password) |
 
 ## Features
+- **WhatsApp-style interface**: Chats / Friends / Settings tabs (bottom bar on phones, left rail on tablet/desktop),
+  chat list with unread counts and filters (All, Unread, Friends, Groups), bubbles with tails, blue read ticks,
+  emoji picker, ⋮ menus. Light, dark or system theme, and chat wallpapers (doodles, colours, gradients) for all chats
+  or per chat.
+- **Friends & private 1:1 chats**: find people by @username, send a friend request (they get a notification),
+  accept/decline; friends can chat 1:1 with "online / last seen", notifications, voice notes, walkie-talkie and
+  reactions. 1:1 chats are visible only to the two people.
 - Mobile-first design: chat list → chat on phones, side-by-side on tablets, plus a group-info column on desktop. Light/dark mode.
 - **Accounts**: sign up with a username, display name and password; sign in on any device. Your name comes from your
   account (nobody can post as you), and your groups, admin rights, mutes and notifications follow you to every device.
@@ -102,7 +109,9 @@ unless you put the server behind HTTPS (e.g. a reverse proxy with a certificate)
 - `server.js`: LAN server
 
 ## Location groups: how it works and limits
-- Each member's browser shares its position with the server while the group is open; the server checks the distance
+- Each member's browser shares its position with the server while the group is open (a quick approximate fix first,
+  then GPS; if no fix arrives the app says so and offers Try again; being inside within the last 10 minutes counts
+  while the phone is between fixes); the server checks the distance
   (allowing up to 150 m of GPS inaccuracy) every time they send. Exact coordinates are not shown to anyone; the admin only
   sees each member's distance and inside/outside status.
 - Location can be faked by a determined user (browser dev tools / spoofing apps), so treat this as a convenience

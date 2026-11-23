@@ -3,36 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<meta name="theme-color" content="#4338ca" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)">
-<meta name="description" content="Group chat for your team — open groups, private groups with their own password, and location groups.">
+<meta name="theme-color" content="#00796b" id="metaTheme">
+<meta name="description" content="Chat with friends and groups — private 1:1 chats, open, private and location groups, voice notes and walkie-talkie.">
 <title>Intra Chat</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%234f46e5'/%3E%3Cpath d='M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z' fill='white'/%3E%3C/svg%3E">
+<link rel="icon" href="/icons/icon-192.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Intra Chat">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
+<script>
+  // Apply the saved theme before the page paints (no light/dark flash)
+  try { const t = localStorage.getItem('ic-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
+</script>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <!-- ============ Sign in / Create account ============ -->
-  <main id="login" class="login">
+  <main id="login" class="login hidden">
+    <div class="login-band" aria-hidden="true"></div>
     <div class="auth-wrap">
-      <section class="auth-hero" aria-hidden="true">
-        <div class="brand-mark"><svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg></div>
-        <h2>Intra Chat</h2>
-        <p>Group chat for your team.</p>
-        <ul class="feature-list">
-          <li><span>💬</span>Open groups anyone with the link can join</li>
-          <li><span>🔒</span>Private groups with their own password</li>
-          <li><span>📍</span>Location groups that only work within a range</li>
-          <li><span>🔔</span>Notifications, voice notes, GIFs and reactions</li>
-        </ul>
-      </section>
+      <div class="login-brand"><span class="brand-mark"><svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg></span><b>INTRA CHAT</b></div>
       <form id="loginForm" class="login-card" novalidate>
-        <div class="brand-mark mobile-only" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg></div>
         <h1 id="welcomeTitle">Welcome back</h1>
         <p class="muted" id="welcomeText">Sign in to your Intra Chat account.</p>
         <div class="auth-tabs" role="tablist" aria-label="Sign in or create an account">
@@ -49,55 +42,91 @@
         <p id="err" class="error" role="alert"></p>
         <button class="btn primary block" id="loginBtn">Sign in</button>
         <p class="auth-switch muted small" id="authSwitch">New here? <button type="button" class="link-btn" id="switchToSignup">Create an account</button></p>
+        <ul class="feature-list" aria-label="What you can do">
+          <li><span>🤝</span>Add friends and chat 1:1</li>
+          <li><span>👥</span>Open, private and 📍 location groups</li>
+          <li><span>🎙</span>Voice notes, 📻 walkie-talkie, GIFs and reactions</li>
+        </ul>
       </form>
     </div>
   </main>
 
   <!-- ============ App ============ -->
   <div id="app" class="app hidden">
-    <!-- Chat list -->
+    <!-- Navigation: left rail on wide screens, bottom bar on phones -->
+    <nav class="nav" aria-label="Main">
+      <button class="nav-btn on" data-tab="chats" aria-label="Chats"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><span>Chats</span><b class="nav-badge hidden" id="navChatsBadge"></b></button>
+      <button class="nav-btn" data-tab="friends" aria-label="Friends"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 14.6c2.6.1 4.5 1.8 5 4.4"/></svg><span>Friends</span><b class="nav-badge hidden" id="navFriendsBadge"></b></button>
+      <button class="nav-btn" data-tab="settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Settings</span></button>
+      <button class="nav-me" id="meBtn" aria-label="Your profile"><div class="avatar" id="meAvatar" aria-hidden="true"></div></button>
+    </nav>
+
+    <!-- Left pane: chats / friends / settings -->
     <aside id="listPane" class="list-pane" aria-label="Chats">
-      <header class="bar list-bar">
-        <button class="me-btn" id="meBtn" aria-label="Your profile">
-          <div class="avatar" id="meAvatar" aria-hidden="true"></div>
-          <div class="bar-title"><strong>Chats</strong><small class="muted" id="meName"></small></div>
-        </button>
-      </header>
-      <div class="search-wrap">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="roomSearch" type="search" placeholder="Search groups" autocomplete="off" aria-label="Search groups">
-      </div>
-      <div id="notifBanner" class="notif-banner hidden" role="region" aria-label="Notifications">
-        <span class="nb-icon" aria-hidden="true">🔔</span>
-        <div class="nb-text"><b id="nbTitle">Get notified about new messages</b><small id="nbText">Even when Intra Chat is closed — just like WhatsApp.</small></div>
-        <button class="btn small primary" id="nbAction">Turn on</button>
-        <button class="icon-btn nb-close" id="nbClose" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-      </div>
-      <ul id="roomList" class="room-list"></ul>
-      <button class="fab" id="newGroupBtn" aria-label="New group">
-        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>New group</span>
-      </button>
+      <!-- Chats -->
+      <section class="view" id="viewChats">
+        <header class="bar list-bar">
+          <div class="bar-title"><strong class="app-name">Intra Chat</strong><small class="muted me-line" id="meName"></small></div>
+          <button class="icon-btn" id="listMenuBtn" aria-label="More options"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="19" r="1.6" fill="currentColor"/></svg></button>
+        </header>
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="roomSearch" type="search" placeholder="Search" autocomplete="off" aria-label="Search chats">
+        </div>
+        <div class="chips" id="filterChips" role="tablist" aria-label="Filter chats">
+          <button class="chip-btn on" data-filter="all">All</button>
+          <button class="chip-btn" data-filter="unread">Unread</button>
+          <button class="chip-btn" data-filter="dm">Friends</button>
+          <button class="chip-btn" data-filter="groups">Groups</button>
+        </div>
+        <div id="notifBanner" class="notif-banner hidden" role="region" aria-label="Notifications">
+          <span class="nb-icon" aria-hidden="true">🔔</span>
+          <div class="nb-text"><b id="nbTitle">Get notified about new messages</b><small id="nbText">Even when Intra Chat is closed.</small></div>
+          <button class="btn small primary" id="nbAction">Turn on</button>
+          <button class="icon-btn nb-close" id="nbClose" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        </div>
+        <ul id="roomList" class="room-list"></ul>
+        <button class="fab" id="newChatBtn" aria-label="New chat"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/><path d="M12 8v5M9.5 10.5h5"/></svg></button>
+      </section>
+
+      <!-- Friends -->
+      <section class="view hidden" id="viewFriends">
+        <header class="bar list-bar"><div class="bar-title"><strong>Friends</strong><small class="muted">Find people by their @username</small></div></header>
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="friendSearch" type="search" placeholder="Search @username to add a friend" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Search people by username">
+        </div>
+        <div class="friends-body" id="friendsBody"></div>
+      </section>
+
+      <!-- Settings -->
+      <section class="view hidden" id="viewSettings">
+        <header class="bar list-bar"><div class="bar-title"><strong>Settings</strong></div></header>
+        <div class="settings-body" id="settingsBody"></div>
+      </section>
     </aside>
 
     <!-- Conversation -->
     <section id="chatPane" class="chat-pane" aria-label="Conversation">
       <div class="empty-chat" id="emptyChat">
-        <div class="brand-mark big" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg></div>
-        <h2>Pick a group to start chatting</h2>
-        <p class="muted">Or create one — open, private with a password, or limited to a location.</p>
+        <div class="empty-art" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg></div>
+        <h2>Intra Chat for web</h2>
+        <p class="muted">Send and receive messages, voice notes and walkie-talkie calls. Pick a chat on the left, or start a new one.</p>
+        <p class="muted small">🔒 Private chats are only visible to you and your friend.</p>
       </div>
 
       <header class="bar chat-bar hidden" id="chatBar">
-        <button class="icon-btn back" id="backBtn" aria-label="Back to chats"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
-        <button class="chat-head" id="chatHead" aria-label="Group info">
+        <button class="icon-btn back" id="backBtn" aria-label="Back to chats"><svg viewBox="0 0 24 24"><path d="M19 12H5M11 18l-6-6 6-6"/></svg></button>
+        <button class="chat-head" id="chatHead" aria-label="Chat info">
           <div class="avatar" id="chatAvatar" aria-hidden="true"></div>
-          <div class="bar-title"><strong id="chatTitle"></strong><small id="chatSub" class="muted"></small></div>
+          <div class="bar-title"><strong id="chatTitle"></strong><small id="chatSub"></small></div>
         </button>
         <button class="icon-btn" id="walkieBtn" aria-label="Walkie-talkie" title="Walkie-talkie"><svg viewBox="0 0 24 24"><rect x="6" y="7" width="12" height="15" rx="2"/><path d="M9 7V2M10 11h4M10 14h4"/><circle cx="12" cy="18" r="1.5"/></svg></button>
-        <button class="icon-btn" id="shareBtn" aria-label="Invite people" title="Invite people"><svg viewBox="0 0 24 24"><path d="M16 8a3 3 0 1 0-2.8-4M8 12a3 3 0 1 0 0 .01M16 16a3 3 0 1 0 0 .01"/><path d="m10.6 10.7 2.8-1.4M10.6 13.3l2.8 1.4"/><circle cx="16" cy="5" r="3"/><circle cx="7" cy="12" r="3"/><circle cx="16" cy="19" r="3"/></svg></button>
-        <button class="icon-btn" id="infoBtn" aria-label="Group info" title="Group info"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></button>
+        <button class="icon-btn" id="chatMenuBtn" aria-label="More options"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="19" r="1.6" fill="currentColor"/></svg></button>
+        <button class="hidden" id="shareBtn" aria-hidden="true" tabindex="-1"></button>
+        <button class="hidden" id="infoBtn" aria-hidden="true" tabindex="-1"></button>
       </header>
-      <div id="netBanner" class="net-banner hidden" role="status">Reconnecting…</div>
+      <div id="netBanner" class="net-banner hidden" role="status">Connecting…</div>
       <div id="adminBanner" class="admin-banner hidden" role="status"></div>
       <div id="walkieBanner" class="walkie-banner hidden" role="status">
         <span class="wb-wave" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -114,19 +143,6 @@
       <div id="typing" class="typing" aria-live="polite"></div>
 
       <footer class="composer-wrap hidden" id="composerWrap">
-        <div id="replyBar" class="reply-bar hidden">
-          <div class="quote"><b id="replyName"></b><span id="replyText"></span></div>
-          <button type="button" class="icon-btn" id="replyCancel" aria-label="Cancel reply"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-        </div>
-        <div id="gifPanel" class="gif-panel hidden">
-          <div class="gif-bar">
-            <input id="gifSearch" type="search" placeholder="Search GIFs" autocomplete="off" maxlength="50" aria-label="Search GIFs">
-            <button type="button" class="btn" id="gifUpload" title="Send a GIF or image from your device">Upload</button>
-          </div>
-          <div id="gifGrid" class="gif-grid"></div>
-          <div id="gifNote" class="gif-note"></div>
-          <input type="file" id="gifFile" accept="image/gif,image/png,image/jpeg,image/webp" class="hidden">
-        </div>
         <div id="walkiePanel" class="walkie hidden" role="region" aria-label="Walkie-talkie">
           <div class="wk-head">
             <b>📻 Walkie-talkie</b>
@@ -140,13 +156,28 @@
             <span id="pttLabel">Hold to talk</span>
           </button>
           <label class="check small wk-save"><input type="checkbox" id="wkSave" checked> Also save what I say in the chat</label>
-          <p class="muted small wk-hint" id="wkHint">People with the walkie-talkie open hear you live. Everyone else gets it as a 📻 message.</p>
+          <p class="muted small wk-hint" id="wkHint"></p>
+        </div>
+        <div id="replyBar" class="reply-bar hidden">
+          <div class="quote"><b id="replyName"></b><span id="replyText"></span></div>
+          <button type="button" class="icon-btn" id="replyCancel" aria-label="Cancel reply"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        </div>
+        <div id="emojiPanel" class="emoji-panel hidden" role="dialog" aria-label="Emoji"></div>
+        <div id="gifPanel" class="gif-panel hidden">
+          <div class="gif-bar">
+            <input id="gifSearch" type="search" placeholder="Search GIFs" autocomplete="off" maxlength="50" aria-label="Search GIFs">
+            <button type="button" class="btn" id="gifUpload" title="Send a photo, GIF or image from your device">📷 Photo</button>
+          </div>
+          <div id="gifGrid" class="gif-grid"></div>
+          <div id="gifNote" class="gif-note"></div>
+          <input type="file" id="gifFile" accept="image/gif,image/png,image/jpeg,image/webp" class="hidden">
         </div>
         <div id="lockedBar" class="locked hidden"></div>
         <form id="composer" class="composer">
-          <button type="button" class="icon-btn gif-btn" id="gifBtn" aria-label="GIFs and images" title="GIFs and images">GIF</button>
           <div class="input-wrap">
+            <button type="button" class="icon-btn in-btn" id="emojiBtn" aria-label="Emoji" title="Emoji"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5s1.3 2 3.5 2 3.5-2 3.5-2"/><circle cx="9" cy="10" r=".9" fill="currentColor"/><circle cx="15" cy="10" r=".9" fill="currentColor"/></svg></button>
             <textarea id="text" rows="1" maxlength="2000" placeholder="Message" autocomplete="off" enterkeyhint="send" aria-label="Message"></textarea>
+            <button type="button" class="icon-btn in-btn" id="gifBtn" aria-label="Attach GIF or photo" title="GIFs and photos"><svg viewBox="0 0 24 24"><path d="M21 11.5 12.6 19.9a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></svg></button>
             <div id="recBar" class="rec-bar hidden" aria-live="polite">
               <span class="rec-dot"></span><span id="recTime">0:00</span>
               <span class="rec-hint" id="recHint">‹ Slide to cancel</span>
@@ -156,21 +187,35 @@
             <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
           </button>
           <button class="round-btn hidden" id="sendBtn" aria-label="Send">
-            <svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-3-7-7-1z"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-3-7-7-1z" fill="currentColor"/></svg>
           </button>
         </form>
       </footer>
     </section>
 
-    <!-- Group info -->
-    <aside id="infoPane" class="info-pane" aria-label="Group info">
+    <!-- Group / contact info -->
+    <aside id="infoPane" class="info-pane" aria-label="Info">
       <header class="bar">
-        <button class="icon-btn" id="infoClose" aria-label="Close group info"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-        <div class="bar-title"><strong>Group info</strong></div>
+        <button class="icon-btn" id="infoClose" aria-label="Close info"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        <div class="bar-title"><strong id="infoTitle">Group info</strong></div>
       </header>
       <div class="info-body" id="infoBody"></div>
     </aside>
   </div>
+
+  <!-- New chat -->
+  <dialog id="newChat" class="sheet">
+    <div class="sheet-inner">
+      <header class="sheet-head">
+        <h2>New chat</h2>
+        <button type="button" class="icon-btn" id="ncClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </header>
+      <button class="nc-row" id="ncGroup"><span class="nc-ico">👥</span><span><b>New group</b><small>Open, private or 📍 location group</small></span></button>
+      <button class="nc-row" id="ncFriend"><span class="nc-ico">➕</span><span><b>Add a friend</b><small>Find someone by their @username</small></span></button>
+      <h3 class="nc-sub">Your friends</h3>
+      <div id="ncFriends" class="nc-friends"></div>
+    </div>
+  </dialog>
 
   <!-- New group -->
   <dialog id="newGroup" class="sheet">
@@ -204,6 +249,22 @@
     </form>
   </dialog>
 
+  <!-- Wallpaper picker -->
+  <dialog id="wallSheet" class="sheet">
+    <div class="sheet-inner">
+      <header class="sheet-head">
+        <h2 id="wallTitle">Chat wallpaper</h2>
+        <button type="button" class="icon-btn" id="wallClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </header>
+      <div class="wall-preview" id="wallPreview" aria-hidden="true">
+        <div class="wp-bubble in">Hi! How do I look? 👋</div>
+        <div class="wp-bubble out">Love this wallpaper ✨</div>
+      </div>
+      <div class="wall-grid" id="wallGrid" role="radiogroup" aria-label="Wallpapers"></div>
+      <p class="muted small" id="wallNote"></p>
+    </div>
+  </dialog>
+
   <!-- Generic popup (replaces alert / confirm / prompt) -->
   <dialog id="modal" class="sheet modal">
     <form id="modalForm" novalidate>
@@ -221,7 +282,7 @@
     </form>
   </dialog>
 
-  <!-- Message actions (long-press / right-click) -->
+  <!-- Message actions (long-press / right-click) and small menus -->
   <div id="msgMenu" class="msg-menu hidden" role="dialog" aria-label="Message actions">
     <div class="mm-card" id="mmCard">
       <div class="mm-reacts" id="mmReacts" role="group" aria-label="React"></div>
