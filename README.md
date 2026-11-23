@@ -8,6 +8,12 @@ A quick group chat app. Run it in two ways with the same code:
 | **Netlify** | Netlify Functions + Netlify Blobs | Anyone with the link (groups can have their own password) |
 
 ## Features
+- **Step challenge** (group ⋮ → Step challenge, or Settings → My steps): a daily goal ring, 7-day chart, streaks and
+  8 badges. **Walk mode** counts steps with the phone's motion sensor while the app is open (screen kept on); or add
+  today's total from your phone's Health / Google Fit app (web apps can't read those directly). Group admins start a
+  **challenge** (daily goal, length, optional **team journey** in km with milestones): live **leaderboard** (today /
+  week / challenge), crowns and streak flames, **cheer** a teammate (push notification, once a day), a challenge
+  banner in the chat, and a short note in the chat (no notification spam) when someone hits the goal — with confetti.
 - **Stories**: share a photo (with caption) or a text story (colours + fonts) from the strip at the top of Chats.
   Friends see a ring until they've watched it; tap to step, hold to pause, swipe down to close. Extras: share with
   **all friends or close friends only**, choose **6 / 24 / 48 hours**, add a **poll**, quick **emoji reactions**,

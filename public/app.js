@@ -67,6 +67,13 @@ const IC = {
   "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4\"/>",
   "play": "<path d=\"M7 4v16l13-8z\" fill=\"currentColor\" stroke=\"none\"/>",
   "send": "<path d=\"M22 2 11 13M22 2l-7 20-4-9-9-4z\"/>",
+  "footprints": "<path d=\"M4 16v-2.4C4 11.5 3 10.5 3 8c0-2.7 1.5-6 4.5-6C9.4 2 10 3.8 10 5.5c0 3.1-2 5.7-2 8.7V16a2 2 0 1 1-4 0z\"/><path d=\"M20 20v-2.4c0-2.1 1-3.1 1-5.6 0-2.7-1.5-6-4.5-6C14.6 6 14 7.8 14 9.5c0 3.1 2 5.7 2 8.7V20a2 2 0 1 0 4 0z\"/><path d=\"M16 17h4M4 13h4\"/>",
+  "flame": "<path d=\"M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1.1-2.1-.2-4 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3.3.3 1.3 1.2 2.4 2.5 2.8z\"/>",
+  "trophy": "<path d=\"M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.7V17c0 .6-.5 1-1 1.2-1.2.5-2 2-2 3.8M14 14.7V17c0 .6.5 1 1 1.2 1.2.5 2 2 2 3.8M18 2H6v7a6 6 0 0 0 12 0V2z\"/>",
+  "flag": "<path d=\"M4 22V4a1 1 0 0 1 1-1h12l-2 4 2 4H5\"/>",
+  "plus": "<path d=\"M12 5v14M5 12h14\"/>",
+  "stop": "<rect x=\"6\" y=\"6\" width=\"12\" height=\"12\" rx=\"2\"/>",
+  "pause": "<path d=\"M9 5v14M15 5v14\"/>",
   "gif": "<rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"2.5\"/><path d=\"M10 10H8.5a1.5 1.5 0 0 0-1.5 1.5v1A1.5 1.5 0 0 0 8.5 14H10v-2M13 10v4M16 14v-4h2M16 12h1.5\"/>"
   };
 const EMOJI_IC = {"🙂": "user", "🔑": "key", "👋": "logout", "🔒": "lock", "🔓": "unlock", "📍": "pin", "🔗": "link", "👑": "crown", "✏️": "pencil", "🗑️": "trash", "📲": "download", "🔔": "bell", "🔕": "bellOff", "👥": "users", "➕": "userPlus", "✨": "sparkles", "🎨": "image", "⚙️": "settings", "🔍": "search", "⏰": "clock", "📻": "radio", "👁️": "eye", "🌓": "contrast", "🚪": "logout", "💬": "message", "📷": "camera", "📅": "calendar", "🍽️": "coffee", "🎧": "headphones", "🚗": "car", "🏠": "home", "🤒": "thermometer", "🏖️": "sun", "🤝": "userCheck", "📡": "signal", "⏳": "hourglass", "🚫": "ban", "🖼️": "image", "🎙": "mic", "🔊": "volume", "📌": "pinned", "ℹ️": "info"};
@@ -303,6 +310,7 @@ function applyIntent() {
     el.scrollIntoView({ block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
     if (it.act === 'play') el.querySelector('.voice .play')?.click();
   } else if (it.act === 'show') toast('That message is too old to show');
+  if (it.act === 'steps') openSteps();
 }
 
 /* ---------------- Sign in / create account ---------------- */
@@ -661,6 +669,14 @@ function render(m, isPending) {
   if (!lastRendered || lastRendered.day !== day) {
     const sep = document.createElement('div'); sep.className = 'day'; sep.textContent = dayLabel(m.ts); box.append(sep);
     lastRendered = null;
+  }
+  if (m.sys) {          // celebration / challenge notes: a centred pill, tap to open the step challenge
+    const s = document.createElement('button'); s.className = 'sys-msg'; s.type = 'button'; s.dataset.key = m.key; s._msg = m;
+    const tx = document.createElement('span'), tm = document.createElement('small'); tx.textContent = m.text; tm.textContent = timeLabel(m.ts);
+    s.append(icoEl(m.sys === 'steps' ? 'footprints' : 'info'), tx, tm);
+    s.onclick = () => openSteps();
+    box.append(s); lastRendered = null;
+    return s;
   }
   const mine = isMine(m), who = m.uid || m.name;
   const cont = lastRendered && lastRendered.who === who && m.ts - lastRendered.ts < 5 * 60_000;
@@ -1137,7 +1153,7 @@ function setGroup(g) {
     $('messages').classList.toggle('dm', !!group.dm);
     if (r.title !== group.title) { r.title = group.title; renderRooms(); }
   }
-  updateComposerLock(); renderAdminBanner();
+  updateComposerLock(); renderAdminBanner(); renderStepsBanner();
   if ($('app').classList.contains('info-open')) renderInfo();
 }
 
@@ -1248,7 +1264,7 @@ function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.c
 // Only redraw the info panel when something it shows changed (redrawing on every poll swallowed taps on its buttons)
 let infoSig = '';
 function renderInfo() {
-  if (infoMode === 'search') return;
+  if (infoMode === 'search' || infoMode === 'steps') return;
   const body = $('infoBody');
   if (body.contains(document.activeElement) && document.activeElement.type === 'range') return;   // don't disturb a slider mid-drag
   const sig = JSON.stringify([current, group, membersCache.room === current ? membersCache.list : null, presenceCache.map(u => [u.uid, !!u.typing, !!u.walkie]),
@@ -2088,6 +2104,7 @@ function openChatMenu(anchor) {
   if (!group?.dm) items.push({ icon: '🔗', label: 'Invite people', onClick: shareInvite });
   items.push({ icon: '🔍', label: 'Search messages', onClick: openSearch });
   items.push({ icon: '⏰', label: 'Scheduled messages', onClick: showScheduled });
+  items.push({ icon: 'footprints', label: group?.dm ? 'My steps' : 'Step challenge', onClick: openSteps });
   items.push({ icon: '🎨', label: 'Wallpaper', onClick: () => openWallpaper(current) });
   items.push({ icon: isMuted(current) ? '🔔' : '🔕', label: isMuted(current) ? 'Unmute notifications' : 'Mute notifications', onClick: () => pushActive || isMuted(current) ? muteGroup() : enableNotifications() });
   items.push({ icon: '📻', label: walkie.on ? 'Close walkie-talkie' : 'Walkie-talkie', onClick: () => $('walkieBtn').click() });
@@ -2247,6 +2264,8 @@ function renderSettings() {
     if (autoWalkie()) { unlockAudio(); toast('📻 Walkie-talkie will play automatically'); } else { if (!walkie.on) stopBackgroundAudio(); toast('Walkie-talkie auto-play off'); }
     renderSettings(); repoll();
   });
+  body.append(el('h3', 'sec-title', 'Health'));
+  row('footprints', 'My steps', 'Walk mode, daily goal, streaks and badges', openMyStepsSheet);
   body.append(el('h3', 'sec-title', 'Stories'));
   row('users', 'Close friends', storyFeed.closeFriends.length ? `${storyFeed.closeFriends.length} people · see your close-friends stories` : 'Choose who sees your close-friends stories', editCloseFriends);
   row('bellOff', 'Muted stories', storyFeed.muted.length ? `${storyFeed.muted.length} muted` : 'Nobody muted', manageMutedStories);
@@ -3162,6 +3181,273 @@ function openStoryComposer() {
   d.showModal();
   setTimeout(() => ta.focus(), 80);
 }
+
+/* ---------------- Step challenge ---------------- */
+// Steps come from "Walk mode" (the phone's motion sensor while the app is open) or are typed in from the phone's
+// Health / Fit app. Groups can run a challenge: daily goal, leaderboard, streaks, badges, a team journey and cheers.
+const localDay = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+const fmtN = n => Math.round(n || 0).toLocaleString();
+const kmOf = n => (n * 0.75 / 1000);
+let myStepsData = null, stepsBoard = null, stepsRange = 'today';
+async function loadMySteps() { try { myStepsData = await api('steps/me', { room: current || 'general', today: localDay() }); } catch {} return myStepsData; }
+async function loadBoard() { if (!current || group?.dm) return null; try { stepsBoard = await api('steps/board', { range: stepsRange, today: localDay() }); } catch (e) { stepsBoard = { error: e.message }; } return stepsBoard; }
+
+function ringSvg(pct, size = 148) {
+  const r = size / 2 - 10, c = 2 * Math.PI * r, p = Math.max(0, Math.min(1, pct));
+  return `<svg class="ring-svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" class="ring-bg"/>
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" class="ring-fg${p >= 1 ? ' done' : ''}" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - p)}" transform="rotate(-90 ${size / 2} ${size / 2})"/></svg>`;
+}
+function personalCard(d, onChange) {
+  const card = el('div', 'card steps-me');
+  const top = el('div', 'sm-top');
+  const ring = el('div', 'sm-ring'); ring.innerHTML = ringSvg(d.steps / d.goal);
+  const mid = el('div', 'sm-mid'); mid.append(el('b', null, fmtN(d.steps)), el('small', null, `of ${fmtN(d.goal)} steps`));
+  ring.append(mid);
+  const stats = el('div', 'sm-stats');
+  const stat = (ic, v, l) => { const s = el('div', 'sm-stat'); s.append(icoEl(ic), el('b', null, v), el('small', null, l)); stats.append(s); };
+  stat('flame', d.streak, d.streak === 1 ? 'day streak' : 'day streak');
+  stat('pin', kmOf(d.steps).toFixed(1), 'km today');
+  stat('sun', fmtN(d.steps * 0.04), 'kcal');
+  top.append(ring, stats);
+  card.append(top);
+  if (d.steps >= d.goal) card.append(el('p', 'sm-cheer', 'Goal reached today — great job!'));
+  else card.append(el('p', 'sm-cheer muted', `${fmtN(d.goal - d.steps)} steps to go · about ${Math.ceil((d.goal - d.steps) / 110)} min of walking`));
+  // week bars
+  const wk = el('div', 'sm-week'); const max = Math.max(d.goal, ...d.week.map(x => x.steps));
+  for (const x of d.week) {
+    const col = el('div', 'sm-day' + (x.steps >= d.goal ? ' hit' : '') + (x.date === d.today ? ' today' : ''));
+    const bar = el('i'); bar.style.height = Math.max(4, x.steps / max * 100) + '%'; bar.title = `${fmtN(x.steps)} steps`;
+    col.append(bar, el('small', null, new Date(x.date + 'T12:00').toLocaleDateString([], { weekday: 'narrow' })));
+    wk.append(col);
+  }
+  const goalLine = el('div', 'sm-goal-line'); goalLine.style.bottom = `calc(${d.goal / max * 100}% * .78 + 18px)`;
+  wk.append(goalLine);
+  card.append(wk);
+  const btns = el('div', 'btn-row sm-btns');
+  const walkB = el('button', 'btn primary with-ic'); walkB.type = 'button'; walkB.append(icoEl('footprints'), 'Start walk'); walkB.onclick = () => startWalk(onChange);
+  const addB = el('button', 'btn with-ic'); addB.type = 'button'; addB.append(icoEl('plus'), 'Add steps'); addB.onclick = () => addStepsManually(d, onChange);
+  const goalB = el('button', 'btn ghost with-ic'); goalB.type = 'button'; goalB.append(icoEl('flag'), 'Goal'); goalB.onclick = () => editStepGoal(d, onChange);
+  btns.append(walkB, addB, goalB); card.append(btns);
+  // badges
+  const bw = el('div', 'sm-badges'); bw.append(el('h3', null, `Badges · ${d.badges.filter(b => b.got).length} of ${d.badges.length}`));
+  const grid = el('div', 'badge-grid');
+  const bIcon = { first: 'footprints', goal: 'flag', '10k': 'trophy', '20k': 'trophy', streak3: 'flame', streak7: 'flame', km42: 'pin', km100: 'globe' };
+  for (const b of d.badges) { const x = el('div', 'sbadge' + (b.got ? ' got' : '')); x.title = b.desc; x.append(icoEl(bIcon[b.id] || 'trophy', 'b-ic'), el('b', null, b.name), el('small', null, b.desc)); grid.append(x); }
+  bw.append(grid); card.append(bw);
+  return card;
+}
+async function addStepsManually(d, onChange) {
+  const v = await popup({ icon: 'footprints', title: 'Today’s steps', text: 'Type today’s total from your phone’s Health or Google Fit app (or your watch).', ok: 'Save',
+    input: { type: 'number', value: d?.steps || '', placeholder: 'e.g. 6500', required: true, requiredMsg: 'Enter a number' },
+    onConfirm: async x => { const n = Number(x); if (!(n >= 0 && n <= 100000)) return 'Enter a number between 0 and 100,000'; try { const r = await api('steps/log', { room: current || 'general', steps: n, today: localDay() }); if (r.celebrated) setTimeout(() => celebrate(), 300); return null; } catch (e) { return e.message; } } });
+  if (v !== null) { toast('Steps saved'); onChange?.(); }
+}
+async function editStepGoal(d, onChange) {
+  const v = await popup({ icon: 'flag', title: 'Daily step goal', ok: '', cancel: 'Cancel',
+    choices: [5000, 6000, 8000, 10000, 12000, 15000].map(g => ({ value: g, label: `${fmtN(g)} steps`, icon: g === d.goal ? 'check' : null, cls: g === d.goal ? 'primary' : '' })) });
+  if (typeof v !== 'number') return;
+  try { await api('steps/goal', { room: current || 'general', goal: v }); toast(`Goal set to ${fmtN(v)} steps`); onChange?.(); } catch (e) { toast(e.message); }
+}
+function celebrate() {
+  const c = el('div', 'confetti'); document.body.append(c);
+  const colors = ['#00a884', '#25d366', '#ffd23f', '#ff5c8a', '#7c3aed', '#0ea5e9'];
+  for (let i = 0; i < 70; i++) { const p = el('i'); p.style.left = Math.random() * 100 + '%'; p.style.background = colors[i % colors.length]; p.style.animationDelay = Math.random() * .6 + 's'; p.style.transform = `rotate(${Math.random() * 360}deg)`; c.append(p); }
+  setTimeout(() => c.remove(), 3200);
+  toast('Daily goal reached!');
+}
+
+async function openMyStepsSheet() {
+  await loadMySteps(); if (!myStepsData) return toast('Couldn’t load your steps');
+  const { d, inner } = sheet('myStepsSheet', 'My steps');
+  const draw = async () => { await loadMySteps(); inner.querySelector('.steps-me')?.replaceWith(personalCard(myStepsData, draw)); };
+  inner.append(personalCard(myStepsData, draw));
+  inner.append(el('p', 'muted small', 'Tip: open any group’s menu → Step challenge to compete with friends.'));
+  d.showModal();
+}
+/* --- the group panel (in the info column) --- */
+async function openSteps() {
+  if (!current) return;
+  infoMode = 'steps'; showInfoPane();
+  $('infoTitle').textContent = group?.dm ? 'My steps' : 'Step challenge';
+  const body = $('infoBody'); body.innerHTML = ''; body.append(el('p', 'muted small empty-note', 'Loading…'));
+  await Promise.all([loadMySteps(), loadBoard()]);
+  renderSteps();
+}
+function renderSteps() {
+  if (infoMode !== 'steps') return;
+  const body = $('infoBody'), scroll = body.scrollTop; body.innerHTML = '';
+  const refresh = async () => { await Promise.all([loadMySteps(), loadBoard()]); renderSteps(); renderStepsBanner(); };
+  const chGoal = stepsBoard?.challenge && !stepsBoard.challenge.ended ? stepsBoard.challenge.goal : null;
+  if (myStepsData) body.append(personalCard(chGoal ? { ...myStepsData, goal: chGoal, streak: stepsBoard.rows?.find(r => r.uid === me.uid)?.streak ?? myStepsData.streak } : myStepsData, refresh));
+  if (!group?.dm && stepsBoard && !stepsBoard.error) {
+    const ch = stepsBoard.challenge;
+    // challenge header + team journey
+    const cc = el('div', 'card steps-ch');
+    if (ch && !ch.ended) {
+      const h = el('div', 'ch-head'); h.append(icoEl('trophy', 'ch-ic'));
+      const t = el('div'); t.append(el('b', null, ch.title), el('small', 'muted', `Day ${ch.dayNo} of ${ch.days} · ${fmtN(ch.goal)} steps a day · started by ${ch.by}`)); h.append(t); cc.append(h);
+      if (ch.teamKm) {
+        const j = el('div', 'journey');
+        j.append(el('div', 'j-label', `Team journey · ${ch.km} of ${ch.teamKm} km`));
+        const track = el('div', 'j-track'); const fill = el('i', 'j-fill'); fill.style.width = ch.pct * 100 + '%'; track.append(fill);
+        for (const st of ch.stops) { const m = el('span', 'j-stop' + (st.reached ? ' on' : '')); m.style.left = st.p * 100 + '%'; m.title = st.name; track.append(m); }
+        const walker = el('span', 'j-walker'); walker.innerHTML = svgFor('footprints'); walker.style.left = ch.pct * 100 + '%'; track.append(walker);
+        j.append(track);
+        const next = ch.stops.find(x => !x.reached);
+        j.append(el('small', 'muted', next ? `Next stop: ${next.name} at ${Math.round(next.p * ch.teamKm)} km` : 'You made it to the finish line together!'));
+        cc.append(j);
+      }
+    } else {
+      cc.append(el('b', null, ch?.ended ? `“${ch.title}” has finished` : 'No challenge running'),
+        el('p', 'muted small', stepsBoard.canManage ? 'Start a challenge to get everyone walking: a daily goal, a leaderboard, streaks and a team journey.' : 'Ask a group admin to start a step challenge. The leaderboard below already works with everyone’s own goals.'));
+    }
+    if (stepsBoard.canManage) {
+      const b = el('button', 'btn small ' + (ch && !ch.ended ? 'ghost' : 'primary'), ch && !ch.ended ? 'End challenge' : 'Start a challenge'); b.type = 'button';
+      b.onclick = () => ch && !ch.ended ? endChallenge() : startChallenge();
+      cc.append(b);
+    }
+    body.append(cc);
+    // leaderboard
+    const lb = el('div', 'card steps-lb');
+    const seg = el('div', 'seg small');
+    for (const [v, t] of [['today', 'Today'], ['week', 'This week'], ...(ch ? [['challenge', 'Challenge']] : [])]) {
+      const b = el('button', stepsRange === v ? 'on' : '', t); b.type = 'button'; b.onclick = async () => { stepsRange = v; await loadBoard(); renderSteps(); }; seg.append(b);
+    }
+    lb.append(seg);
+    const rows = stepsBoard.rows || [];
+    if (!rows.some(r => r.steps)) lb.append(el('p', 'muted small empty-note', 'Nobody has logged steps yet. Be the first!'));
+    const top = Math.max(1, ...rows.map(r => r.steps));
+    for (const r of rows) {
+      const row = el('div', 'lb-row' + (r.uid === me.uid ? ' me' : ''));
+      const rank = el('span', 'lb-rank' + (r.rank && r.rank <= 3 ? ' r' + r.rank : ''), r.rank ? String(r.rank) : '–');
+      const a = el('div', 'avatar'); paintAvatar(a, r.name, { photo: r.photo });
+      const mid = el('div', 'lb-mid');
+      const nm = el('div', 'lb-name'); nm.append(el('b', null, r.uid === me.uid ? 'You' : r.name));
+      if (r.rank === 1 && r.steps) nm.append(icoEl('crown', 'lb-crown'));
+      if (r.streak > 1) { const f = el('span', 'lb-streak'); f.append(icoEl('flame'), String(r.streak)); f.title = `${r.streak}-day streak`; nm.append(f); }
+      if (r.hit) { const h = el('span', 'lb-hit'); h.append(icoEl('check')); h.title = 'Goal reached today'; nm.append(h); }
+      const bar = el('div', 'lb-bar'); const fill = el('i'); fill.style.width = (r.steps / top * 100) + '%'; bar.append(fill);
+      mid.append(nm, bar);
+      const right = el('div', 'lb-right'); right.append(el('b', null, fmtN(r.steps)), el('small', null, stepsRange === 'today' ? `${Math.min(100, Math.round(r.today / r.goal * 100))}% of goal` : `${kmOf(r.steps).toFixed(1)} km`));
+      row.append(rank, a, mid, right);
+      if (r.uid !== me.uid) {
+        const cheer = el('button', 'icon-btn lb-cheer' + (r.cheered ? ' done' : '')); cheer.type = 'button'; cheer.innerHTML = svgFor('sparkles');
+        cheer.title = r.cheered ? 'You cheered today' : `Cheer ${r.name.split(' ')[0]} on`; cheer.setAttribute('aria-label', cheer.title);
+        cheer.onclick = async () => { if (r.cheered) return toast('You already cheered them today'); try { await api('steps/cheer', { uid: r.uid, today: localDay() }); r.cheered = true; cheer.classList.add('done', 'pop'); toast(`Cheered ${r.name.split(' ')[0]} on`); } catch (e) { toast(e.message); } };
+        row.append(cheer);
+      } else row.append(el('span', 'lb-cheer-sp'));
+      lb.append(row);
+    }
+    body.append(lb);
+  }
+  body.scrollTop = scroll;
+}
+async function startChallenge() {
+  const title = await popup({ icon: 'trophy', title: 'New step challenge', text: 'Give it a fun name.', ok: 'Next', input: { value: 'Step it up', maxLength: 40, required: true } });
+  if (title === null) return;
+  const goal = await popup({ icon: 'flag', title: 'Daily goal for everyone', ok: '', cancel: 'Cancel', choices: [5000, 7500, 10000, 12500].map(g => ({ value: g, label: `${fmtN(g)} steps a day` })) });
+  if (typeof goal !== 'number') return;
+  const days = await popup({ icon: 'calendar', title: 'How long?', ok: '', cancel: 'Cancel', choices: [[3, '3 days'], [7, '1 week'], [14, '2 weeks'], [30, '30 days']].map(([v, l]) => ({ value: v, label: l })) });
+  if (typeof days !== 'number') return;
+  const n = Math.max(1, (membersCache.room === current ? membersCache.list?.length : 0) || 3);
+  const suggest = Math.max(10, Math.round(n * goal * days * 0.75 / 1000 * 0.7 / 10) * 10);
+  const teamKm = await popup({ icon: 'pin', title: 'Team journey', text: 'Walk a distance together — everyone’s steps add up.', ok: '', cancel: 'Cancel',
+    choices: [{ value: suggest, label: `${suggest} km (suggested for ${n} people)` }, { value: Math.round(suggest * 1.5), label: `${Math.round(suggest * 1.5)} km (harder)` }, { value: 0, label: 'No team journey' }] });
+  if (typeof teamKm !== 'number') return;
+  try { await api('steps/challenge', { title, goal, days, teamKm, today: localDay() }); toast('Challenge started — let’s go!'); stepsRange = 'challenge'; repoll(); await loadBoard(); renderSteps(); }
+  catch (e) { toast(e.message); }
+}
+async function endChallenge() {
+  const yes = await popup({ icon: 'flag', title: 'End the challenge?', text: 'The leaderboard stays; the challenge and team journey stop for everyone.', ok: 'End challenge', danger: true });
+  if (!yes) return;
+  try { await api('steps/challenge', { end: true }); stepsRange = 'today'; toast('Challenge ended'); repoll(); await loadBoard(); renderSteps(); } catch (e) { toast(e.message); }
+}
+
+/* --- banner in the chat while a challenge runs --- */
+let stepsBannerEl = null, bannerStepsAt = 0;
+async function renderStepsBanner() {
+  const ch = group?.steps, today = localDay(), on = !!ch && today >= ch.start && today <= ch.end;
+  if (!stepsBannerEl) { stepsBannerEl = el('button', 'steps-banner hidden'); stepsBannerEl.type = 'button'; stepsBannerEl.onclick = openSteps; ($('pinBar') || $('walkieBanner')).after(stepsBannerEl); }
+  stepsBannerEl.classList.toggle('hidden', !on);
+  if (!on) return;
+  if (!myStepsData || Date.now() - bannerStepsAt > 60000) { bannerStepsAt = Date.now(); await loadMySteps(); }
+  const mine = myStepsData?.steps || 0, pct = Math.min(1, mine / ch.goal);
+  stepsBannerEl.innerHTML = '';
+  const dayNo = Math.min(ch.days, Math.round((new Date(today) - new Date(ch.start)) / 864e5) + 1);
+  const t = el('div', 'sb-text'); t.append(el('b', null, ch.title), el('small', null, `Day ${dayNo} of ${ch.days} · you ${fmtN(mine)} / ${fmtN(ch.goal)}`));
+  const bar = el('div', 'sb-bar'); const f = el('i'); f.style.width = pct * 100 + '%'; bar.append(f); t.append(bar);
+  stepsBannerEl.append(icoEl('footprints', 'sb-ic'), t, el('span', 'sb-go', 'Open'));
+}
+
+/* --- Walk mode: count steps with the motion sensor while the app is open --- */
+const walk = { on: false, steps: 0, saved: 0, base: 9.8, above: false, lastPeak: 0, start: 0, wake: null, timer: null, layer: null, gotMotion: false, onDone: null };
+function walkOverlay() {
+  let o = $('walkOverlay'); if (o) return o;
+  o = el('div', 'walk-overlay hidden'); o.id = 'walkOverlay';
+  o.innerHTML = `<div class="wo-card"><div class="wo-ring"></div><div class="wo-sub"></div><div class="wo-note muted small"></div>
+    <div class="wo-btns"><button type="button" class="btn wo-pause"></button><button type="button" class="btn primary wo-stop"></button></div></div>`;
+  document.body.append(o);
+  o.querySelector('.wo-stop').onclick = () => closeLayer(walk.layer, () => stopWalk(true));
+  o.querySelector('.wo-pause').onclick = () => { walk.paused = !walk.paused; renderWalkOverlay(); };
+  return o;
+}
+function renderWalkOverlay() {
+  const o = walkOverlay(), goal = myStepsData?.goal || 8000, todaySteps = (myStepsData?.steps || 0) + walk.steps - walk.saved + walk.saved;
+  o.querySelector('.wo-ring').innerHTML = ringSvg(((myStepsData?.steps || 0) + (walk.steps - walk.saved)) / goal, 220) + `<div class="wo-mid"><b>${fmtN(walk.steps)}</b><small>steps this walk</small></div>`;
+  const mins = Math.floor((Date.now() - walk.start) / 60000);
+  o.querySelector('.wo-sub').textContent = `${kmOf(walk.steps).toFixed(2)} km · ${mins} min · today ${fmtN((myStepsData?.steps || 0) + walk.steps - walk.saved)} / ${fmtN(goal)}`;
+  o.querySelector('.wo-note').textContent = walk.paused ? 'Paused' : walk.gotMotion ? 'Keep the phone in your hand or pocket. The screen stays on while you walk.' : 'Waiting for the motion sensor…';
+  o.querySelector('.wo-pause').replaceChildren(icoEl(walk.paused ? 'play' : 'pause'), walk.paused ? 'Resume' : 'Pause');
+  o.querySelector('.wo-stop').replaceChildren(icoEl('stop'), 'Stop & save');
+  o.querySelector('.wo-pause').classList.add('with-ic'); o.querySelector('.wo-stop').classList.add('with-ic');
+  void todaySteps;
+}
+function onMotion(e) {
+  const a = e.accelerationIncludingGravity; if (!a || a.x == null) return;
+  walk.gotMotion = true;
+  if (walk.paused) return;
+  const mag = Math.hypot(a.x, a.y, a.z), now = performance.now();
+  walk.base = walk.base * 0.92 + mag * 0.08;                  // slow-moving average (gravity + posture)
+  const d = mag - walk.base;
+  if (!walk.above && d > 1.3 && now - walk.lastPeak > 300) { walk.above = true; walk.lastPeak = now; walk.steps++; if (walk.steps % 5 === 0) renderWalkOverlay(); }
+  else if (walk.above && d < 0.2) walk.above = false;
+}
+async function saveWalk() {
+  const n = walk.steps - walk.saved; if (n <= 0) return;
+  walk.saved = walk.steps;
+  try { const r = await api('steps/log', { room: current || 'general', steps: n, mode: 'add', today: localDay() }); if (myStepsData) myStepsData.steps = r.steps; if (r.celebrated) celebrate(); }
+  catch { walk.saved -= n; }
+}
+async function startWalk(onDone) {
+  if (!('DeviceMotionEvent' in window)) return noSensor(onDone);
+  // iPhone asks for motion access; elsewhere sensors just work (the 4-second check below catches devices without one)
+  if (typeof DeviceMotionEvent.requestPermission === 'function') {
+    let res = 'denied'; try { res = await DeviceMotionEvent.requestPermission(); } catch {}
+    if (res !== 'granted' && isIOS) return toast('Allow “Motion & Orientation” access to count steps');
+  }
+  Object.assign(walk, { on: true, steps: 0, saved: 0, above: false, lastPeak: 0, start: Date.now(), gotMotion: false, paused: false, onDone });
+  if (!myStepsData) await loadMySteps();
+  window.addEventListener('devicemotion', onMotion);
+  try { navigator.wakeLock?.request('screen').then(w => { if (walk.on) walk.wake = w; else w.release(); }).catch(() => {}); } catch {}   // keep the screen on (don't wait for it)
+  walkOverlay().classList.remove('hidden'); walk.layer = pushLayer(() => stopWalk(true));
+  renderWalkOverlay();
+  walk.timer = setInterval(() => { renderWalkOverlay(); if (walk.steps - walk.saved >= 50) saveWalk(); }, 1000);
+  setTimeout(() => { if (walk.on && !walk.gotMotion) { stopWalk(false); dropLayer(walk.layer); noSensor(onDone); } }, 4000);
+}
+async function stopWalk(save) {
+  if (!walk.on) return;
+  walk.on = false; clearInterval(walk.timer); window.removeEventListener('devicemotion', onMotion);
+  try { await walk.wake?.release(); } catch {} walk.wake = null;
+  $('walkOverlay')?.classList.add('hidden');
+  if (save) { await saveWalk(); toast(walk.steps ? `${fmtN(walk.steps)} steps saved` : 'No steps counted this time'); }
+  walk.onDone?.();
+}
+async function noSensor(onDone) {
+  const yes = await popup({ icon: 'footprints', title: 'No motion sensor here', text: 'Walk mode needs a phone. On this device, add today’s steps from your phone’s Health or Google Fit app instead.', ok: 'Add steps', cancel: 'Close' });
+  if (yes) addStepsManually(myStepsData, onDone);
+}
+document.addEventListener('visibilitychange', () => { if (walk.on && document.hidden) saveWalk(); });
 
 /* ---------------- App style picker ---------------- */
 function stylePreview(st) {

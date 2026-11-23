@@ -1,5 +1,5 @@
 /* Intra Chat service worker: offline app shell + WhatsApp-style push notifications */
-const CACHE = 'intra-chat-v22';
+const CACHE = 'intra-chat-v23';
 const SHELL = ['/', '/index.html', '/app.css', '/app.js', '/manifest.webmanifest', '/logo.svg', '/favicon.ico', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', e => {
@@ -75,7 +75,7 @@ async function showMessage(d) {
     timestamp: d.ts || Date.now(),
     vibrate: [80, 40, 80],
     // Quick actions: voice/walkie messages get Reply (hold-to-talk) and Play; other messages get Reply
-    actions: d.type === 'friend' || d.type === 'story' ? [] : d.audio ? [{ action: 'reply', title: 'Reply' }, { action: 'play', title: 'Play' }] : [{ action: 'reply', title: 'Reply' }],
+    actions: d.type === 'friend' || d.type === 'story' || d.type === 'steps' ? [] : d.audio ? [{ action: 'reply', title: 'Reply' }, { action: 'play', title: 'Play' }] : [{ action: 'reply', title: 'Reply' }],
     data: { url: d.url || '/', room, count, lines, key: d.key, audio: !!d.audio },
   });
   await updateBadge();
