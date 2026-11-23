@@ -1,5 +1,5 @@
 /* Intra Chat service worker: offline app shell + WhatsApp-style push notifications */
-const CACHE = 'intra-chat-v32';
+const CACHE = 'intra-chat-v33';
 const SHELL = ['/', '/index.html', '/app.css', '/app.js', '/manifest.webmanifest', '/logo.svg', '/favicon.ico', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', e => {
@@ -53,6 +53,14 @@ async function showMessage(d) {
   const watching = wins.some(c => { const v = viewing.get(c.id); return v && v.visible && v.room === room && c.visibilityState === 'visible'; });
   if (watching) return;
 
+  // Friend requests, story reactions, added to a group…: their own notification that opens the right screen
+  if (d.type === 'friend' || d.type === 'story' || d.type === 'group' || d.type === 'steps') {
+    return self.registration.showNotification(d.title || 'Intra Chat', {
+      body: d.body || '', tag: d.type + '-' + (d.url || ''), renotify: true,
+      icon: '/icons/icon-192.png', badge: '/icons/badge-96.png', timestamp: d.ts || Date.now(),
+      data: { url: d.url || '/', nav: true },
+    });
+  }
   // "Remind me" notifications stand alone and always show
   if (d.type === 'reminder') {
     return self.registration.showNotification(d.title || 'Reminder', {
@@ -83,7 +91,15 @@ async function showMessage(d) {
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const { url = '/', room, key, audio, act: dataAct, direct } = e.notification.data || {};
+  const { url = '/', room, key, audio, act: dataAct, direct, nav } = e.notification.data || {};
+  if (nav) {                       // open the linked screen (profile, 1:1 chat, story…)
+    e.waitUntil((async () => {
+      const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const win = wins.find(c => new URL(c.url).origin === location.origin);
+      if (win) { await win.focus(); win.postMessage({ type: 'nav', url }); } else await self.clients.openWindow(url);
+    })());
+    return;
+  }
   const act = e.action === 'reply' ? (audio ? 'talk' : 'reply') : e.action === 'play' ? 'play' : dataAct || 'open';
   e.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

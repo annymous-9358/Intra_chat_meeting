@@ -282,15 +282,37 @@ function linkIntent() {
   if (h === '#/new') return { act: 'new' };
   if (h === '#/friends') return { act: 'friends' };
   if (h === '#/stories') return { act: 'stories' };
+  let mm;
+  if ((mm = h.match(/^#\/u\/([a-f0-9]{24})$/))) return { act: 'profile', uid: mm[1] };          // a person's profile (friend request)
+  if ((mm = h.match(/^#\/dm\/([a-f0-9]{24})$/))) return { act: 'dm', uid: mm[1] };              // 1:1 chat with them
+  if ((mm = h.match(/^#\/story\/([a-f0-9]{24})\/(\d{13}-[a-f0-9]{6})(\?viewers=1)?$/))) return { act: 'story', uid: mm[1], id: mm[2], viewers: !!mm[3] };
   if (h.startsWith('#/steps')) { const q = new URLSearchParams(h.split('?')[1] || ''); return { act: 'health', ok: q.get('health') === 'ok', msg: q.get('msg'), today: q.get('today') }; }
   const room = linkedRoom(); if (!room) return null;
   const q = new URLSearchParams(h.split('?')[1] || '');
   return { room, act: q.get('a') || 'open', key: q.get('k') || null, code: q.get('i') || null };
 }
 let pendingIntent = null; const inviteCodes = {};
+// Follow an in-app link like "/#/u/<id>" from a notification tap
+function navTo(url) {
+  const h = '#' + String(url || '').split('#')[1];
+  if (!h || h === '#undefined') return;
+  if (location.hash === h) { const it = linkIntent(); if (it) runIntent(it); }
+  else location.hash = h;
+}
 function runIntent(intent) {
   if (!intent) return;
   if (intent.act === 'new') { history.replaceState(history.state, '', location.pathname); return openNewGroup(); }
+  if (intent.act === 'profile') { history.replaceState(history.state, '', location.pathname); setTab('friends'); return showProfile(intent.uid); }
+  if (intent.act === 'dm') { history.replaceState(history.state, '', location.pathname); return openDm(intent.uid); }
+  if (intent.act === 'story') {
+    history.replaceState(history.state, '', location.pathname); setTab('chats');
+    return loadStories().then(() => {
+      const p = storyFeed.people.find(x => x.uid === intent.uid), st = p?.stories.find(x => x.id === intent.id);
+      if (!st) return toast('That story has expired');
+      openStories(intent.uid, intent.id);
+      if (intent.viewers && p.mine) setTimeout(() => showStoryViewers(st), 400);     // who viewed / reacted
+    });
+  }
   if (intent.act === 'health') {
     history.replaceState(history.state, '', location.pathname);
     setTimeout(() => { openMyStepsSheet(); toast(intent.ok ? `Google Health connected${intent.today ? ` · today ${fmtN(+intent.today)} steps` : ''}` : (intent.msg || 'Couldn’t connect Google Health')); }, 300);
@@ -1726,6 +1748,7 @@ async function setupServiceWorker() {
     swReg = await navigator.serviceWorker.register('/sw.js');
     navigator.serviceWorker.addEventListener('message', e => {
       if (e.data?.type === 'open' && e.data.room) runIntent({ room: e.data.room, act: e.data.act || 'open', key: e.data.key });
+      if (e.data?.type === 'nav' && e.data.url) navTo(e.data.url);
     });
     navigator.serviceWorker.addEventListener('controllerchange', tellSW);
     await navigator.serviceWorker.ready; tellSW();
@@ -3489,7 +3512,7 @@ async function setupNativePush(ask = true) {
       window.Capacitor.addListener('PushNotifications', 'pushNotificationActionPerformed', a => {
         const d = a?.notification?.data || {};
         if (d.type === 'message' && d.room) runIntent({ room: d.room, act: 'open', key: d.key || null });
-        else if (d.url && d.url.startsWith('/#/')) location.hash = d.url.slice(1);
+        else if (d.url && d.url.startsWith('/#/')) navTo(d.url);
       });
     }
     let perm = await pushCall('checkPermissions');
