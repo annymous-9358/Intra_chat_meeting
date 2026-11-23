@@ -49,7 +49,7 @@ http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/')) {
     const chunks = [];
     let size = 0;
-    const limit = url.pathname === '/api/upload' ? 4 * 1024 * 1024 + 1 : 16384;
+    const limit = ['/api/upload', '/api/avatar', '/api/story/photo', '/api/talk/chunk'].includes(url.pathname) ? 4 * 1024 * 1024 + 1 : 16384;
     for await (const c of req) { size += c.length; if (size > limit) { res.writeHead(413); return res.end(); } chunks.push(c); }
     const request = new Request(url, { method: req.method, headers: req.headers, body: req.method === 'POST' ? Buffer.concat(chunks) : undefined });
     // GIF search on a LAN install needs GIPHY_API_KEY in the environment (and internet access)

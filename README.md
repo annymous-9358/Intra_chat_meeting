@@ -8,6 +8,11 @@ A quick group chat app. Run it in two ways with the same code:
 | **Netlify** | Netlify Functions + Netlify Blobs | Anyone with the link (groups can have their own password) |
 
 ## Features
+- **Stories**: share a photo (with caption) or a text story (colours + fonts) from the strip at the top of Chats.
+  Friends see a ring until they've watched it; tap to step, hold to pause, swipe down to close. Extras: share with
+  **all friends or close friends only**, choose **6 / 24 / 48 hours**, add a **poll**, quick **emoji reactions**,
+  **replies** arrive as a 1:1 message quoting the story, see **who viewed** (with their reaction and vote), mute someone's
+  stories, delete your own. Expired stories and their photos are cleaned up automatically.
 - **App styles** (Settings → ✨ App style): 💬 **Classic**, 🫧 **Glass** (frosted Apple-style glass, iOS blue), 🍎 **iOS**
   (iMessage look: blue bubbles, centred chat header, large titles, inset grouped settings), 🎨 **Material** (Android Material You),
   🧱 **Brutal** (neo-brutalism), 🌃 **Neon** (glowing pink & cyan, always dark), 🧸 **Clay** (soft pastel 3D) and ◻️ **Minimal** (black & white).

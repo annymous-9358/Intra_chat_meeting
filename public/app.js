@@ -274,6 +274,7 @@ function linkIntent() {
   if (h === '#/walkie') return { room: store.get('ic-room') || 'general', act: 'walkie' };
   if (h === '#/new') return { act: 'new' };
   if (h === '#/friends') return { act: 'friends' };
+  if (h === '#/stories') return { act: 'stories' };
   const room = linkedRoom(); if (!room) return null;
   const q = new URLSearchParams(h.split('?')[1] || '');
   return { room, act: q.get('a') || 'open', key: q.get('k') || null };
@@ -282,6 +283,7 @@ let pendingIntent = null;
 function runIntent(intent) {
   if (!intent) return;
   if (intent.act === 'new') { history.replaceState(history.state, '', location.pathname); return openNewGroup(); }
+  if (intent.act === 'stories') { history.replaceState(history.state, '', location.pathname); setTab('chats'); return loadStories().then(() => { const p = storyFeed.people.find(x => !x.mine && !x.allSeen && !x.muted); if (p) openStories(p.uid); }); }
   if (intent.act === 'friends') { history.replaceState(history.state, '', location.pathname); return setTab('friends'); }
   pendingIntent = intent.act === 'open' ? null : intent;
   if (intent.room !== current) openRoom(intent.room); else applyIntent();
@@ -372,7 +374,8 @@ function enterApp() {
     if (target) openRoom(target);
   });
   clearInterval(roomsTimer);
-  roomsTimer = setInterval(() => { if (document.hidden) return; if (!current) refreshRooms(); loadFriends(); }, 15000);
+  roomsTimer = setInterval(() => { if (document.hidden) return; if (!current) refreshRooms(); loadFriends(); if (Date.now() - storiesAt > 60000) loadStories(); }, 15000);
+  loadStories();
   setupServiceWorker(); updateNotifBanner(); loadFriends(); renderSettings();
 }
 // Which messages we've read per chat → the server answers with unread counts for the list
@@ -673,7 +676,7 @@ function render(m, isPending) {
   }
   if (m.replyTo) {
     const q = quoteEl(m.replyTo); q.title = 'Go to message';
-    q.onclick = e => { e.stopPropagation(); jumpTo(m.replyTo.key); };
+    q.onclick = e => { e.stopPropagation(); m.replyTo.story ? openStoryById(m.replyTo.uid, String(m.replyTo.key).slice(6)) : jumpTo(m.replyTo.key); };
     el.append(q);
   }
   if (m.gif) {
@@ -736,8 +739,15 @@ $('messages').addEventListener('scroll', () => { if (nearBottom()) unseenBelow =
 $('toBottom').onclick = () => { const b = $('messages'); b.scrollTo({ top: b.scrollHeight, behavior: 'smooth' }); unseenBelow = 0; updateToBottom(); };
 
 function quoteEl(r) {
-  const q = document.createElement('div'); q.className = 'quote';
-  const n = document.createElement('b'); n.textContent = isMine(r) ? 'You' : r.name;
+  const q = document.createElement('div'); q.className = 'quote' + (r.story ? ' story-quote' : '');
+  const n = document.createElement('b'); n.textContent = r.story ? (isMine(r) ? 'Your story' : `${r.name} · Story`) : isMine(r) ? 'You' : r.name;
+  if (r.story) {
+    const th = el('div', 'sq-thumb');
+    if (okPhoto(r.thumb)) th.style.backgroundImage = `url("${r.thumb}")`; else th.style.background = storyBg(r.bg);
+    const t = el('div', 'sq-text'); t.append(n, r.text);
+    q.append(t, th);
+    return q;
+  }
   q.append(n, r.text);
   return q;
 }
@@ -2237,6 +2247,9 @@ function renderSettings() {
     if (autoWalkie()) { unlockAudio(); toast('📻 Walkie-talkie will play automatically'); } else { if (!walkie.on) stopBackgroundAudio(); toast('Walkie-talkie auto-play off'); }
     renderSettings(); repoll();
   });
+  body.append(el('h3', 'sec-title', 'Stories'));
+  row('users', 'Close friends', storyFeed.closeFriends.length ? `${storyFeed.closeFriends.length} people · see your close-friends stories` : 'Choose who sees your close-friends stories', editCloseFriends);
+  row('bellOff', 'Muted stories', storyFeed.muted.length ? `${storyFeed.muted.length} muted` : 'Nobody muted', manageMutedStories);
   body.append(el('h3', 'sec-title', 'Notifications'));
   if (pushSupported() && Notification.permission !== 'denied') row(pushActive ? '🔔' : '🔕', 'Message notifications', pushActive ? 'On for this device' : 'Off — tap to turn on', () => (pushActive ? disableNotifications() : enableNotifications()).then(renderSettings));
   else row('🔕', 'Message notifications', isIOS && !isStandalone() ? 'Add Intra Chat to your Home Screen first' : 'Blocked in your browser’s site settings', () => (isIOS && !isStandalone() ? iosHelp() : toast('Allow notifications for this site in your browser settings')));
@@ -2774,6 +2787,380 @@ function openSearch() {
     }, 250);
   };
   setTimeout(() => inp.focus(), 60);
+}
+
+/* ---------------- Stories ---------------- */
+let storyFeed = { people: [], closeFriends: [], muted: [] }, storiesAt = 0;
+const STORY_BGS = ['#00a884', '#7c3aed', '#e11d48', '#ea580c', '#0284c7', '#0f172a', '#16a34a', '#db2777', '#ca8a04', 'grad1', 'grad2', 'grad3'];
+const STORY_GRADS = { grad1: 'linear-gradient(135deg,#f97316,#db2777)', grad2: 'linear-gradient(135deg,#06b6d4,#7c3aed)', grad3: 'linear-gradient(135deg,#22c55e,#0ea5e9)' };
+const STORY_FONTS = ['sans', 'serif', 'mono', 'hand', 'bold'];
+const STORY_REACTS = ['❤️', '😂', '😮', '😢', '👏', '🔥'];
+const storyBg = b => STORY_GRADS[b] || (STORY_BGS.includes(b) ? b : '#00a884');
+const agoText = ts => { const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : `${Math.floor(m / 60)}h ago`; };
+
+async function loadStories() {
+  try { storyFeed = await api('story/feed', { room: 'general' }); storiesAt = Date.now(); } catch { return; }
+  renderStoryBar();
+  if (currentTab === 'settings') renderSettings();
+}
+function storyAvatar(p, size) {
+  const ring = el('div', 'story-ring' + (!p.stories.length ? ' none' : p.allSeen ? ' seen' : ''));
+  if (size) ring.style.setProperty('--s', size + 'px');
+  const a = el('div', 'avatar'); paintAvatar(a, p.name, { photo: p.photo }); ring.append(a);
+  return ring;
+}
+function renderStoryBar() {
+  const bar = $('storyBar'); if (!bar) return;
+  bar.innerHTML = '';
+  const mine = storyFeed.people.find(p => p.mine) || { uid: me.uid, name: me.name, photo: me.photo, stories: [], allSeen: true, mine: true };
+  const item = (p, label, onClick, extra) => {
+    const b = el('button', 'story-item' + (p.muted ? ' muted' : '')); b.type = 'button'; b.onclick = onClick;
+    const r = storyAvatar(p); if (extra) r.append(extra);
+    b.append(r, el('span', null, label)); b.title = label; bar.append(b); return b;
+  };
+  const plus = el('span', 'story-plus');
+  plus.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg>';
+  plus.onclick = e => { e.stopPropagation(); openStoryComposer(); };
+  item(mine, mine.stories.length ? 'Your story' : 'Add story', () => mine.stories.length ? openStories(me.uid) : openStoryComposer(), plus);
+  for (const p of storyFeed.people) if (!p.mine) item(p, p.name.split(' ')[0], () => openStories(p.uid));
+}
+
+/* --- viewer --- */
+const sv = { list: [], pi: 0, si: 0, raf: 0, start: 0, elapsed: 0, paused: false, dur: 5000, layer: null, loading: false };
+function svEl() {
+  let v = $('storyViewer'); if (v) return v;
+  v = el('div', 'story-viewer hidden'); v.id = 'storyViewer'; v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', 'Story');
+  v.innerHTML = `<div class="sv-card"><div class="sv-bars"></div>
+    <header class="sv-head"><div class="sv-av"></div><div class="sv-who"><b></b><small></small></div>
+      <button class="icon-btn sv-more" aria-label="Story options"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="19" r="1.6" fill="currentColor"/></svg></button>
+      <button class="icon-btn sv-close" aria-label="Close">${svgFor('x')}</button></header>
+    <div class="sv-stage"><div class="sv-content"></div><div class="sv-poll"></div><button class="sv-nav prev" aria-label="Previous"></button><button class="sv-nav next" aria-label="Next"></button></div>
+    <footer class="sv-foot"></footer></div>`;
+  document.body.append(v);
+  v.querySelector('.sv-close').onclick = () => closeLayer(sv.layer, closeStoriesUI);
+  v.querySelector('.sv-more').onclick = e => storyMenu(e.currentTarget);
+  const stage = v.querySelector('.sv-stage');
+  let downAt = 0, held = false, y0 = 0, holdTimer;
+  stage.addEventListener('pointerdown', e => { if (e.target.closest('.sv-poll button')) return; downAt = Date.now(); y0 = e.clientY; held = false; holdTimer = setTimeout(() => { held = true; svPause(true); }, 220); });
+  stage.addEventListener('pointerup', e => {
+    clearTimeout(holdTimer); if (!downAt) return;
+    const dy = e.clientY - y0; downAt = 0;
+    if (dy > 90) return closeLayer(sv.layer, closeStoriesUI);          // swipe down closes
+    if (held) { svPause(false); return; }
+    if (e.target.closest('.sv-poll button')) return;
+    const r = stage.getBoundingClientRect();
+    (e.clientX - r.left < r.width * .3 ? svPrev : svNext)();
+  });
+  stage.addEventListener('pointercancel', () => { clearTimeout(holdTimer); if (held) svPause(false); downAt = 0; });
+  document.addEventListener('keydown', e => {
+    if (v.classList.contains('hidden') || /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName)) return;
+    if (e.key === 'ArrowRight') svNext(); else if (e.key === 'ArrowLeft') svPrev(); else if (e.key === 'Escape') closeLayer(sv.layer, closeStoriesUI); else if (e.key === ' ') { e.preventDefault(); svPause(!sv.paused); }
+  });
+  return v;
+}
+function openStories(uid, storyId) {
+  const people = storyFeed.people.filter(p => p.stories.length);
+  const start = people.find(p => p.uid === uid); if (!start) return toast('No stories to show');
+  // your own stories on their own; a friend's, then the other friends after them (muted ones only if you tap them)
+  sv.list = start.mine ? [start] : [start, ...people.filter(p => !p.mine && !p.muted && p.uid !== uid)];
+  sv.pi = 0;
+  sv.si = storyId ? Math.max(0, start.stories.findIndex(s => s.id === storyId)) : start.mine ? 0 : Math.max(0, start.stories.findIndex(s => !s.seen));
+  const v = svEl(); v.classList.remove('hidden');
+  if (!layerLive(sv.layer)) sv.layer = pushLayer(closeStoriesUI);
+  svShow();
+}
+async function openStoryById(uid, id) {
+  if (Date.now() - storiesAt > 10000) await loadStories();
+  const p = storyFeed.people.find(x => x.uid === uid);
+  if (!p?.stories.some(s => s.id === id)) return toast('This story has expired');
+  openStories(uid, id);
+}
+function closeStoriesUI() {
+  cancelAnimationFrame(sv.raf); $('storyViewer')?.classList.add('hidden'); dropLayer(sv.layer);
+  renderStoryBar();
+}
+function svCur() { const p = sv.list[sv.pi]; return p && { p, s: p.stories[sv.si] }; }
+function svShow() {
+  const c = svCur(); if (!c) return closeLayer(sv.layer, closeStoriesUI);
+  const { p, s } = c, v = svEl();
+  // bars
+  const bars = v.querySelector('.sv-bars'); bars.innerHTML = '';
+  p.stories.forEach((_, i) => { const b = el('i'); const f = el('b'); f.style.width = i < sv.si ? '100%' : '0%'; b.append(f); bars.append(b); });
+  // header
+  const av = v.querySelector('.sv-av'); av.innerHTML = ''; const a = el('div', 'avatar'); paintAvatar(a, p.name, { photo: p.photo }); av.append(a);
+  av.onclick = () => { if (!p.mine) { closeLayer(sv.layer, closeStoriesUI); showProfile(p.uid); } };
+  v.querySelector('.sv-who b').textContent = p.mine ? 'Your story' : p.name;
+  v.querySelector('.sv-who small').textContent = agoText(s.at) + (s.audience === 'close' ? ' · Close friends' : '');
+  // content
+  const box = v.querySelector('.sv-content'); box.innerHTML = ''; box.className = 'sv-content';
+  sv.elapsed = 0; sv.paused = false; sv.loading = false;
+  if (s.type === 'photo') {
+    box.classList.add('photo');
+    const img = el('img'); img.alt = s.caption || 'Story photo'; sv.loading = true;
+    img.onload = () => { sv.loading = false; sv.start = performance.now(); };
+    img.onerror = () => { sv.loading = false; };
+    img.src = s.url; box.append(img);
+    if (s.caption) box.append(el('div', 'sv-caption', s.caption));
+    sv.dur = 6000;
+  } else {
+    box.classList.add('text', 'font-' + (s.font || 'sans')); box.style.background = storyBg(s.bg);
+    const t = el('div', 'sv-text'); t.append(fmtText(s.text)); box.append(t);
+    sv.dur = Math.min(10000, 4500 + s.text.length * 40);
+  }
+  if (!box.classList.contains('text')) box.style.background = '#000';
+  renderPoll(s, p);
+  renderStoryFoot(s, p);
+  // mark seen
+  if (!p.mine && !s.seen) { s.seen = true; p.allSeen = p.stories.every(x => x.seen); api('story/view', { uid: p.uid, id: s.id, room: 'general' }).catch(() => {}); }
+  sv.start = performance.now();
+  cancelAnimationFrame(sv.raf); sv.raf = requestAnimationFrame(svTick);
+  // preload the next photo
+  const nx = p.stories[sv.si + 1] || sv.list[sv.pi + 1]?.stories[0]; if (nx?.url) { const i = new Image(); i.src = nx.url; }
+}
+function svTick(now) {
+  const v = $('storyViewer'); if (!v || v.classList.contains('hidden')) return;
+  if (sv.paused || sv.loading) { sv.start = now - sv.elapsed; }
+  else {
+    sv.elapsed = now - sv.start;
+    const fill = v.querySelectorAll('.sv-bars b')[sv.si]; if (fill) fill.style.width = Math.min(100, sv.elapsed / sv.dur * 100) + '%';
+    if (sv.elapsed >= sv.dur) return svNext();
+  }
+  sv.raf = requestAnimationFrame(svTick);
+}
+function svPause(on) { sv.paused = on; $('storyViewer')?.classList.toggle('paused', on); }
+function svNext() {
+  const p = sv.list[sv.pi]; if (!p) return;
+  if (sv.si < p.stories.length - 1) sv.si++;
+  else if (sv.pi < sv.list.length - 1) { sv.pi++; const q = sv.list[sv.pi]; sv.si = Math.max(0, q.stories.findIndex(s => !s.seen)); }
+  else return closeLayer(sv.layer, closeStoriesUI);
+  svShow();
+}
+function svPrev() {
+  if (sv.si > 0) sv.si--;
+  else if (sv.pi > 0) { sv.pi--; sv.si = sv.list[sv.pi].stories.length - 1; }
+  svShow();
+}
+function renderPoll(s, p) {
+  const box = $('storyViewer').querySelector('.sv-poll'); box.innerHTML = '';
+  if (!s.poll) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.append(el('b', 'sp-q', s.poll.q));
+  const total = s.poll.counts ? s.poll.counts.reduce((a, b) => a + b, 0) : 0;
+  s.poll.opts.forEach((o, i) => {
+    const b = el('button', 'sp-opt' + (s.poll.myVote === i ? ' mine' : '')); b.type = 'button';
+    const pct = s.poll.counts && total ? Math.round(s.poll.counts[i] / total * 100) : null;
+    if (pct !== null) { b.style.setProperty('--pct', pct + '%'); b.classList.add('done'); }
+    b.append(el('span', null, o)); if (pct !== null) b.append(el('em', null, pct + '%'));
+    b.onclick = async e => {
+      e.stopPropagation();
+      if (p.mine) return toast('Others vote on your poll — see results under Viewers');
+      try { const d = await api('story/vote', { uid: p.uid, id: s.id, opt: i, room: 'general' }); s.poll = d.story.poll; renderPoll(s, p); } catch (er) { toast(er.message); }
+    };
+    box.append(b);
+  });
+  if (s.poll.counts) box.append(el('small', 'sp-total', `${total} vote${total === 1 ? '' : 's'}`));
+}
+function renderStoryFoot(s, p) {
+  const f = $('storyViewer').querySelector('.sv-foot'); f.innerHTML = '';
+  if (p.mine) {
+    const b = el('button', 'sv-views'); b.type = 'button'; b.append(icoEl('eye'), `${s.views || 0} view${s.views === 1 ? '' : 's'}`);
+    if (s.reacts) b.append(el('span', 'sv-rc', ` · ${s.reacts} reaction${s.reacts === 1 ? '' : 's'}`));
+    b.onclick = () => showStoryViewers(s);
+    f.append(b);
+    return;
+  }
+  const reacts = el('div', 'sv-reacts');
+  for (const e of STORY_REACTS) {
+    const b = el('button', s.myReact === e ? 'on' : '', e); b.type = 'button'; b.setAttribute('aria-label', 'React ' + e);
+    b.onclick = async () => {
+      try { const d = await api('story/react', { uid: p.uid, id: s.id, emoji: e, room: 'general' }); s.myReact = d.myReact; renderStoryFoot(s, p); if (d.myReact) { toast(`Reacted ${d.myReact}`); burst(d.myReact); } } catch (er) { toast(er.message); }
+    };
+    reacts.append(b);
+  }
+  const form = el('form', 'sv-reply'); const inp = el('input'); inp.placeholder = `Reply to ${p.name.split(' ')[0]}…`; inp.maxLength = 500; inp.setAttribute('aria-label', 'Reply');
+  const send = el('button', 'round-btn'); send.type = 'submit'; send.innerHTML = svgFor('send'); send.setAttribute('aria-label', 'Send reply');
+  inp.onfocus = () => svPause(true); inp.onblur = () => { if (!inp.value) svPause(false); };
+  form.onsubmit = async e => {
+    e.preventDefault(); const t = inp.value.trim(); if (!t) return;
+    send.disabled = true;
+    try { await api('story/reply', { uid: p.uid, id: s.id, text: t, room: 'general' }); inp.value = ''; inp.blur(); svPause(false); toast(`Reply sent to ${p.name.split(' ')[0]}`); refreshRooms(); }
+    catch (er) { toast(er.message); } finally { send.disabled = false; }
+  };
+  form.append(inp, send);
+  f.append(reacts, form);
+}
+function burst(emoji) {
+  const v = $('storyViewer'); if (!v) return;
+  for (let i = 0; i < 8; i++) { const s = el('span', 'sv-burst', emoji); s.style.left = (30 + Math.random() * 40) + '%'; s.style.animationDelay = i * 60 + 'ms'; v.append(s); setTimeout(() => s.remove(), 1600); }
+}
+function storyMenu(anchor) {
+  const c = svCur(); if (!c) return;
+  const { p, s } = c; svPause(true);
+  const items = p.mine ? [
+    { icon: 'eye', label: 'Viewers', onClick: () => showStoryViewers(s) },
+    { icon: 'trash', label: 'Delete story', danger: true, onClick: () => deleteStory(s) },
+  ] : [
+    { icon: 'message', label: `Message ${p.name.split(' ')[0]}`, onClick: () => { closeLayer(sv.layer, closeStoriesUI); openDm(p.uid); } },
+    { icon: 'user', label: 'View profile', onClick: () => { closeLayer(sv.layer, closeStoriesUI); showProfile(p.uid); } },
+    { icon: p.muted ? 'bell' : 'bellOff', label: p.muted ? `Unmute ${p.name.split(' ')[0]}’s stories` : `Mute ${p.name.split(' ')[0]}’s stories`, onClick: () => muteStories(p, !p.muted) },
+  ];
+  simpleMenu(anchor, items);
+  const resume = () => { if (!menuFor) { svPause(false); clearInterval(t); } }; const t = setInterval(resume, 300);
+}
+async function deleteStory(s) {
+  const yes = await popup({ icon: 'trash', title: 'Delete this story?', text: 'It disappears for everyone straight away.', ok: 'Delete', danger: true });
+  if (!yes) { svPause(false); return; }
+  try {
+    await api('story/delete', { id: s.id, room: 'general' }); toast('Story deleted');
+    const p = sv.list[sv.pi]; p.stories = p.stories.filter(x => x.id !== s.id);
+    if (!p.stories.length) { closeLayer(sv.layer, closeStoriesUI); } else { sv.si = Math.min(sv.si, p.stories.length - 1); svShow(); }
+    loadStories();
+  } catch (e) { toast(e.message); }
+}
+async function muteStories(p, on) {
+  try { const d = await api('story/mute', { uid: p.uid, on, room: 'general' }); storyFeed.muted = d.muted; p.muted = on; toast(on ? `${p.name}’s stories muted` : `${p.name}’s stories unmuted`); loadStories(); } catch (e) { toast(e.message); }
+  svPause(false);
+}
+function sheet(id, title) {
+  let d = $(id);
+  if (!d) { d = document.createElement('dialog'); d.id = id; d.className = 'sheet'; d.onclick = e => { if (e.target === d) d.close(); }; document.body.append(d); }
+  d.innerHTML = '';
+  const inner = el('div', 'sheet-inner'), head = el('header', 'sheet-head'); head.append(el('h2', null, title));
+  const x = el('button', 'icon-btn'); x.type = 'button'; x.innerHTML = svgFor('x'); x.setAttribute('aria-label', 'Close'); x.onclick = () => d.close(); head.append(x);
+  inner.append(head); d.append(inner);
+  return { d, inner };
+}
+async function showStoryViewers(s) {
+  svPause(true);
+  let data; try { data = await api('story/viewers', { id: s.id, room: 'general' }); } catch (e) { svPause(false); return toast(e.message); }
+  const { d, inner } = sheet('storyViewers', `Viewed by ${data.viewers.length}`);
+  if (data.poll) {
+    const counts = data.poll.opts.map((_, i) => data.viewers.filter(v => v.vote === i).length), total = counts.reduce((a, b) => a + b, 0);
+    const pc = el('div', 'sv-pollres'); pc.append(el('b', null, data.poll.q));
+    data.poll.opts.forEach((o, i) => { const r = el('div', 'spr-row'); r.style.setProperty('--pct', (total ? counts[i] / total * 100 : 0) + '%'); r.append(el('span', null, o), el('em', null, `${counts[i]}`)); pc.append(r); });
+    inner.append(pc);
+  }
+  if (!data.viewers.length) inner.append(el('p', 'empty-note', 'No views yet.'));
+  for (const v of data.viewers) {
+    const row = personRow({ ...v, lastSeen: 0 }, [], null);
+    row.querySelector('small').textContent = [v.at ? agoText(v.at) : '', v.vote !== null && data.poll ? `voted “${data.poll.opts[v.vote]}”` : ''].filter(Boolean).join(' · ');
+    if (v.react) row.querySelector('.p-acts').append(el('span', 'sv-vreact', v.react));
+    inner.append(row);
+  }
+  d.addEventListener('close', () => svPause(false), { once: true });
+  d.showModal();
+}
+
+/* --- close friends & muted --- */
+async function editCloseFriends() {
+  await loadFriends();
+  const chosen = new Set(storyFeed.closeFriends);
+  const { d, inner } = sheet('closeFriends', 'Close friends');
+  inner.append(el('p', 'muted small', 'Only these friends see stories you share with “Close friends”. They aren’t told they’re on the list.'));
+  if (!friends.friends.length) inner.append(el('p', 'empty-note', 'Add friends first.'));
+  const list = el('div', 'cf-list');
+  for (const f of friends.friends) {
+    const lab = el('label', 'person cf-row'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = chosen.has(f.uid);
+    cb.onchange = () => cb.checked ? chosen.add(f.uid) : chosen.delete(f.uid);
+    const a = el('div', 'avatar'); paintAvatar(a, f.name, { photo: f.photo });
+    const m = el('div', 'p-meta'); m.append(el('b', null, f.name), el('small', null, '@' + f.username));
+    lab.append(a, m, cb); list.append(lab);
+  }
+  inner.append(list);
+  const save = el('button', 'btn primary block', 'Save'); save.type = 'button';
+  save.onclick = async () => { save.disabled = true; try { const r = await api('story/close-friends', { uids: [...chosen], room: 'general' }); storyFeed.closeFriends = r.closeFriends; toast(`${r.closeFriends.length} close friend${r.closeFriends.length === 1 ? '' : 's'}`); d.close(); renderSettings(); } catch (e) { toast(e.message); save.disabled = false; } };
+  inner.append(save);
+  d.showModal();
+  return new Promise(res => d.addEventListener('close', res, { once: true }));
+}
+function manageMutedStories() {
+  const { d, inner } = sheet('mutedStories', 'Muted stories');
+  const muted = storyFeed.people.filter(p => p.muted);
+  if (!storyFeed.muted.length) inner.append(el('p', 'empty-note', 'You haven’t muted anyone’s stories. Use the menu while watching a story to mute someone.'));
+  for (const uid of storyFeed.muted) {
+    const f = friends.friends.find(x => x.uid === uid) || muted.find(x => x.uid === uid) || { uid, name: 'Friend', username: '' };
+    inner.append(personRow(f, [['Unmute', 'primary', async b => { b.disabled = true; await muteStories(f, false); d.close(); renderSettings(); }]]));
+  }
+  d.showModal();
+}
+
+/* --- composer --- */
+const sc = { mode: 'text', bg: '#00a884', font: 'sans', file: null, audience: 'friends', hours: 24, poll: false };
+function openStoryComposer() {
+  Object.assign(sc, { mode: 'text', bg: STORY_BGS[Math.floor(Math.random() * STORY_BGS.length)], font: 'sans', file: null, audience: 'friends', hours: 24, poll: false });
+  const { d, inner } = sheet('storySheet', 'New story');
+  d.classList.add('story-sheet');
+  const tabs = el('div', 'seg'); const tText = el('button', 'on', 'Text'), tPhoto = el('button', null, 'Photo'); tText.type = tPhoto.type = 'button'; tabs.append(tText, tPhoto);
+  const prev = el('div', 'sc-preview');
+  const ta = el('textarea', 'sc-text'); ta.placeholder = 'Type a status'; ta.maxLength = 300; ta.rows = 4;
+  const img = el('img', 'sc-img hidden'); img.alt = 'Story photo preview';
+  const pick = el('button', 'sc-pick hidden'); pick.type = 'button'; pick.append(icoEl('image'), 'Choose a photo');
+  const file = el('input'); file.type = 'file'; file.accept = 'image/*'; file.hidden = true;
+  const tools = el('div', 'sc-tools');
+  const fontBtn = el('button', 'sc-tool', 'Aa'); fontBtn.type = 'button'; fontBtn.title = 'Change font';
+  const colorBtn = el('button', 'sc-tool sc-color'); colorBtn.type = 'button'; colorBtn.title = 'Change colour';
+  tools.append(fontBtn, colorBtn);
+  prev.append(ta, img, pick, tools, file);
+  const cap = el('input', 'sc-caption hidden'); cap.placeholder = 'Add a caption…'; cap.maxLength = 200;
+  const paint = () => {
+    prev.style.background = sc.mode === 'text' ? storyBg(sc.bg) : '#111';
+    prev.className = 'sc-preview font-' + sc.font + (sc.mode === 'photo' ? ' photo' : '');
+    colorBtn.style.background = storyBg(sc.bg);
+    ta.classList.toggle('hidden', sc.mode !== 'text'); tools.classList.toggle('hidden', sc.mode !== 'text');
+    img.classList.toggle('hidden', sc.mode !== 'photo' || !sc.file); pick.classList.toggle('hidden', sc.mode !== 'photo' || !!sc.file);
+    cap.classList.toggle('hidden', sc.mode !== 'photo');
+    tText.classList.toggle('on', sc.mode === 'text'); tPhoto.classList.toggle('on', sc.mode === 'photo');
+  };
+  tText.onclick = () => { sc.mode = 'text'; paint(); ta.focus(); };
+  tPhoto.onclick = () => { sc.mode = 'photo'; paint(); if (!sc.file) file.click(); };
+  pick.onclick = () => file.click(); img.onclick = () => file.click();
+  file.onchange = () => { const f = file.files[0]; if (!f) return; sc.file = f; img.src = URL.createObjectURL(f); paint(); };
+  fontBtn.onclick = () => { sc.font = STORY_FONTS[(STORY_FONTS.indexOf(sc.font) + 1) % STORY_FONTS.length]; paint(); };
+  colorBtn.onclick = () => { sc.bg = STORY_BGS[(STORY_BGS.indexOf(sc.bg) + 1) % STORY_BGS.length]; paint(); };
+  // poll
+  const pollT = el('label', 'check sc-check'); const pcb = el('input'); pcb.type = 'checkbox'; pollT.append(pcb, 'Add a poll');
+  const pollBox = el('div', 'sc-poll hidden');
+  const pq = el('input'); pq.placeholder = 'Ask a question…'; pq.maxLength = 80;
+  const opts = el('div', 'sc-opts');
+  const addOpt = v => { const o = el('input'); o.placeholder = `Option ${opts.children.length + 1}`; o.maxLength = 30; o.value = v || ''; opts.append(o); };
+  addOpt('Yes'); addOpt('No');
+  const more = el('button', 'link-btn', '+ Add option'); more.type = 'button'; more.onclick = () => { if (opts.children.length < 4) addOpt(); if (opts.children.length >= 4) more.remove(); };
+  pollBox.append(pq, opts, more);
+  pcb.onchange = () => { sc.poll = pcb.checked; pollBox.classList.toggle('hidden', !pcb.checked); if (pcb.checked) pq.focus(); };
+  // audience + duration
+  const segRow = (label, choices, key) => {
+    const row = el('div', 'sc-row'); row.append(el('span', 'sc-label', label));
+    const seg = el('div', 'seg small');
+    for (const [v, t] of choices) { const b = el('button', sc[key] === v ? 'on' : '', t); b.type = 'button'; b.onclick = () => { sc[key] = v; [...seg.children].forEach(x => x.classList.toggle('on', x === b)); }; seg.append(b); }
+    row.append(seg); return row;
+  };
+  const aud = segRow('Share with', [['friends', 'All friends'], ['close', 'Close friends']], 'audience');
+  const cfEdit = el('button', 'link-btn', `Edit close friends (${storyFeed.closeFriends.length})`); cfEdit.type = 'button';
+  cfEdit.onclick = async () => { d.close(); await editCloseFriends(); d.showModal(); cfEdit.textContent = `Edit close friends (${storyFeed.closeFriends.length})`; };
+  const dur = segRow('Disappears after', [[6, '6 hours'], [24, '24 hours'], [48, '48 hours']], 'hours');
+  const post = el('button', 'btn primary block', 'Share story'); post.type = 'button';
+  post.onclick = async () => {
+    const body = { type: sc.mode, bg: sc.bg, font: sc.font, audience: sc.audience, hours: sc.hours, room: 'general' };
+    if (sc.mode === 'text') { body.text = ta.value.trim(); if (!body.text) return toast('Write something first'); }
+    else { if (!sc.file) return toast('Choose a photo first'); body.caption = cap.value.trim(); }
+    if (sc.poll) body.poll = { q: pq.value.trim(), opts: [...opts.children].map(o => o.value.trim()).filter(Boolean) };
+    if (sc.audience === 'close' && !storyFeed.closeFriends.length) return toast('Choose your close friends first');
+    post.disabled = true; post.textContent = 'Sharing…';
+    try {
+      if (sc.mode === 'photo') {
+        const blob = await (await fetch(await shrinkImage(sc.file, 1440, .85))).blob();
+        const r = await fetch('/api/story/photo', { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg', 'X-Chat-Device': me.device, Authorization: 'Bearer ' + me.token } });
+        const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Upload failed');
+        body.url = j.url;
+      }
+      await api('story/post', body);
+      d.close(); toast(sc.audience === 'close' ? 'Shared with close friends' : 'Story shared'); await loadStories();
+    } catch (e) { toast(e.message); post.disabled = false; post.textContent = 'Share story'; }
+  };
+  inner.append(tabs, prev, cap, pollT, pollBox, aud, cfEdit, dur, post);
+  paint();
+  d.showModal();
+  setTimeout(() => ta.focus(), 80);
 }
 
 /* ---------------- App style picker ---------------- */
