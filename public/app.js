@@ -1323,7 +1323,7 @@ function renderInfo() {
     cam.onclick = e => { e.stopPropagation(); choosePhoto(current, !!g.photo); };
     av.append(cam);
   }
-  const kind = isGeoRoom ? 'Location group' : isLocked ? 'Private group' : current === 'general' ? 'Everyone' : 'Open group';
+  const kind = (g?.invite || ri.invite) ? (isGeoRoom ? 'Invite-only location group' : 'Invite-only group') : isGeoRoom ? 'Location group' : isLocked ? 'Private group' : current === 'general' ? 'Everyone' : 'Open group';
   const adminTxt = g?.isOwner ? ' · you’re the owner' : g?.isAdmin ? ' · you’re an admin' : g?.adminName ? ` · owner ${g.adminName}` : '';
   hero.append(av, el('h2', null, title), el('span', 'muted', kind + adminTxt));
   body.append(hero);
