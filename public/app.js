@@ -391,7 +391,7 @@ function enterApp() {
   roomsTimer = setInterval(() => { if (document.hidden) return; if (!current) refreshRooms(); loadFriends(); if (Date.now() - storiesAt > 60000) loadStories(); }, 15000);
   loadStories();
   setupServiceWorker(); updateNotifBanner(); loadFriends(); renderSettings();
-  if (nativeApp()) { setupNativePush(); configureStepSync(); }
+  if (nativeApp()) { setupNativePush(); configureStepSync(); configureNativeWalkie(); }
 }
 // Which messages we've read per chat → the server answers with unread counts for the list
 function readsPayload() {
@@ -440,7 +440,7 @@ async function signOut() {
   const yes = await popup({ icon: '👋', title: 'Sign out?', text: 'You can sign in again on any device with your username and password.', ok: 'Sign out', danger: true });
   if (!yes) return;
   await disableNotifications(true);
-  if (nativeApp()) { await api('push/native/remove').catch(() => {}); stepSyncCall('stop').catch(() => {}); }
+  if (nativeApp()) { await api('push/native/remove').catch(() => {}); stepSyncCall('stop').catch(() => {}); window.Capacitor.nativePromise('Walkie', 'clear').catch(() => {}); store.del('ic-wk-closed'); }
   try { await api('auth/logout'); } catch {}
   me.token = ''; store.del('ic-token'); store.del('ic-user');
   history.replaceState(history.state, '', location.pathname);
@@ -540,7 +540,7 @@ async function openRoom(room, force) {
 }
 function leaveRoom() {
   session++; clearTimeout(pollTimer); ctrl?.abort(); polling = false;
-  stopLocation(); stopAllAudio(); closeWalkie(); stopBackgroundAudio(); groupMap.destroy();
+  stopLocation(); stopAllAudio(); closeWalkie(); stopBackgroundAudio(); lkLeave(); groupMap.destroy();
   if (current) markRead(current, since);
   current = null; group = null; tellSW();
 }
@@ -1747,6 +1747,7 @@ function openWalkie() {
   } catch {}
   walkie.on = true; walkie.autoOff = false; walkie.nextTime = 0;
   startBackgroundAudio();
+  setTimeout(askClosedWalkie, 1500);
   $('walkiePanel').classList.remove('hidden'); $('walkieBtn').classList.add('on'); $('walkieBtn').setAttribute('aria-pressed', 'true');
   closeGifs(); renderWalkie(); repoll();
 }
@@ -1788,6 +1789,7 @@ function onTalk(talk, xt) {
 function enqueueChunk(c) {
   const id = c.talkId + ':' + c.seq;
   if (walkie.played.has(id)) return;
+  if (lk.room && lk.speakers.has(c.uid)) { walkie.played.add(id); walkie.speaker = c.name; walkie.hearingUntil = performance.now() + 1500; return; }   // already heard live
   walkie.played.add(id);
   if (walkie.played.size > 500) walkie.played = new Set([...walkie.played].slice(-200));
   // download + decode right away, but play strictly in order
@@ -1863,7 +1865,65 @@ function updateMediaSession(text = 'Walkie-talkie · listening') {
   } catch {}
 }
 
+/* Real-time walkie-talkie voice over LiveKit (WebRTC, ~0.2 s delay). One speaker at a time is still enforced by
+   talk/start; the audio pieces keep flowing too (saved message, closed-app listeners) and are skipped for anyone we
+   already hear live. If LiveKit isn't set up or can't connect, the audio pieces are used as before. */
+const lk = { room: null, name: null, connecting: null, enabled: null, checkedAt: 0, speakers: new Set(), track: null, loading: null };
+function loadLiveKit() {
+  if (window.LivekitClient) return Promise.resolve(window.LivekitClient);
+  return lk.loading ||= new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = '/vendor/livekit/livekit-client.umd.js'; sc.onload = () => res(window.LivekitClient); sc.onerror = () => { lk.loading = null; rej(new Error('LiveKit failed to load')); }; document.head.append(sc); });
+}
+async function lkLeave() {
+  const r = lk.room; lk.room = null; lk.name = null; lk.speakers.clear(); lk.track = null;
+  document.querySelectorAll('audio[data-lk]').forEach(a => a.remove());
+  if (r) try { await r.disconnect(); } catch {}
+}
+function lkEnsure() {
+  const want = current && walkieListening();
+  if (!want) { if (lk.room) lkLeave(); return; }
+  if ((lk.room && lk.name === current) || lk.connecting) return;
+  if (lk.enabled === false && Date.now() - lk.checkedAt < 5 * 60_000) return;
+  const target = current;
+  lk.connecting = (async () => {
+    try {
+      const t = await api('talk/lk', { room: target });
+      lk.enabled = !!t.enabled; lk.checkedAt = Date.now();
+      if (!t.enabled) return;
+      const L = await loadLiveKit();
+      if (target !== current || !walkieListening()) return;
+      await lkLeave();
+      const r = new L.Room({ adaptiveStream: false, dynacast: false });
+      r.on(L.RoomEvent.TrackSubscribed, (track, pub, part) => {
+        if (track.kind !== 'audio') return;
+        const a = track.attach(); a.dataset.lk = part.identity; a.style.display = 'none'; document.body.append(a);
+        a.play?.().catch(() => {});
+        lk.speakers.add(part.identity);
+      });
+      r.on(L.RoomEvent.TrackUnsubscribed, (track, pub, part) => { track.detach().forEach(e => e.remove()); lk.speakers.delete(part.identity); });
+      r.on(L.RoomEvent.Disconnected, () => { if (lk.room === r) { lk.room = null; lk.name = null; lk.speakers.clear(); } });
+      await r.connect(t.url, t.token, { autoSubscribe: true });
+      if (target !== current || !walkieListening()) { r.disconnect(); return; }
+      lk.room = r; lk.name = target;
+    } catch (e) { console.warn('LiveKit unavailable — using audio pieces', e); lk.checkedAt = Date.now(); }
+    finally { lk.connecting = null; }
+  })();
+}
+async function lkPublish(stream) {
+  if (!lk.room || !window.LivekitClient) return;
+  try {
+    const mt = stream.getAudioTracks()[0]; if (!mt) return;
+    const t = new window.LivekitClient.LocalAudioTrack(mt, undefined, true);   // our own mic track (we stop it ourselves)
+    await lk.room.localParticipant.publishTrack(t, { source: window.LivekitClient.Track.Source.Microphone, dtx: false, red: true });
+    lk.track = t;
+  } catch (e) { console.warn('LiveKit publish failed — audio pieces still go out', e); }
+}
+function lkUnpublish() {
+  const t = lk.track; lk.track = null;
+  if (t && lk.room) try { lk.room.localParticipant.unpublishTrack(t, false); } catch {}
+}
+
 function renderWalkie() {
+  lkEnsure();
   const f = walkie.floor, othersTalking = f && f.uid !== me.uid, hearing = performance.now() < walkie.hearingUntil;
   const listeners = presenceCache.filter(u => u.walkie && u.uid !== me.uid).length;
   const canTalk = !(group?.me && !group.me.canChat);
@@ -1907,6 +1967,7 @@ async function startTalking() {
     ]);
     if (!walkie.talking || walkie.talkId !== talkId) { stream.getTracks().forEach(t => t.stop()); api('talk/end').catch(() => {}); return; }   // released already
     walkie.stream = stream;
+    lkPublish(stream);                       // live voice for people in the LiveKit room
     if (navigator.vibrate) navigator.vibrate(30);
     const mime = pickMime();
     // full recording (saved to chat afterwards)
@@ -1958,6 +2019,7 @@ function stopTalking(save) {
   walkie.talking = false;
   clearTimeout(walkie.segTimer); clearInterval(walkie.timer);
   $('pttBtn').style.removeProperty('--lvl');
+  lkUnpublish();
   const dur = (Date.now() - walkie.start) / 1000, stream = walkie.stream, full = walkie.full, peaks = downsample(walkie.peaks, 40);
   walkie.stream = null; walkie.full = null;
   if (walkie.seg && walkie.seg.state !== 'inactive') walkie.seg.stop();          // last piece goes out with the "final" flag
@@ -2299,6 +2361,7 @@ function renderSettings() {
     if (autoWalkie()) { unlockAudio(); toast('📻 Walkie-talkie will play automatically'); } else { if (!walkie.on) stopBackgroundAudio(); toast('Walkie-talkie auto-play off'); }
     renderSettings(); repoll();
   });
+  if (isNativeApp()) row('radio', 'Walkie-talkie with app closed', closedWalkieOn() ? 'On — plays live even when Intra Chat is closed' : 'Off — tap to hear it live with the app closed', async () => { await setClosedWalkie(!closedWalkieOn()); renderSettings(); });
   body.append(el('h3', 'sec-title', 'Health'));
   row('footprints', 'My steps', 'Walk mode, daily goal, streaks and badges', openMyStepsSheet);
   body.append(el('h3', 'sec-title', 'Stories'));
@@ -3337,6 +3400,30 @@ async function setupNativePush(ask = true) {
     return true;
   } catch (e) { console.warn('push setup failed', e); return false; }
 }
+/* Walkie-talkie with the app closed (Android): Firebase wakes the phone when someone starts talking and the app
+   plays it live natively. Per-phone setting, asked once the first time you open the walkie-talkie. */
+const closedWalkieOn = () => store.get('ic-wk-closed') === '1';
+async function configureNativeWalkie() {
+  if (!isNativeApp() || !me.token) return;
+  try {
+    await window.Capacitor.nativePromise('Walkie', 'configure', { baseUrl: location.origin, token: me.token, device: me.device });
+    const { room } = await window.Capacitor.nativePromise('Walkie', 'takePending');
+    if (room) setTimeout(() => runIntent({ room, act: 'walkie' }), 600);
+  } catch {}
+}
+async function setClosedWalkie(on, quiet) {
+  if (on && !(await setupNativePush(true))) { toast('Allow notifications for Intra Chat first'); return false; }
+  try { await api('push/native/walkie', { room: 'general', on }); } catch (e) { if (!quiet) toast(e.message); return false; }
+  store.set('ic-wk-closed', on ? '1' : '0');
+  if (!quiet) toast(on ? 'You’ll hear the walkie-talkie even with the app closed' : 'Walkie-talkie only plays while the app is open');
+  return true;
+}
+async function askClosedWalkie() {
+  if (!isNativeApp() || store.get('ic-wk-closed') !== null) return;
+  const yes = await popup({ icon: 'radio', title: 'Hear it with the app closed?', text: 'When someone talks on the walkie-talkie in your chats, play it live even if Intra Chat is closed — like Zello. Muted chats stay quiet. You can change this in Settings.', ok: 'Yes, play live', cancel: 'No thanks' });
+  if (yes) await setClosedWalkie(true); else store.set('ic-wk-closed', '0');
+}
+
 /* Background step sync (native StepSync plugin, Android): uploads Health Connect steps ~every 30 min, app closed or not */
 const stepSyncCall = (m, o = {}) => window.Capacitor.nativePromise('StepSync', m, o);
 async function configureStepSync() {

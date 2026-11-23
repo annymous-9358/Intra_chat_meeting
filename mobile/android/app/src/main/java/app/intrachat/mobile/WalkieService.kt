@@ -27,6 +27,7 @@ class WalkieService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        running = true
         if (intent?.action == ACTION_STOP) {
             WalkiePlugin.instance?.emitStop()       // tell the web app to close the walkie-talkie
             stopSelf()
@@ -45,6 +46,7 @@ class WalkieService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
         try { wake?.takeIf { it.isHeld }?.release() } catch (_: Exception) {}
         try { wifi?.takeIf { it.isHeld }?.release() } catch (_: Exception) {}
         wake = null; wifi = null
@@ -85,6 +87,7 @@ class WalkieService : Service() {
     }
 
     companion object {
+        @Volatile var running = false
         const val CHANNEL = "walkie"
         const val NOTIF_ID = 4201
         const val ACTION_STOP = "app.intrachat.mobile.WALKIE_STOP"

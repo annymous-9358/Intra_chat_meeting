@@ -59,6 +59,7 @@ http.createServer(async (req, res) => {
       vapid: { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY, subject: process.env.VAPID_SUBJECT },
       waitUntil: p => p.catch(() => {}),     // send pushes in the background
       health: healthEnv,                      // Google Health step sync (optional)
+      livekit: { url: process.env.LIVEKIT_URL, apiKey: process.env.LIVEKIT_API_KEY, apiSecret: process.env.LIVEKIT_API_SECRET },   // real-time walkie voice (optional)
     });
     res.writeHead(response.status, Object.fromEntries(response.headers));
     return res.end(Buffer.from(await response.arrayBuffer()));

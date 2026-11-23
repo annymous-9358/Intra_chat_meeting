@@ -29,6 +29,17 @@
         <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/ic_launcher_background" />
         <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="messages" />
 
+        <!-- Firebase messages: our service handles walkie-talkie wake-ups and passes the rest to the push plugin -->
+        <service android:name="com.capacitorjs.plugins.pushnotifications.MessagingService" tools:node="remove" />
+        <service android:name=".IntraMessagingService" android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".WalkieListenService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
         <service
             android:name=".WalkieService"
             android:exported="false"
