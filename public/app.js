@@ -731,7 +731,7 @@ function render(m, isPending) {
     const tx = document.createElement('span'), tm = document.createElement('small'); tx.textContent = m.text; tm.textContent = timeLabel(m.ts);
     s.append(icoEl(m.sys === 'steps' ? 'footprints' : m.sys === 'game' ? 'sparkles' : 'info'), tx, tm);
     s.onclick = () => m.sys === 'game' ? openGame() : openSteps();
-    box.append(s); lastRendered = null;
+    box.append(s); lastRendered = { who: null, ts: m.ts, day };
     return s;
   }
   const mine = isMine(m), who = m.uid || m.name;
@@ -4076,7 +4076,9 @@ function renderGame() {
   const send = (key, body2) => async () => { const v = (gameDraft[key] || '').trim(); if (!v) return toast('Type something first'); await gameApi('move', body2(v)); gameDraft[key] = ''; };
   const players = (filter, onPick, label = p => pname(p.uid)) => { const w = el('div', 'g-pick'); for (const p of g.players.filter(filter)) w.append(btn(label(p), '', () => onPick(p))); return w; };
 
-  if (g.phase === 'lobby') {
+  if (g.phase === 'over' && !g.round) {
+    say('The game was ended before it started.', 'strong');
+  } else if (g.phase === 'lobby') {
     say(`${g.players.length} player${g.players.length === 1 ? '' : 's'}: ${g.players.map(p => pname(p.uid)).join(', ')}`);
     if (!g.joined) body.append(btn('Join game', 'primary block', () => gameApi('join')));
     else if (!host) body.append(btn('Leave', 'ghost block', () => gameApi('leave')));
@@ -4086,7 +4088,7 @@ function renderGame() {
     const card = el('div', 'g-card' + (g.you.imposter ? ' danger' : ''));
     if (g.you.imposter) card.append(el('small', null, 'You are the'), el('b', null, 'IMPOSTER'), el('small', null, `Category: ${g.data.cat}. Blend in!`));
     else if (g.you.word) card.append(el('small', null, `Category: ${g.data.cat}`), el('b', null, g.you.word), el('small', null, 'Give a clue — not too obvious!'));
-    if (g.joined && g.phase !== 'reveal') body.append(card);
+    if (g.joined && card.childElementCount) body.append(card);
     if (g.phase === 'clue') {
       if (g.joined) { body.append(gameTalkButton('Hold to say your clue')); body.append(input('clue', 'Or type your one-word clue', 24)); body.append(btn('Send clue', 'primary block', send('clue', text => ({ text })))); }
       say('Everyone gives one clue, then you vote.', 'muted');
