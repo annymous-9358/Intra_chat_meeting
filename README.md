@@ -14,6 +14,7 @@ A quick group chat app. Run it in two ways with the same code:
   **challenge** (daily goal, length, optional **team journey** in km with milestones): live **leaderboard** (today /
   week / challenge), crowns and streak flames, **cheer** a teammate (push notification, once a day), a challenge
   banner in the chat, and a short note in the chat (no notification spam) when someone hits the goal — with confetti.
+  In a **1:1 friends chat** it's a **Step duel**: either friend can start or end it, with a head-to-head You vs Them card.
 - **Stories**: share a photo (with caption) or a text story (colours + fonts) from the strip at the top of Chats.
   Friends see a ring until they've watched it; tap to step, hold to pause, swipe down to close. Extras: share with
   **all friends or close friends only**, choose **6 / 24 / 48 hours**, add a **poll**, quick **emoji reactions**,

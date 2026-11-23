@@ -1381,3 +1381,14 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 
 .sm-ring .ring-svg { width: 148px; height: 148px; } .wo-ring .ring-svg { width: 220px; height: 220px; }
 .ring-svg circle { stroke-linecap: round; }
+.duel { display: flex; flex-direction: column; gap: 10px; }
+.duel-range { text-align: center; }
+.duel-row { display: flex; align-items: center; justify-content: space-around; }
+.duel-side { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.duel-side .avatar { width: 56px; height: 56px; font-size: 18px; }
+.duel-n { font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+.duel-side small { color: var(--muted); }
+.duel-vs { font-weight: 900; font-size: 18px; color: var(--muted); letter-spacing: .05em; }
+.duel-bar { height: 10px; border-radius: 5px; background: #f97316; overflow: hidden; }
+.duel-bar i { display: block; height: 100%; background: var(--brand); transition: width .6s ease; }
+.duel-msg { margin: 0; text-align: center; font-weight: 600; }

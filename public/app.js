@@ -2104,7 +2104,7 @@ function openChatMenu(anchor) {
   if (!group?.dm) items.push({ icon: '🔗', label: 'Invite people', onClick: shareInvite });
   items.push({ icon: '🔍', label: 'Search messages', onClick: openSearch });
   items.push({ icon: '⏰', label: 'Scheduled messages', onClick: showScheduled });
-  items.push({ icon: 'footprints', label: group?.dm ? 'My steps' : 'Step challenge', onClick: openSteps });
+  items.push({ icon: 'footprints', label: group?.dm ? 'Step duel' : 'Step challenge', onClick: openSteps });
   items.push({ icon: '🎨', label: 'Wallpaper', onClick: () => openWallpaper(current) });
   items.push({ icon: isMuted(current) ? '🔔' : '🔕', label: isMuted(current) ? 'Unmute notifications' : 'Mute notifications', onClick: () => pushActive || isMuted(current) ? muteGroup() : enableNotifications() });
   items.push({ icon: '📻', label: walkie.on ? 'Close walkie-talkie' : 'Walkie-talkie', onClick: () => $('walkieBtn').click() });
@@ -3190,7 +3190,7 @@ const fmtN = n => Math.round(n || 0).toLocaleString();
 const kmOf = n => (n * 0.75 / 1000);
 let myStepsData = null, stepsBoard = null, stepsRange = 'today';
 async function loadMySteps() { try { myStepsData = await api('steps/me', { room: current || 'general', today: localDay() }); } catch {} return myStepsData; }
-async function loadBoard() { if (!current || group?.dm) return null; try { stepsBoard = await api('steps/board', { range: stepsRange, today: localDay() }); } catch (e) { stepsBoard = { error: e.message }; } return stepsBoard; }
+async function loadBoard() { if (!current) return null; try { stepsBoard = await api('steps/board', { range: stepsRange, today: localDay() }); } catch (e) { stepsBoard = { error: e.message }; } return stepsBoard; }
 
 function ringSvg(pct, size = 148) {
   const r = size / 2 - 10, c = 2 * Math.PI * r, p = Math.max(0, Math.min(1, pct));
@@ -3269,7 +3269,7 @@ async function openMyStepsSheet() {
 async function openSteps() {
   if (!current) return;
   infoMode = 'steps'; showInfoPane();
-  $('infoTitle').textContent = group?.dm ? 'My steps' : 'Step challenge';
+  $('infoTitle').textContent = group?.dm ? 'Step duel' : 'Step challenge';
   const body = $('infoBody'); body.innerHTML = ''; body.append(el('p', 'muted small empty-note', 'Loading…'));
   await Promise.all([loadMySteps(), loadBoard()]);
   renderSteps();
@@ -3280,8 +3280,9 @@ function renderSteps() {
   const refresh = async () => { await Promise.all([loadMySteps(), loadBoard()]); renderSteps(); renderStepsBanner(); };
   const chGoal = stepsBoard?.challenge && !stepsBoard.challenge.ended ? stepsBoard.challenge.goal : null;
   if (myStepsData) body.append(personalCard(chGoal ? { ...myStepsData, goal: chGoal, streak: stepsBoard.rows?.find(r => r.uid === me.uid)?.streak ?? myStepsData.streak } : myStepsData, refresh));
-  if (!group?.dm && stepsBoard && !stepsBoard.error) {
-    const ch = stepsBoard.challenge;
+  if (stepsBoard && !stepsBoard.error) {
+    const ch = stepsBoard.challenge, duel = stepsBoard.dm, peerFirst = (group?.peer?.name || 'them').split(' ')[0];
+    if (duel) body.prepend(duelCard(stepsBoard, peerFirst));
     // challenge header + team journey
     const cc = el('div', 'card steps-ch');
     if (ch && !ch.ended) {
@@ -3299,11 +3300,11 @@ function renderSteps() {
         cc.append(j);
       }
     } else {
-      cc.append(el('b', null, ch?.ended ? `“${ch.title}” has finished` : 'No challenge running'),
-        el('p', 'muted small', stepsBoard.canManage ? 'Start a challenge to get everyone walking: a daily goal, a leaderboard, streaks and a team journey.' : 'Ask a group admin to start a step challenge. The leaderboard below already works with everyone’s own goals.'));
+      cc.append(el('b', null, ch?.ended ? `“${ch.title}” has finished` : duel ? 'No duel running' : 'No challenge running'),
+        el('p', 'muted small', duel ? `Challenge ${peerFirst} to a step duel: pick a daily goal and a length, and see who walks more.` : stepsBoard.canManage ? 'Start a challenge to get everyone walking: a daily goal, a leaderboard, streaks and a team journey.' : 'Ask a group admin to start a step challenge. The leaderboard below already works with everyone’s own goals.'));
     }
     if (stepsBoard.canManage) {
-      const b = el('button', 'btn small ' + (ch && !ch.ended ? 'ghost' : 'primary'), ch && !ch.ended ? 'End challenge' : 'Start a challenge'); b.type = 'button';
+      const b = el('button', 'btn small ' + (ch && !ch.ended ? 'ghost' : 'primary'), ch && !ch.ended ? (duel ? 'End duel' : 'End challenge') : (duel ? `Challenge ${peerFirst}` : 'Start a challenge')); b.type = 'button';
       b.onclick = () => ch && !ch.ended ? endChallenge() : startChallenge();
       cc.append(b);
     }
@@ -3343,23 +3344,43 @@ function renderSteps() {
   }
   body.scrollTop = scroll;
 }
+// Head-to-head card for a 1:1 step duel
+function duelCard(b, peerFirst) {
+  const mine = b.rows.find(r => r.uid === me.uid) || { steps: 0, today: 0, streak: 0 }, them = b.rows.find(r => r.uid !== me.uid) || { name: peerFirst, steps: 0, today: 0, streak: 0 };
+  const card = el('div', 'card duel');
+  const side = (r, label) => {
+    const s = el('div', 'duel-side'); const a = el('div', 'avatar'); paintAvatar(a, r.name || label, { photo: r.photo });
+    s.append(a, el('b', 'duel-n', fmtN(r.steps)), el('small', null, label));
+    if (r.streak > 1) { const f = el('span', 'lb-streak'); f.append(icoEl('flame'), `${r.streak}`); s.append(f); }
+    return s;
+  };
+  const vs = el('div', 'duel-vs', 'VS');
+  card.append(el('div', 'duel-range muted small', b.range === 'today' ? 'Today' : b.range === 'week' ? 'This week' : 'Whole duel'));
+  const row = el('div', 'duel-row'); row.append(side(mine, 'You'), vs, side(them, peerFirst)); card.append(row);
+  const total = mine.steps + them.steps;
+  const bar = el('div', 'duel-bar'); const l = el('i', 'me'); l.style.width = (total ? mine.steps / total * 100 : 50) + '%'; bar.append(l); card.append(bar);
+  const diff = mine.steps - them.steps;
+  card.append(el('p', 'duel-msg', !total ? 'Nobody has walked yet — first steps win bragging rights.' : diff > 0 ? `You’re ahead by ${fmtN(diff)} steps — keep it up!` : diff < 0 ? `${peerFirst} is ahead by ${fmtN(-diff)} steps — time for a walk?` : 'Neck and neck!'));
+  return card;
+}
 async function startChallenge() {
-  const title = await popup({ icon: 'trophy', title: 'New step challenge', text: 'Give it a fun name.', ok: 'Next', input: { value: 'Step it up', maxLength: 40, required: true } });
+  const duel = !!group?.dm, peerFirst = (group?.peer?.name || 'your friend').split(' ')[0];
+  const title = await popup({ icon: 'trophy', title: duel ? `Step duel with ${peerFirst}` : 'New step challenge', text: 'Give it a fun name.', ok: 'Next', input: { value: duel ? 'Step duel' : 'Step it up', maxLength: 40, required: true } });
   if (title === null) return;
   const goal = await popup({ icon: 'flag', title: 'Daily goal for everyone', ok: '', cancel: 'Cancel', choices: [5000, 7500, 10000, 12500].map(g => ({ value: g, label: `${fmtN(g)} steps a day` })) });
   if (typeof goal !== 'number') return;
   const days = await popup({ icon: 'calendar', title: 'How long?', ok: '', cancel: 'Cancel', choices: [[3, '3 days'], [7, '1 week'], [14, '2 weeks'], [30, '30 days']].map(([v, l]) => ({ value: v, label: l })) });
   if (typeof days !== 'number') return;
-  const n = Math.max(1, (membersCache.room === current ? membersCache.list?.length : 0) || 3);
+  const n = duel ? 2 : Math.max(1, (membersCache.room === current ? membersCache.list?.length : 0) || 3);
   const suggest = Math.max(10, Math.round(n * goal * days * 0.75 / 1000 * 0.7 / 10) * 10);
-  const teamKm = await popup({ icon: 'pin', title: 'Team journey', text: 'Walk a distance together — everyone’s steps add up.', ok: '', cancel: 'Cancel',
+  const teamKm = await popup({ icon: 'pin', title: 'Team journey', text: duel ? `Compete, but also walk a distance together with ${peerFirst} — both your steps add up.` : 'Walk a distance together — everyone’s steps add up.', ok: '', cancel: 'Cancel',
     choices: [{ value: suggest, label: `${suggest} km (suggested for ${n} people)` }, { value: Math.round(suggest * 1.5), label: `${Math.round(suggest * 1.5)} km (harder)` }, { value: 0, label: 'No team journey' }] });
   if (typeof teamKm !== 'number') return;
-  try { await api('steps/challenge', { title, goal, days, teamKm, today: localDay() }); toast('Challenge started — let’s go!'); stepsRange = 'challenge'; repoll(); await loadBoard(); renderSteps(); }
+  try { await api('steps/challenge', { title, goal, days, teamKm, today: localDay() }); toast(duel ? `Duel on — ${peerFirst} has been challenged!` : 'Challenge started — let’s go!'); stepsRange = 'challenge'; repoll(); await loadBoard(); renderSteps(); }
   catch (e) { toast(e.message); }
 }
 async function endChallenge() {
-  const yes = await popup({ icon: 'flag', title: 'End the challenge?', text: 'The leaderboard stays; the challenge and team journey stop for everyone.', ok: 'End challenge', danger: true });
+  const yes = await popup({ icon: 'flag', title: group?.dm ? 'End the duel?' : 'End the challenge?', text: 'The leaderboard stays; the challenge and team journey stop for everyone.', ok: 'End challenge', danger: true });
   if (!yes) return;
   try { await api('steps/challenge', { end: true }); stepsRange = 'today'; toast('Challenge ended'); repoll(); await loadBoard(); renderSteps(); } catch (e) { toast(e.message); }
 }
