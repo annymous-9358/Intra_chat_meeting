@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "115108157886",
+    "project_id": "intra-chat-health-54231",
+    "storage_bucket": "intra-chat-health-54231.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:115108157886:android:9bddc76429fdeb26b201ef",
+        "android_client_info": {
+          "package_name": "app.intrachat.mobile"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "115108157886-9d2qv7s4a670heit21pgh8neeg4dplu8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDAWMSn19z8ZbuM-TyqZVH57TRlPgboOXQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "115108157886-9d2qv7s4a670heit21pgh8neeg4dplu8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

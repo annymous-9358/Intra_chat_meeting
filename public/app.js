@@ -391,6 +391,7 @@ function enterApp() {
   roomsTimer = setInterval(() => { if (document.hidden) return; if (!current) refreshRooms(); loadFriends(); if (Date.now() - storiesAt > 60000) loadStories(); }, 15000);
   loadStories();
   setupServiceWorker(); updateNotifBanner(); loadFriends(); renderSettings();
+  if (nativeApp()) { setupNativePush(); configureStepSync(); }
 }
 // Which messages we've read per chat → the server answers with unread counts for the list
 function readsPayload() {
@@ -439,6 +440,7 @@ async function signOut() {
   const yes = await popup({ icon: '👋', title: 'Sign out?', text: 'You can sign in again on any device with your username and password.', ok: 'Sign out', danger: true });
   if (!yes) return;
   await disableNotifications(true);
+  if (nativeApp()) { await api('push/native/remove').catch(() => {}); stepSyncCall('stop').catch(() => {}); }
   try { await api('auth/logout'); } catch {}
   me.token = ''; store.del('ic-token'); store.del('ic-user');
   history.replaceState(history.state, '', location.pathname);
@@ -1676,7 +1678,7 @@ function updateNotifBanner() {
   const b = $('notifBanner');
   const dismissed = (+store.get('ic-nb-dismissed') || 0) > Date.now();
   let show = false;
-  if (!dismissed && !pushActive) {
+  if (!dismissed && !pushActive && !(window.Capacitor?.isNativePlatform?.())) {   // the native app has its own notifications
     if (pushSupported() && Notification.permission === 'default') {
       show = true; $('nbTitle').textContent = 'Get notified about new messages'; $('nbText').textContent = 'Even when Intra Chat is closed — like WhatsApp.'; $('nbAction').textContent = 'Turn on'; $('nbAction').onclick = enableNotifications;
     } else if (isIOS && !isStandalone()) {
@@ -2276,7 +2278,7 @@ function renderSettings() {
   row('users', 'Close friends', storyFeed.closeFriends.length ? `${storyFeed.closeFriends.length} people · see your close-friends stories` : 'Choose who sees your close-friends stories', editCloseFriends);
   row('bellOff', 'Muted stories', storyFeed.muted.length ? `${storyFeed.muted.length} muted` : 'Nobody muted', manageMutedStories);
   body.append(el('h3', 'sec-title', 'Notifications'));
-  if (nativeApp()) row('bell', 'Message notifications', 'Coming to the app soon — for now, keep notifications on in the website', () => toast('App notifications are coming in the next update'));
+  if (nativeApp()) row(nativePush.granted ? 'bell' : 'bellOff', 'Message notifications', nativePush.granted ? 'On for this phone' : 'Off — tap to turn on', async () => { const okp = await setupNativePush(true); toast(okp ? 'Notifications are on' : 'Allow notifications for Intra Chat in your phone’s settings'); renderSettings(); });
   else if (pushSupported() && Notification.permission !== 'denied') row(pushActive ? '🔔' : '🔕', 'Message notifications', pushActive ? 'On for this device' : 'Off — tap to turn on', () => (pushActive ? disableNotifications() : enableNotifications()).then(renderSettings));
   else row('🔕', 'Message notifications', isIOS && !isStandalone() ? 'Add Intra Chat to your Home Screen first' : 'Blocked in your browser’s site settings', () => (isIOS && !isStandalone() ? iosHelp() : toast('Allow notifications for this site in your browser settings')));
   if (installPrompt) row('📲', 'Install the app', 'Full screen, from your home screen', installApp);
@@ -3229,10 +3231,11 @@ async function connectPhoneHealth(onChange) {
     if (!ok) { toast(`Allow ${phoneHealthName()} to share Steps to sync automatically`); return; }
     phoneHealth.granted = true; store.set('ic-hc-on', '1');
     await syncPhoneHealth(false); onChange?.();
+    await configureStepSync(); await askBackgroundSteps();
   } catch (e) { toast(e.message || `Couldn’t connect ${phoneHealthName()}`); }
 }
 function disconnectPhoneHealth(onChange) {
-  phoneHealth.granted = false; store.del('ic-hc-on');
+  phoneHealth.granted = false; store.del('ic-hc-on'); stepSyncCall('stop').catch(() => {});
   toast(`${phoneHealthName()} sync off. To remove access fully, open ${phoneHealthName()} settings.`);
   onChange?.();
 }
@@ -3261,16 +3264,60 @@ function phoneHealthBox(onChange) {
   const mid = el('div', 'hb-mid'), acts = el('div', 'hb-acts');
   const btn = (label, cls, fn) => { const b = el('button', 'btn small ' + cls, label); b.type = 'button'; b.onclick = fn; acts.append(b); return b; };
   if (!on) {
-    mid.append(el('b', null, `Sync steps from ${phoneHealthName()}`), el('small', null, nativeOS() === 'android' ? 'Reads your phone’s step count (and Google Fit, Samsung Health or your watch, if they share to Health Connect). Updates when you open the app.' : 'Reads your iPhone and Apple Watch steps. Updates when you open the app.'));
+    mid.append(el('b', null, `Sync steps from ${phoneHealthName()}`), el('small', null, nativeOS() === 'android' ? 'Reads your phone’s step count (and Google Fit, Samsung Health or your watch, if they share to Health Connect). Keeps syncing in the background.' : 'Reads your iPhone and Apple Watch steps. Updates when you open the app.'));
     btn('Connect', 'primary', () => connectPhoneHealth(onChange));
   } else {
-    mid.append(el('b', null, `${phoneHealthName()} connected`), el('small', null, phoneHealth.lastSync ? `Synced ${agoText(phoneHealth.lastSync)} · updates when you open the app` : 'Syncing…'));
+    mid.append(el('b', null, `${phoneHealthName()} connected`), el('small', null, (phoneHealth.lastSync ? `Synced ${agoText(phoneHealth.lastSync)}` : 'Syncing…') + (nativeOS() === 'android' ? ' · also every 30 min in the background' : ' · updates when you open the app')));
     const sb = btn('Sync now', '', async () => { sb.disabled = true; await syncPhoneHealth(false); sb.disabled = false; onChange?.(); });
     btn('Turn off', 'ghost', () => disconnectPhoneHealth(onChange));
   }
   box.append(icoEl('footprints', 'hb-ic'), mid, acts);
   return box;
 }
+/* Native app notifications (Firebase Cloud Messaging) */
+let nativePush = { listeners: false, granted: false };
+const pushCall = (m, o = {}) => window.Capacitor.nativePromise('PushNotifications', m, o);
+async function setupNativePush(ask = true) {
+  if (!nativeApp() || !me.token) return false;
+  try {
+    if (!nativePush.listeners) {
+      nativePush.listeners = true;
+      window.Capacitor.addListener('PushNotifications', 'registration', t => { if (t?.value) api('push/native', { room: 'general', token: t.value, platform: nativeOS() }).catch(() => {}); });
+      window.Capacitor.addListener('PushNotifications', 'registrationError', e => console.warn('push registration failed', e));
+      // Tapping a notification opens the right chat (also when the app was closed)
+      window.Capacitor.addListener('PushNotifications', 'pushNotificationActionPerformed', a => {
+        const d = a?.notification?.data || {};
+        if (d.type === 'message' && d.room) runIntent({ room: d.room, act: 'open', key: d.key || null });
+        else if (d.url && d.url.startsWith('/#/')) location.hash = d.url.slice(1);
+      });
+    }
+    let perm = await pushCall('checkPermissions');
+    if (perm.receive !== 'granted' && ask) perm = await pushCall('requestPermissions');
+    nativePush.granted = perm.receive === 'granted';
+    if (!nativePush.granted) return false;
+    await pushCall('createChannel', { id: 'messages', name: 'Messages', description: 'New messages, mentions and replies', importance: 4, visibility: 1, vibration: true, lights: true }).catch(() => {});
+    await pushCall('register');
+    return true;
+  } catch (e) { console.warn('push setup failed', e); return false; }
+}
+/* Background step sync (native StepSync plugin, Android): uploads Health Connect steps ~every 30 min, app closed or not */
+const stepSyncCall = (m, o = {}) => window.Capacitor.nativePromise('StepSync', m, o);
+async function configureStepSync() {
+  if (!nativeApp() || nativeOS() !== 'android' || !phoneHealth.granted || !me.token) return;
+  try { await stepSyncCall('configure', { baseUrl: location.origin, token: me.token, device: me.device }); } catch (e) { console.warn('step sync setup failed', e); }
+}
+async function askBackgroundSteps() {
+  if (nativeOS() !== 'android') return;
+  try {
+    const st = await stepSyncCall('status');
+    if (!st.backgroundSupported || st.backgroundGranted) return;
+    const yes = await popup({ icon: 'footprints', title: 'Keep syncing in the background?', text: 'Let Intra Chat read your steps while the app is closed, so challenges stay up to date without opening it. Health Connect will ask you to confirm.', ok: 'Allow', cancel: 'Not now' });
+    if (!yes) return;
+    const r = await stepSyncCall('requestBackground');
+    toast(r.granted ? 'Steps will sync in the background' : 'Steps will sync when you open the app');
+  } catch {}
+}
+
 if (nativeApp()) {
   checkPhoneHealth();
   const tick = () => { if (!document.hidden) syncPhoneHealth(true); };
