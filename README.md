@@ -8,6 +8,18 @@ A quick group chat app. Run it in two ways with the same code:
 | **Netlify** | Netlify Functions + Netlify Blobs | Anyone with the link (groups can have their own password) |
 
 ## Features
+- **Profiles**: profile photo (shown on messages, chat list, members, friends), *About* text, and a **status**
+  (📅 In a meeting, 🍽️ At lunch, 🏖️ On leave… or your own) that clears itself after 1 h / 4 h / today / this week.
+  Tap anyone's photo or name to see their profile card and message them or add them as a friend. Admins can set a **group photo**.
+- **Beyond WhatsApp**:
+  - ⏰ **Scheduled messages**: type a message, then press and hold ➤ (or right-click it) to send it later;
+    see and cancel them from ⋮ → Scheduled messages. Delivered by a scheduled function every minute (`netlify/functions/scheduler.mjs`).
+  - 🔔 **Remind me** about any message: you get a notification at that time that opens the message.
+  - ✏️ **Edit your messages any time** (marked "edited" for everyone).
+  - 📌 **Pinned messages** bar (up to 10 per chat; tap to jump, cycles through older pins).
+  - 🔍 **Search** a chat's history by words or sender.
+  - **@mentions** with suggestions while typing; the mentioned person is highlighted and notified **even if they muted the group**.
+  - Formatting: `*bold*` `_italic_` `~strike~` `` `code` ``, plus clickable links.
 - **WhatsApp-style interface**: Chats / Friends / Settings tabs (bottom bar on phones, left rail on tablet/desktop),
   chat list with unread counts and filters (All, Unread, Friends, Groups), bubbles with tails, blue read ticks,
   emoji picker, ⋮ menus. Light, dark or system theme, and chat wallpapers (doodles, colours, gradients, or **your own
@@ -108,6 +120,7 @@ unless you put the server behind HTTPS (e.g. a reverse proxy with a certificate)
 - `public/index.html`, `public/app.css`, `public/app.js`: the web app
 - `lib/chat.mjs`: chat API (shared by both modes)
 - `netlify/functions/api.mjs`: Netlify Function that serves `/api/*`
+- `netlify/functions/scheduler.mjs`: runs every minute to deliver scheduled messages and reminders (the LAN server does this itself)
 - `server.js`: LAN server
 
 ## Location groups: how it works and limits

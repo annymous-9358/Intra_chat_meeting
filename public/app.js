@@ -138,9 +138,12 @@ for (const btn of document.querySelectorAll('.pw-eye')) btn.onclick = () => {
 const slug = s => s.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 30);
 function hue(str) { let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 function initials(s) { const p = s.replace(/^#/, '').replace(/[-_]/g, ' ').trim().split(/\s+/); return ((p[0]?.[0] || '?') + (p[1]?.[0] || '')).toUpperCase(); }
-function paintAvatar(el, label, { geo, locked } = {}) {
-  el.textContent = initials(label);
-  el.style.background = `hsl(${hue(label)} 55% 48%)`;
+const okPhoto = u => typeof u === 'string' && /^\/api\/file\/[a-f0-9]{24}$/.test(u) ? u : null;
+function paintAvatar(el, label, { geo, locked, photo } = {}) {
+  label = label || '?'; photo = okPhoto(photo);
+  el.textContent = photo ? '' : initials(label);
+  el.style.background = photo ? `center / cover no-repeat url("${photo}"), hsl(${hue(label)} 55% 48%)` : `hsl(${hue(label)} 55% 48%)`;
+  el.classList.toggle('has-photo', !!photo);
   el.classList.toggle('geo', !!geo); el.classList.toggle('locked', !!locked);
 }
 const nameColor = n => `hsl(${hue(n)} 60% var(--name-l, 42%))`;
@@ -195,10 +198,10 @@ function applyIntent() {
     if (el && it.act === 'talk') startReply(el, { focus: false });
     toast(el && it.act === 'talk' ? `Hold the button to reply to ${el._msg?.name}` : '📻 Walkie-talkie on — hold the button to talk');
   } else if (el && it.act === 'reply') startReply(el);
-  else if (el && it.act === 'play') {
+  else if (el && (it.act === 'play' || it.act === 'show')) {
     el.scrollIntoView({ block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
-    el.querySelector('.voice .play')?.click();
-  }
+    if (it.act === 'play') el.querySelector('.voice .play')?.click();
+  } else if (it.act === 'show') toast('That message is too old to show');
 }
 
 /* ---------------- Sign in / create account ---------------- */
@@ -261,7 +264,7 @@ function sessionExpired() {
 function enterApp() {
   expiredShown = false;
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
-  paintAvatar($('meAvatar'), me.name); $('meName').textContent = `${me.name} · @${me.username}`;
+  paintMe();
   refreshRooms().then(() => {
     const intent = linkIntent();
     if (intent) return runIntent(intent);
@@ -301,7 +304,7 @@ async function editName() {
     input: { value: me.name, maxLength: 24, required: true, requiredMsg: 'Your name can’t be empty' },
     onConfirm: async v => { if (v === me.name) return null; try { const d = await api('auth/update', { name: v }); Object.assign(me, d.user); store.set('ic-user', JSON.stringify(d.user)); return null; } catch (e) { return e.message; } } });
   if (name === null) return;
-  paintAvatar($('meAvatar'), me.name); $('meName').textContent = `${me.name} · @${me.username}`; renderSettings();
+  paintMe(); renderSettings();
   toast('Name saved');
 }
 async function changePassword() {
@@ -337,7 +340,7 @@ function renderRooms() {
     const li = document.createElement('li');
     li.className = (r.room === current ? 'active ' : '') + (n ? 'unread' : '');
     const b = document.createElement('button');
-    const av = document.createElement('div'); av.className = 'avatar'; paintAvatar(av, r.title || r.room, r);
+    const av = document.createElement('div'); av.className = 'avatar'; paintAvatar(av, r.title || r.room, { ...r, photo: r.dm ? r.peer?.photo : r.photo });
     const meta = document.createElement('div'); meta.className = 'room-meta';
     const top = document.createElement('div'); top.className = 'room-top';
     const t = document.createElement('b'); t.textContent = r.title || '#' + r.room;
@@ -346,7 +349,7 @@ function renderRooms() {
     const bottom = document.createElement('div'); bottom.className = 'room-bottom';
     const sub = document.createElement('small');
     if (r.last?.text) sub.textContent = (isMine(r.last) ? (r.dm ? '' : 'You: ') : r.dm ? '' : r.last.name + ': ') + r.last.text;
-    else if (r.dm) sub.textContent = `@${r.peer?.username || ''} · say hi 👋`;
+    else if (r.dm) sub.textContent = r.peer?.status ? `${r.peer.status.emoji} ${r.peer.status.text}`.trim() : `@${r.peer?.username || ''} · say hi 👋`;
     else if (r.locked && !r.access) sub.textContent = '🔒 Private group · tap to enter password';
     else if (r.geo) sub.textContent = `📍 Location group · ${fmtDist(r.radius)} range`;
     else sub.textContent = r.room === 'general' ? 'Everyone' : 'No messages yet';
@@ -400,7 +403,8 @@ async function openRoom(room, force) {
   $('chatBar').classList.remove('hidden'); $('composerWrap').classList.remove('hidden');
   $('chatTitle').textContent = roomTitle(room); $('chatSub').textContent = info.dm ? lastSeenText(info.peer?.lastSeen) : 'tap here for info';
   $('messages').classList.toggle('dm', !!info.dm); applyWallpaper(room); closeEmoji();
-  paintAvatar($('chatAvatar'), info.title || room, info);
+  paintAvatar($('chatAvatar'), info.title || room, { ...info, photo: info.dm ? info.peer?.photo : info.photo });
+  setPins([]); closeMention();
   renderRooms(); updateComposerLock(); renderAdminBanner();
   if (info.geo) startLocation();
   tellSW(); swPost({ type: 'read', room });
@@ -470,6 +474,7 @@ async function poll(mySession) {
     // (ignore a mute state from a request that started before we changed it ourselves)
     if (typeof d.muteUntil === 'number' && pollStart > muteChangedAt && (mutes[current] || 0) !== d.muteUntil) { if (d.muteUntil) mutes[current] = d.muteUntil; else delete mutes[current]; store.setJson('ic-mutes', mutes); }
     setRooms(d.rooms);
+    if (d.pins) setPins(d.pins);
     receipts = d.receipts || [];
     setGroup(d.group);
     renderPresence(d.users || []);
@@ -551,8 +556,9 @@ function render(m, isPending) {
   el.className = 'msg' + (mine ? ' mine' : '') + (cont ? ' cont' : '') + (isPending ? ' pending' : '');
   el._msg = m; if (m.key) el.dataset.key = m.key;
   if (!mine) {
-    const av = document.createElement('div'); av.className = 'avatar m-avatar'; paintAvatar(av, m.name); av.setAttribute('aria-hidden', 'true');
+    const av = document.createElement('div'); av.className = 'avatar m-avatar'; paintUser(av, m.uid, m.name); av.setAttribute('aria-hidden', 'true');
     const nm = document.createElement('span'); nm.className = 'who'; nm.textContent = m.name; nm.style.color = nameColor(m.name); el.append(av, nm);
+    if (m.uid) { av.onclick = nm.onclick = e => { e.stopPropagation(); showProfile(m.uid); }; }
   }
   if (m.replyTo) {
     const q = quoteEl(m.replyTo); q.title = 'Go to message';
@@ -578,10 +584,13 @@ function render(m, isPending) {
     }
   }
   if (m.deleted) { el.classList.add('deleted'); const body = document.createElement('span'); body.className = 'body'; body.textContent = '🚫 This message was deleted'; el.append(body); }
-  else if (m.text) { const body = document.createElement('span'); body.className = 'body'; body.textContent = m.text; el.append(body); }
+  else if (m.text) { const body = document.createElement('span'); body.className = 'body'; body.append(fmtText(m.text)); el.append(body); }
+  if (!mine && m.mentions?.includes(me.uid)) el.classList.add('mentions-me');
   if (!m.text && !m.deleted) el.classList.add('media-only');
 
   const foot = document.createElement('span'); foot.className = 'foot';
+  if (m.scheduled) foot.append(Object.assign(document.createElement('span'), { className: 'f-tag', textContent: '⏰', title: 'Scheduled message' }));
+  if (m.edited) foot.append(Object.assign(document.createElement('span'), { className: 'f-tag edited', textContent: 'edited' }));
   foot.append(timeLabel(m.ts));
   if (mine) {
     const t = document.createElement('span'); t.className = 'ticks clock'; t.textContent = '🕓'; t.title = 'Sending…';
@@ -1000,7 +1009,7 @@ function setGroup(g) {
   if (group?.geo && !wasGeo) startLocation();
   if (group) {
     const r = roomInfo(current);
-    $('chatTitle').textContent = group.title; paintAvatar($('chatAvatar'), group.title, { geo: group.geo, locked: group.locked });
+    $('chatTitle').textContent = group.title; paintAvatar($('chatAvatar'), group.title, { geo: group.geo, locked: group.locked, photo: group.dm ? group.peer?.photo : group.photo });
     $('messages').classList.toggle('dm', !!group.dm);
     if (r.title !== group.title) { r.title = group.title; renderRooms(); }
   }
@@ -1068,7 +1077,7 @@ async function loadMembers() {
   const room = current; if (!room) return;
   try { const d = await api('group/members', { room }); if (room === current) { membersCache = { room, list: d.members }; renderInfo(); } } catch {}
 }
-function openInfo() { if (!current) return; $('app').classList.add('info-open'); renderInfo(); loadMembers(); }
+function openInfo() { if (!current) return; infoMode = 'info'; $('app').classList.add('info-open'); renderInfo(); loadMembers(); }
 async function makeAdmin(mm) {
   const yes = await popup({ icon: '👑', title: `Make ${mm.name} the admin?`,
     text: `${mm.name} will be able to change the group’s name, password${group?.geo ? ', range' : ''} and members. You’ll stay in the group, but you won’t be the admin any more.`,
@@ -1080,10 +1089,11 @@ async function makeAdmin(mm) {
 $('infoBtn').onclick = () => $('app').classList.contains('info-open') ? $('app').classList.remove('info-open') : openInfo();
 $('chatMenuBtn').onclick = e => openChatMenu(e.currentTarget);
 $('chatHead').onclick = openInfo;
-$('infoClose').onclick = () => $('app').classList.remove('info-open');
+$('infoClose').onclick = () => { $('app').classList.remove('info-open'); infoMode = 'info'; };
 
 function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
 function renderInfo() {
+  if (infoMode === 'search') return;
   const body = $('infoBody');
   if (body.contains(document.activeElement) && document.activeElement.type === 'range') return;   // don't disturb a slider mid-drag
   const scroll = body.scrollTop;
@@ -1093,7 +1103,13 @@ function renderInfo() {
   const g = group, ri = roomInfo(current), title = g?.title || roomTitle(current);
   const isGeoRoom = g ? g.geo : ri.geo, isLocked = g ? g.locked : ri.locked;   // fall back to the chat list until group details load
   const hero = el('div', 'info-hero');
-  const av = el('div', 'avatar'); paintAvatar(av, title, { geo: isGeoRoom, locked: isLocked });
+  const av = el('div', 'avatar'); paintAvatar(av, title, { geo: isGeoRoom, locked: isLocked, photo: g?.photo || ri.photo });
+  if (g?.photo) { av.classList.add('click'); av.onclick = () => viewPhoto(g.photo); }
+  if (g?.isAdmin) {
+    const cam = el('button', 'cam-btn', '📷'); cam.type = 'button'; cam.title = 'Change group photo'; cam.setAttribute('aria-label', 'Change group photo');
+    cam.onclick = e => { e.stopPropagation(); choosePhoto(current, !!g.photo); };
+    av.append(cam);
+  }
   const kind = isGeoRoom ? '📍 Location group' : isLocked ? '🔒 Private group' : current === 'general' ? '💬 Everyone' : '💬 Open group';
   const adminTxt = g?.isAdmin ? ' · you’re the admin' : g?.adminName ? ` · admin ${g.adminName}` : '';
   hero.append(av, el('h2', null, title), el('span', 'muted', kind + adminTxt));
@@ -1176,7 +1192,7 @@ function renderInfo() {
   else if (list.length <= 1) mc.append(el('p', 'muted small', 'Nobody else has joined yet. Share the invite link above.'));
   for (const mm of list || []) {
     const r = el('div', 'member'), you = mm.uid === me.uid, on = online.get(mm.uid);
-    const a = el('div', 'avatar'); paintAvatar(a, mm.name);
+    const a = el('div', 'avatar click'); paintUser(a, mm.uid, mm.name); a.onclick = () => showProfile(mm.uid);
     const meta = el('div', 'm-meta'), nm = el('b', null, you ? `${mm.name} (you)` : mm.name);
     if (mm.admin) nm.append(el('span', 'chip brand admin-chip', 'Admin'));
     meta.append(nm);
@@ -1305,6 +1321,15 @@ function applyEdit(key) {
     el.insertBefore(body, el.querySelector('.foot'));
     if (el._msg) el._msg = { ...el._msg, deleted: true, text: '', gif: null, audio: null };
   }
+  if (!e.deleted && typeof e.text === 'string' && el._msg && (el._msg.text !== e.text || !el.querySelector('.edited'))) {
+    el._msg = { ...el._msg, text: e.text, edited: e.edited, mentions: e.mentions };
+    let body = el.querySelector('.body');
+    if (e.text) { if (!body) { body = document.createElement('span'); body.className = 'body'; el.insertBefore(body, el.querySelector('.foot')); } body.replaceChildren(fmtText(e.text)); el.classList.remove('media-only'); }
+    else body?.remove();
+    const foot = el.querySelector('.foot');
+    if (foot && !foot.querySelector('.edited')) foot.prepend(Object.assign(document.createElement('span'), { className: 'f-tag edited', textContent: 'edited' }));
+    el.classList.toggle('mentions-me', !isMine(el._msg) && !!e.mentions?.includes(me.uid));
+  }
   renderReactions(el, e.deleted ? {} : e.reactions || {});
 }
 function renderReactions(el, reactions) {
@@ -1363,6 +1388,9 @@ function openMsgMenu(el) {
   const acts = $('mmActions'); acts.innerHTML = '';
   const add = (label, icon, fn, cls = '') => { const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.innerHTML = icon; b.append(label); b.onclick = () => { closeMsgMenu(); fn(); }; acts.append(b); };
   if (!deleted && canChat) add('Reply', ICON.reply, () => startReply(el));
+  if (!deleted && mine && canChat && (m.text || !m.audio)) add('Edit', '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m14 6 4 4"/></svg>', () => editMsg(el));
+  if (!deleted && canChat) { const pinned = pins.some(p => p.key === el.dataset.key); add(pinned ? 'Unpin' : 'Pin', '<svg viewBox="0 0 24 24"><path d="M9 4h6l-1 6 4 4H6l4-4-1-6zM12 14v7"/></svg>', () => pinMsg(el, !pinned)); }
+  if (!deleted) add('Remind me', '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M5 3 2 6M19 3l3 3"/></svg>', () => remindMsg(el));
   if (!deleted && m.text) add('Copy text', ICON.copy, async () => { try { await navigator.clipboard.writeText(m.text); toast('Copied'); } catch { toast('Couldn’t copy'); } });
   if (mine) add('Message info', ICON.info, () => messageInfo(el));
   if (!deleted && (mine || group?.isAdmin)) add(mine ? 'Delete for everyone' : 'Delete (admin)', ICON.trash, () => deleteMsg(el), 'danger');
@@ -1861,6 +1889,8 @@ function openChatMenu(anchor) {
   if (!current) return;
   const items = [{ icon: 'ℹ️', label: group?.dm ? 'Contact info' : 'Group info', onClick: openInfo }];
   if (!group?.dm) items.push({ icon: '🔗', label: 'Invite people', onClick: shareInvite });
+  items.push({ icon: '🔍', label: 'Search messages', onClick: openSearch });
+  items.push({ icon: '⏰', label: 'Scheduled messages', onClick: showScheduled });
   items.push({ icon: '🎨', label: 'Wallpaper', onClick: () => openWallpaper(current) });
   items.push({ icon: isMuted(current) ? '🔔' : '🔕', label: isMuted(current) ? 'Unmute notifications' : 'Mute notifications', onClick: () => pushActive || isMuted(current) ? muteGroup() : enableNotifications() });
   items.push({ icon: '📻', label: walkie.on ? 'Close walkie-talkie' : 'Walkie-talkie', onClick: () => $('walkieBtn').click() });
@@ -1885,8 +1915,9 @@ $('friendSearch').oninput = () => {
 function personRow(p, actions = [], onClick = null) {
   const row = el(onClick ? 'button' : 'div', 'person' + (onClick ? ' click' : ''));
   if (onClick) { row.type = 'button'; row.onclick = onClick; }
-  const a = el('div', 'avatar'); paintAvatar(a, p.name);
-  const meta = el('div', 'p-meta'); meta.append(el('b', null, p.name), el('small', null, `@${p.username}` + (p.lastSeen ? ` · ${lastSeenText(p.lastSeen).replace('tap here for contact info', '')}` : '')));
+  const a = el('div', 'avatar'); if (p.photo !== undefined) profiles[p.uid] = { ...(profiles[p.uid] || {}), ...p }; paintUser(a, p.uid, p.name);
+  if (p.uid) { a.classList.add('click'); a.onclick = e => { e.stopPropagation(); showProfile(p.uid); }; }
+  const meta = el('div', 'p-meta'); meta.append(el('b', null, p.name), el('small', null, p.status ? `${p.status.emoji} ${p.status.text}`.trim() : `@${p.username}` + (p.lastSeen ? ` · ${lastSeenText(p.lastSeen).replace('tap here for contact info', '')}` : '')));
   const acts = el('div', 'p-acts');
   for (const [label, cls, fn] of actions) { const b = el('button', 'btn small ' + cls, label); b.type = 'button'; b.onclick = e => { e.stopPropagation(); fn(b); }; acts.append(b); }
   row.append(a, meta, acts);
@@ -1963,15 +1994,26 @@ function renderNewChat() {
 function renderContactInfo(body) {
   const peer = group.peer || {};
   const hero = el('div', 'info-hero');
-  const av = el('div', 'avatar'); paintAvatar(av, peer.name || '?');
+  const av = el('div', 'avatar'); paintAvatar(av, peer.name || '?', { photo: peer.photo });
+  if (peer.photo) { av.classList.add('click'); av.onclick = () => viewPhoto(peer.photo); }
   const online = presenceCache.some(u => u.uid === peer.uid && u.uid !== me.uid);
   hero.append(av, el('h2', null, peer.name), el('span', 'muted', `@${peer.username || ''}`), el('span', 'muted small', online ? 'online' : lastSeenText(peer.lastSeen)));
   body.append(hero);
+  const pf = profiles[peer.uid];
+  if (pf === undefined) needProfiles([peer.uid], true);
+  if (peer.status || pf?.about) {
+    const ab = el('div', 'card about-card');
+    if (peer.status) ab.append(el('div', 'status-pill', `${peer.status.emoji} ${peer.status.text}`.trim() + (peer.status.until ? ` · until ${fmtUntil(peer.status.until)}` : '')));
+    if (pf?.about) { ab.append(el('h3', null, 'About'), el('p', null, pf.about)); }
+    body.append(ab);
+  }
   const c = el('div', 'card');
   const row = (icon, title, sub, fn, cls = '') => { const b = el('button', 'set-row ' + cls); b.type = 'button'; b.onclick = fn; const i = el('span', 's-ico', icon); const m = el('div', 's-meta'); m.append(el('b', null, title)); if (sub) m.append(el('small', null, sub)); b.append(i, m); c.append(b); };
   row('📻', 'Walkie-talkie', 'Push to talk with ' + (peer.name || '').split(' ')[0], () => { $('app').classList.remove('info-open'); if (!walkie.on) $('walkieBtn').click(); });
   row(isMuted(current) ? '🔔' : '🔕', isMuted(current) ? 'Unmute notifications' : 'Mute notifications', isMuted(current) ? `Muted until ${fmtUntil(mutes[current])}` : null, () => pushActive || isMuted(current) ? muteGroup() : enableNotifications());
   row('🎨', 'Wallpaper', 'Choose a wallpaper just for this chat', () => openWallpaper(current));
+  row('🔍', 'Search messages', null, openSearch);
+  row('⏰', 'Scheduled messages', null, showScheduled);
   row('🔒', 'Private chat', 'Only you and ' + (peer.name || '').split(' ')[0] + ' can see these messages', () => {});
   const isFriend = friends.friends.some(f => f.uid === peer.uid);
   if (isFriend) row('👋', `Remove ${peer.name} from friends`, null, () => removeFriend(peer), 'danger');
@@ -1983,11 +2025,20 @@ function renderContactInfo(body) {
 function renderSettings() {
   const body = $('settingsBody'); if (!body) return;
   body.innerHTML = '';
-  const prof = el('button', 'profile-card'); prof.type = 'button'; prof.onclick = editName;
-  const av = el('div', 'avatar'); paintAvatar(av, me.name || '?');
-  const pm = el('div', 'p-meta'); pm.append(el('b', null, me.name), el('small', 'muted', `@${me.username} · tap to change your name`));
-  prof.append(av, pm); body.append(prof);
+  const prof = el('div', 'profile-hero');
+  const av = el('div', 'avatar'); paintAvatar(av, me.name || '?', { photo: me.photo });
+  if (me.photo) { av.classList.add('click'); av.onclick = () => viewPhoto(me.photo); }
+  const cam = el('button', 'cam-btn', '📷'); cam.type = 'button'; cam.setAttribute('aria-label', 'Change profile photo'); cam.onclick = e => { e.stopPropagation(); choosePhoto(null, !!me.photo); };
+  av.append(cam);
+  prof.append(av, el('h2', null, me.name), el('span', 'muted', '@' + me.username));
+  body.append(prof);
   const row = (icon, title, sub, fn, cls = '') => { const b = el('button', 'set-row ' + cls); b.type = 'button'; b.onclick = fn; const m = el('div', 's-meta'); m.append(el('b', null, title)); if (sub) m.append(el('small', null, sub)); b.append(el('span', 's-ico', icon), m); body.append(b); };
+  body.append(el('h3', 'sec-title', 'Profile'));
+  row('🙂', 'Name', me.name, editName);
+  row('ℹ️', 'About', me.about || 'Add a few words about yourself', editAbout);
+  const st = me.status && (!me.status.until || me.status.until > Date.now()) ? me.status : null;
+  row(st?.emoji || '💬', 'Status', st ? `${st.text || ''}${st.until ? ' · until ' + fmtUntil(st.until) : ''}`.trim() : 'Let people know what you’re up to', editStatus);
+  row('👁️', 'View my profile', 'See what others see', () => showProfile(me.uid));
   const themeName = { system: 'System default', light: 'Light', dark: 'Dark' }[store.get('ic-theme') || 'system'];
   body.append(el('h3', 'sec-title', 'Chats'));
   row('🌓', 'Theme', themeName, chooseTheme);
@@ -2166,6 +2217,336 @@ $('emojiBtn').onclick = () => {
   if (open) { closeGifs(); $('text').blur(); }
 };
 
+/* ---------------- Profiles: photos, about, status ---------------- */
+let profiles = {}, profWant = new Set(), profTimer = null;
+setInterval(() => { profiles = {}; }, 10 * 60_000);          // pick up new photos now and then
+function paintMe() {
+  paintAvatar($('meAvatar'), me.name, { photo: me.photo });
+  $('meName').textContent = `${me.name} · @${me.username}`;
+}
+function paintUser(el, uid, name) {
+  el.dataset.uid = uid || ''; el.dataset.label = name || '?';
+  const p = uid === me.uid ? me : profiles[uid];
+  paintAvatar(el, name, { photo: p?.photo });
+  if (uid && uid !== me.uid && !(uid in profiles)) needProfiles([uid]);
+}
+function repaintUsers() {
+  for (const a of document.querySelectorAll('.avatar[data-uid]')) {
+    const uid = a.dataset.uid; if (!uid) continue;
+    paintAvatar(a, a.dataset.label, { photo: (uid === me.uid ? me : profiles[uid])?.photo });
+  }
+}
+function needProfiles(uids, refreshInfo) {
+  for (const u of uids) if (/^[a-f0-9]{24}$/.test(u || '')) profWant.add(u);
+  clearTimeout(profTimer);
+  profTimer = setTimeout(async () => {
+    const ids = [...profWant].slice(0, 60); profWant.clear();
+    if (!ids.length) return;
+    for (const id of ids) if (!profiles[id]) profiles[id] = null;          // asked for (avoids asking twice)
+    try { Object.assign(profiles, (await api('profile/batch', { uids: ids })).profiles); }
+    catch { for (const id of ids) if (profiles[id] === null) delete profiles[id]; return; }
+    repaintUsers();
+    if (refreshInfo && $('app').classList.contains('info-open')) renderInfo();
+  }, 80);
+}
+function viewPhoto(url) { $('viewer').querySelector('img').src = url; $('viewer').classList.remove('hidden'); }
+const statusText = st => st ? `${st.emoji || ''} ${st.text || ''}`.trim() : '';
+
+// Profile card: tap someone's photo or name
+async function showProfile(uid) {
+  let p;
+  if (uid === me.uid) p = { ...me, friend: 'self' };
+  else { try { p = (await api('profile/get', { uid })).profile; } catch (e) { return toast(e.message); } }
+  if (!p) return toast('This account no longer exists');
+  if (uid !== me.uid) profiles[uid] = { ...(profiles[uid] || {}), ...p };
+  let dlg = $('profileView');
+  if (!dlg) {
+    dlg = document.createElement('dialog'); dlg.id = 'profileView'; dlg.className = 'sheet profile-sheet';
+    dlg.onclick = e => { if (e.target === dlg) dlg.close(); };
+    document.body.append(dlg);
+  }
+  dlg.innerHTML = '';
+  const inner = el('div', 'sheet-inner');
+  const close = el('button', 'icon-btn ps-close'); close.type = 'button'; close.setAttribute('aria-label', 'Close');
+  close.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>'; close.onclick = () => dlg.close();
+  const av = el('div', 'avatar'); paintAvatar(av, p.name, { photo: p.photo });
+  if (p.photo) { av.classList.add('click'); av.onclick = () => viewPhoto(p.photo); }
+  inner.append(close, av, el('h2', null, p.name), el('span', 'muted', '@' + p.username));
+  const online = presenceCache.some(u => u.uid === uid) || uid === me.uid;
+  inner.append(el('span', 'muted small', online ? 'online' : lastSeenText(p.lastSeen).replace('tap here for contact info', 'not seen recently')));
+  const st = p.status && (!p.status.until || p.status.until > Date.now()) ? p.status : null;
+  if (st) inner.append(el('div', 'status-pill', statusText(st) + (st.until ? ` · until ${fmtUntil(st.until)}` : '')));
+  if (p.about) { const ab = el('div', 'ps-about'); ab.append(el('small', 'muted', 'About'), el('p', null, p.about)); inner.append(ab); }
+  const acts = el('div', 'ps-actions');
+  const btn = (label, cls, fn) => { const b = el('button', 'btn ' + cls, label); b.type = 'button'; b.onclick = () => fn(b); acts.append(b); };
+  if (p.friend === 'self') btn('✏️ Edit profile', 'primary', () => { dlg.close(); setTab('settings'); });
+  else if (p.friend === 'friends') btn('💬 Message', 'primary', () => { dlg.close(); openDm(uid); });
+  else if (p.friend === 'out') btn('Request sent', 'ghost', () => {});
+  else if (p.friend === 'in') btn('Accept friend request', 'primary', async b => { await respond(p, true, b); dlg.close(); });
+  else btn('➕ Add friend', 'primary', async b => { await friendAction('request', uid, `Friend request sent to ${p.name}`, b); dlg.close(); });
+  inner.append(acts);
+  dlg.append(inner);
+  if (!dlg.open) dlg.showModal();
+}
+
+async function saveMe(patch, okMsg) {
+  try { const d = await api('auth/update', patch); Object.assign(me, d.user); store.set('ic-user', JSON.stringify(d.user)); paintMe(); renderSettings(); repaintUsers(); if (okMsg) toast(okMsg); return null; }
+  catch (e) { return e.message; }
+}
+async function editAbout() {
+  await popup({ icon: 'ℹ️', title: 'About', text: 'A few words people see on your profile.', ok: 'Save',
+    input: { value: me.about || '', maxLength: 140, placeholder: 'e.g. Design team · Floor 3' },
+    onConfirm: v => v === (me.about || '') ? null : saveMe({ about: v }, 'About saved') });
+}
+const STATUSES = [['📅', 'In a meeting'], ['🍽️', 'At lunch'], ['🎧', 'Focusing'], ['🚗', 'Commuting'], ['🏠', 'Working from home'], ['🤒', 'Out sick'], ['🏖️', 'On leave']];
+async function editStatus() {
+  const cur = me.status && (!me.status.until || me.status.until > Date.now()) ? me.status : null;
+  const pick = await popup({ icon: '💬', title: 'Set a status', text: cur ? `Now: ${statusText(cur)}` : 'Shown next to your name. It clears itself when you want.', ok: '', cancel: 'Cancel',
+    choices: [...STATUSES.map(([e, t]) => ({ value: e + '|' + t, label: `${e}  ${t}` })), { value: 'custom', label: '✏️  Write my own…' }, ...(cur ? [{ value: 'clear', label: '✖  Clear status', cls: 'danger' }] : [])] });
+  if (typeof pick !== 'string') return;
+  if (pick === 'clear') return saveMe({ status: null }, 'Status cleared');
+  let emoji = '💬', txt = '';
+  if (pick === 'custom') {
+    const v = await popup({ icon: '✏️', title: 'Your status', text: 'Start with an emoji if you like, e.g. “🏃 Back in 5”.', ok: 'Next', input: { value: '', maxLength: 60, required: true, requiredMsg: 'Write something' } });
+    if (v === null) return;
+    const m = v.match(/^(\p{Extended_Pictographic}[\u{FE0F}\u{200D}\p{Extended_Pictographic}]*)\s*(.*)$/u);
+    if (m) { emoji = m[1]; txt = m[2]; } else txt = v;
+  } else [emoji, txt] = pick.split('|');
+  const endOfDay = new Date(); endOfDay.setHours(23, 59, 0, 0);
+  const until = await popup({ icon: emoji, title: 'Clear after', ok: '', cancel: 'Cancel',
+    choices: [{ value: 3600e3, label: '1 hour' }, { value: 4 * 3600e3, label: '4 hours' }, { value: endOfDay - Date.now(), label: 'Today' }, { value: 7 * 864e5, label: 'This week' }, { value: 0, label: 'Don’t clear' }] });
+  if (typeof until !== 'number') return;
+  await saveMe({ status: { emoji, text: txt, until: until ? Date.now() + until : 0 } }, `Status set: ${emoji} ${txt}`);
+}
+// Change / remove a profile photo (yours, or a group's when room is given)
+async function choosePhoto(room, has) {
+  if (has) {
+    const v = await popup({ icon: '📷', title: room ? 'Group photo' : 'Profile photo', ok: '', cancel: 'Cancel', choices: [{ value: 'new', label: '🖼️  Choose a new photo' }, { value: 'remove', label: '🗑️  Remove photo', cls: 'danger' }] });
+    if (v === 'remove') {
+      if (room) { try { await api('group/update', { room, photo: null }); toast('Group photo removed'); repoll(); refreshRooms(); } catch (e) { toast(e.message); } }
+      else await saveMe({ photo: null }, 'Photo removed');
+      return;
+    }
+    if (v !== 'new') return;
+  }
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = async () => {
+    const file = inp.files[0]; if (!file) return;
+    try {
+      const data = await shrinkImage(file, 512, .85);
+      const blob = await (await fetch(data)).blob();
+      const r = await fetch('/api/avatar', { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg', 'X-Chat-Device': me.device, Authorization: 'Bearer ' + me.token, ...(room ? { 'X-Chat-Room': room } : {}) } });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Upload failed');
+      if (room) { toast('📷 Group photo updated'); repoll(); refreshRooms(); }
+      else { Object.assign(me, d.user); store.set('ic-user', JSON.stringify(d.user)); paintMe(); renderSettings(); repaintUsers(); toast('📷 Profile photo updated'); }
+    } catch (e) { toast(e.message); }
+  };
+  inp.click();
+}
+
+/* ---------------- Message formatting: *bold* _italic_ ~strike~ `code`, links, @mentions ---------------- */
+function fmtText(str, depth = 0) {
+  const frag = document.createDocumentFragment();
+  const re = /(https?:\/\/[^\s<>"]*[^\s<>".,:;!?)\]'"])|@([a-z0-9_.]{3,20})|`([^`\n]+)`|([*_~])(\S(?:[^\n]*?\S)?)\4/gi;
+  let last = 0, m;
+  while ((m = re.exec(str))) {
+    const i = m.index, before = str[i - 1] || ' ', after = str[re.lastIndex] || ' ';
+    if (/\w/.test(before) || (m[4] && /\w/.test(after))) { re.lastIndex = i + 1; continue; }
+    if (i > last) frag.append(str.slice(last, i));
+    if (m[1]) { const a = document.createElement('a'); a.href = m[1]; a.textContent = m[1]; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.onclick = e => e.stopPropagation(); frag.append(a); }
+    else if (m[2]) {
+      const u = m[2].toLowerCase(), s = document.createElement('span');
+      s.className = 'mention' + (u === me.username ? ' me' : ''); s.textContent = '@' + m[2];
+      s.onclick = e => { e.stopPropagation(); openProfileByUsername(u); };
+      frag.append(s);
+    }
+    else if (m[3]) { const c = document.createElement('code'); c.textContent = m[3]; frag.append(c); }
+    else { const t = document.createElement({ '*': 'b', _: 'i', '~': 's' }[m[4]]); t.append(depth < 2 ? fmtText(m[5], depth + 1) : m[5]); frag.append(t); }
+    last = re.lastIndex;
+  }
+  if (last < str.length) frag.append(str.slice(last));
+  return frag;
+}
+async function openProfileByUsername(u) {
+  if (u === me.username) return showProfile(me.uid);
+  const known = (membersCache.list || []).find(x => x.username === u) || Object.values(profiles).find(p => p?.username === u);
+  if (known) return showProfile(known.uid);
+  try { const hit = (await api('friends/search', { q: u })).users.find(x => x.username === u); hit ? showProfile(hit.uid) : toast(`No one called @${u}`); } catch (e) { toast(e.message); }
+}
+
+/* ---------------- @mention suggestions ---------------- */
+let mentionBox = null;
+function closeMention() { mentionBox?.classList.add('hidden'); }
+async function updateMention() {
+  if (!current || group?.dm) return closeMention();
+  const upto = text.value.slice(0, text.selectionStart), m = upto.match(/(^|\s)@([a-z0-9_.]{0,20})$/i);
+  if (!m) return closeMention();
+  if (membersCache.room !== current) { await loadMembers(); if (!text.value.slice(0, text.selectionStart).endsWith(m[0].trimStart())) return; }
+  const q = m[2].toLowerCase();
+  const hits = (membersCache.list || []).filter(x => x.uid !== me.uid && x.username && (x.username.startsWith(q) || x.name.toLowerCase().split(/\s+/).some(w => w.startsWith(q)))).slice(0, 6);
+  if (!hits.length) return closeMention();
+  if (!mentionBox) { mentionBox = el('div', 'mention-box'); mentionBox.setAttribute('role', 'listbox'); $('composer').before(mentionBox); }
+  mentionBox.innerHTML = ''; mentionBox.classList.remove('hidden');
+  for (const h of hits) {
+    const b = el('button', 'mention-opt'); b.type = 'button'; b.setAttribute('role', 'option');
+    const a = el('div', 'avatar'); paintUser(a, h.uid, h.name);
+    const t = el('span'); t.append(el('b', null, h.name), el('small', 'muted', ' @' + h.username));
+    b.append(a, t);
+    b.onmousedown = e => e.preventDefault();          // keep the keyboard open
+    b.onclick = () => pickMention(h.username);
+    mentionBox.append(b);
+  }
+}
+function pickMention(username) {
+  const pos = text.selectionStart, upto = text.value.slice(0, pos).replace(/@([a-z0-9_.]{0,20})$/i, '@' + username + ' ');
+  text.value = upto + text.value.slice(pos); text.setSelectionRange(upto.length, upto.length);
+  closeMention(); autosize(); syncButtons(); if (current) drafts[current] = text.value; text.focus();
+}
+text.addEventListener('input', updateMention);
+text.addEventListener('keydown', e => {
+  if (!mentionBox || mentionBox.classList.contains('hidden')) return;
+  if (e.key === 'Escape') { e.stopImmediatePropagation(); closeMention(); }
+  if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); e.stopImmediatePropagation(); mentionBox.querySelector('button')?.click(); }
+}, true);
+text.addEventListener('blur', () => setTimeout(closeMention, 150));
+
+/* ---------------- Edit, pin, remind ---------------- */
+async function editMsg(el) {
+  const m = el._msg;
+  await popup({ icon: '✏️', title: 'Edit message', ok: 'Save', input: { value: m.text || '', maxLength: 2000, required: !m.gif, requiredMsg: 'A message can’t be empty — delete it instead' },
+    onConfirm: async v => {
+      if (v === (m.text || '')) return null;
+      try { const d = await api('edit', { key: el.dataset.key, text: v }); edits[el.dataset.key] = { ...(edits[el.dataset.key] || {}), ...d.edit }; applyEdit(el.dataset.key); return null; }
+      catch (e) { return e.message; }
+    } });
+}
+let pins = [], pinIdx = 0, pinBar = null;
+function setPins(list) {
+  if (JSON.stringify(list) === JSON.stringify(pins)) return;
+  pins = list || []; if (pinIdx >= pins.length) pinIdx = Math.max(0, pins.length - 1);
+  if (!pinBar) {
+    pinBar = el('div', 'pin-bar hidden'); pinBar.setAttribute('role', 'button'); pinBar.tabIndex = 0;
+    $('walkieBanner').after(pinBar);
+    pinBar.onclick = e => {
+      const p = pins[pinIdx]; if (!p) return;
+      if (e.target.closest('.pin-x')) return pinKey(p.key, false);
+      jumpTo(p.key);
+      if (pins.length > 1) { pinIdx = (pinIdx - 1 + pins.length) % pins.length; renderPinBar(); }   // next tap shows the older pin
+    };
+  }
+  pinIdx = pins.length - 1;
+  renderPinBar();
+}
+function renderPinBar() {
+  if (!pinBar) return;
+  const p = pins[pinIdx];
+  pinBar.classList.toggle('hidden', !p);
+  if (!p) return;
+  pinBar.innerHTML = '';
+  const dots = el('div', 'pin-dots'); for (let i = 0; i < pins.length; i++) dots.append(el('i', i === pinIdx ? 'on' : ''));
+  const t = el('div', 'pin-text'); t.append(el('b', null, pins.length > 1 ? `📌 Pinned message ${pinIdx + 1} of ${pins.length}` : '📌 Pinned message'), el('span', null, `${p.name}: ${p.text}`));
+  const x = el('button', 'icon-btn pin-x', '✕'); x.type = 'button'; x.title = 'Unpin'; x.setAttribute('aria-label', 'Unpin');
+  pinBar.append(dots, t, x);
+}
+async function pinKey(key, on) {
+  try { await api('pin', { key, on }); toast(on ? '📌 Pinned for everyone' : 'Unpinned'); repoll(); } catch (e) { toast(e.message); }
+}
+const pinMsg = (el, on) => pinKey(el.dataset.key, on);
+
+// Choose a time: quick options or any date & time
+async function pickTime(title, icon, quick) {
+  const at = (d, h) => { const x = new Date(); x.setDate(x.getDate() + d); x.setHours(h, 0, 0, 0); return x.getTime(); };
+  const opts = [...quick.map(([ms, label]) => ({ value: Date.now() + ms, label }))];
+  if (new Date().getHours() < 19) opts.push({ value: at(0, 20), label: 'Tonight at 8 PM' });
+  opts.push({ value: at(1, 9), label: 'Tomorrow at 9 AM' });
+  const mon = new Date(); mon.setDate(mon.getDate() + ((8 - mon.getDay()) % 7 || 7)); mon.setHours(9, 0, 0, 0);
+  opts.push({ value: mon.getTime(), label: 'Monday at 9 AM' }, { value: 'custom', label: '📅 Pick date & time…' });
+  const v = await popup({ icon, title, ok: '', cancel: 'Cancel', choices: opts });
+  if (v === 'custom') {
+    const d = new Date(Date.now() + 3600e3 - new Date().getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+    const s = await popup({ icon, title, ok: 'Set', input: { type: 'datetime-local', value: d, required: true },
+      onConfirm: async x => new Date(x).getTime() > Date.now() + 30_000 ? null : 'Pick a time in the future' });
+    return s ? new Date(s).getTime() : null;
+  }
+  return typeof v === 'number' ? v : null;
+}
+const whenText = t => new Date(t).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+async function remindMsg(el) {
+  const t = await pickTime('Remind me about this message', '🔔', [[20 * 60e3, 'In 20 minutes'], [3600e3, 'In 1 hour'], [3 * 3600e3, 'In 3 hours']]);
+  if (!t) return;
+  try { await api('remind', { key: el.dataset.key, at: t }); toast(`🔔 I’ll remind you ${whenText(t)}`); if (!pushActive) setTimeout(() => toast('Turn on notifications so reminders can reach you'), 3400); }
+  catch (e) { toast(e.message); }
+}
+
+/* ---------------- Scheduled messages ---------------- */
+async function scheduleCurrent() {
+  const body = text.value.trim();
+  if (!body) return toast('Type a message first, then hold ➤ to schedule it');
+  if (group?.me && !group.me.canChat) return toast('You can’t send messages here right now');
+  const t = await pickTime('Schedule message', '⏰', [[3600e3, 'In 1 hour'], [3 * 3600e3, 'In 3 hours']]);
+  if (!t) return;
+  try {
+    await api('schedule', { text: body, at: t, replyTo: replyTo || undefined, loc: geo.loc });
+    text.value = ''; delete drafts[current]; autosize(); syncButtons(); cancelReply();
+    toast(`⏰ Scheduled for ${whenText(t)}`);
+  } catch (e) { toast(e.message); }
+}
+async function showScheduled() {
+  let list;
+  try { list = (await api('schedule/list')).scheduled; } catch (e) { return toast(e.message); }
+  const v = await popup({ icon: '⏰', title: 'Scheduled messages', text: list.length ? 'Tap one to cancel it.' : 'Nothing scheduled in this chat. Type a message, then press and hold ➤ (or right-click it) to send it later.', ok: '', cancel: 'Close',
+    choices: list.map(j => ({ value: j.id, label: `${whenText(j.at)} — ${j.text.length > 50 ? j.text.slice(0, 50) + '…' : j.text}` })) });
+  if (typeof v !== 'string') return;
+  const j = list.find(x => x.id === v);
+  const yes = await popup({ icon: '🗑️', title: 'Cancel this message?', text: `“${j.text}”\nwas going to be sent ${whenText(j.at)}.`, ok: 'Cancel message', cancel: 'Keep', danger: true });
+  if (!yes) return;
+  try { await api('schedule/cancel', { id: v }); toast('Scheduled message cancelled'); } catch (e) { toast(e.message); }
+}
+{
+  // Press and hold (or right-click) ➤ to schedule
+  const send = $('sendBtn'); let t = null, fired = false;
+  send.addEventListener('pointerdown', () => { fired = false; clearTimeout(t); t = setTimeout(() => { fired = true; if (navigator.vibrate) navigator.vibrate(20); scheduleCurrent(); }, 550); });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) send.addEventListener(ev, () => clearTimeout(t));
+  send.addEventListener('click', e => { if (fired) { e.preventDefault(); fired = false; } });
+  send.addEventListener('contextmenu', e => { e.preventDefault(); clearTimeout(t); if (!fired) scheduleCurrent(); fired = false; });
+  send.title = 'Send (hold to schedule)';
+}
+
+/* ---------------- Search a chat ---------------- */
+let infoMode = 'info', searchTimer = null;
+function openSearch() {
+  if (!current) return;
+  infoMode = 'search';
+  $('app').classList.add('info-open');
+  $('infoTitle').textContent = 'Search messages';
+  const body = $('infoBody'); body.innerHTML = '';
+  const box = el('div', 'search-box'); const inp = el('input'); inp.type = 'search'; inp.placeholder = 'Search this chat…'; inp.id = 'msgSearch'; inp.setAttribute('aria-label', 'Search messages');
+  box.append(inp); const res = el('div', 'search-results'); res.append(el('p', 'muted small empty-note', 'Find messages by words or by who sent them.'));
+  body.append(box, res);
+  inp.oninput = () => {
+    clearTimeout(searchTimer);
+    const q = inp.value.trim();
+    if (q.length < 2) { res.replaceChildren(el('p', 'muted small empty-note', 'Type at least 2 letters.')); return; }
+    searchTimer = setTimeout(async () => {
+      let r; try { r = (await api('search', { q })).results; } catch (e) { res.replaceChildren(el('p', 'muted small empty-note', e.message)); return; }
+      if (inp.value.trim() !== q) return;
+      res.innerHTML = '';
+      if (!r.length) res.append(el('p', 'muted small empty-note', `No messages with “${q}”.`));
+      for (const m of r) {
+        const row = el('button', 'search-hit'); row.type = 'button';
+        const top = el('div', 'sh-top'); top.append(el('b', null, isMine(m) ? 'You' : m.name), el('small', 'muted', `${dayLabel(m.ts)} ${timeLabel(m.ts)}`));
+        const snip = el('div', 'sh-text'), i = m.text.toLowerCase().indexOf(q.toLowerCase());
+        if (i >= 0) { snip.append(m.text.slice(Math.max(0, i - 30), i)); snip.append(el('mark', null, m.text.slice(i, i + q.length))); snip.append(m.text.slice(i + q.length)); } else snip.textContent = m.text;
+        row.append(top, snip);
+        row.onclick = () => { if (!wide() || innerWidth < 1200) { $('app').classList.remove('info-open'); infoMode = 'info'; } jumpTo(m.key); };
+        res.append(row);
+      }
+    }, 250);
+  };
+  setTimeout(() => inp.focus(), 60);
+}
+
 /* ---------------- Start ---------------- */
 applyTheme();
 // Resume a saved session, otherwise show sign in (or create account when arriving from an invite)
@@ -2174,6 +2555,6 @@ applyTheme();
   try { Object.assign(me, JSON.parse(store.get('ic-user') || '{}')); } catch {}
   if (!me.token) { $('login').classList.remove('hidden'); setTimeout(() => $('username').focus(), 50); return; }
   enterApp();                                   // optimistic: show the app straight away
-  try { const d = await api('auth/me'); Object.assign(me, d.user); store.set('ic-user', JSON.stringify(d.user)); paintAvatar($('meAvatar'), me.name); $('meName').textContent = `${me.name} · @${me.username}`; }
+  try { const d = await api('auth/me'); Object.assign(me, d.user); store.set('ic-user', JSON.stringify(d.user)); paintMe(); renderSettings(); }
   catch (e) { if (e.code !== 'auth') { /* offline: keep going */ } }
 })();

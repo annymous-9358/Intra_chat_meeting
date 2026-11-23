@@ -1,5 +1,5 @@
 /* Intra Chat service worker: offline app shell + WhatsApp-style push notifications */
-const CACHE = 'intra-chat-v13';
+const CACHE = 'intra-chat-v14';
 const SHELL = ['/', '/index.html', '/app.css', '/app.js', '/manifest.webmanifest', '/logo.svg', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', e => {
@@ -53,13 +53,21 @@ async function showMessage(d) {
   const watching = wins.some(c => { const v = viewing.get(c.id); return v && v.visible && v.room === room && c.visibilityState === 'visible'; });
   if (watching) return;
 
+  // "Remind me" notifications stand alone and always show
+  if (d.type === 'reminder') {
+    return self.registration.showNotification(d.title || '⏰ Reminder', {
+      body: d.body || '', tag: 'reminder-' + (d.ts || Date.now()), requireInteraction: true,
+      icon: '/icons/icon-192.png', badge: '/icons/badge-96.png', timestamp: d.ts || Date.now(), vibrate: [120, 60, 120],
+      data: { url: d.url || '/', room, act: 'show', key: (d.url || '').split('k=')[1] ? decodeURIComponent(d.url.split('k=')[1]) : null, direct: true },
+    });
+  }
   // Stack messages per group like WhatsApp: "Floor (3 messages)" with the latest lines
   const tag = 'room-' + room;
   const prev = (await self.registration.getNotifications({ tag }))[0];
   const line = d.name ? `${d.name}: ${d.body}` : d.body;
   const lines = [...(prev?.data?.lines || []), line].slice(-5);
   const count = (prev?.data?.count || 0) + 1;
-  const title = (d.replyToYou === true ? '↩ ' : '') + (count > 1 ? `${d.title} (${count} messages)` : d.title);
+  const title = (d.mentioned === true ? '@ ' : d.replyToYou === true ? '↩ ' : '') + (count > 1 ? `${d.title} (${count} messages)` : d.title);
   await self.registration.showNotification(title, {
     body: count > 1 ? lines.join('\n') : line,
     tag, renotify: true,
@@ -75,13 +83,13 @@ async function showMessage(d) {
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const { url = '/', room, key, audio } = e.notification.data || {};
-  const act = e.action === 'reply' ? (audio ? 'talk' : 'reply') : e.action === 'play' ? 'play' : 'open';
+  const { url = '/', room, key, audio, act: dataAct, direct } = e.notification.data || {};
+  const act = e.action === 'reply' ? (audio ? 'talk' : 'reply') : e.action === 'play' ? 'play' : dataAct || 'open';
   e.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const win = wins.find(c => new URL(c.url).origin === location.origin);
     if (win) { await win.focus(); win.postMessage({ type: 'open', room, act, key }); }
-    else await self.clients.openWindow(act === 'open' ? url : `${url}?a=${act}&k=${encodeURIComponent(key || '')}`);
+    else await self.clients.openWindow(act === 'open' || direct ? url : `${url}?a=${act}&k=${encodeURIComponent(key || '')}`);
     await updateBadge();
   })());
 });

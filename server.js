@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { handle } from './lib/chat.mjs';
+import { handle, runScheduler } from './lib/chat.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -39,6 +39,9 @@ const store = {
   },
   delFile: async key => { data.delete(key); fs.rm(path.join(FILES_DIR, key.slice(2)), { force: true }, () => {}); saveSoon(); },
 };
+
+// Deliver scheduled messages and reminders
+setInterval(() => runScheduler(store, { vapidEnv: { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY, subject: process.env.VAPID_SUBJECT } }).catch(() => {}), 30_000);
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
