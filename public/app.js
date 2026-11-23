@@ -167,7 +167,7 @@ function popup({ icon = '', title, text = '', input = null, ok = 'OK', cancel = 
     let ex = $('modalExtra');
     if (!ex) { ex = document.createElement('div'); ex.id = 'modalExtra'; ex.className = 'modal-extra'; dlg.querySelector('.modal-actions').after(ex); }
     box.innerHTML = ''; ex.innerHTML = '';
-    for (const c of choices || []) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (c.cls || '') + (c.icon ? ' with-ic' : ''); if (c.icon) b.append(icoEl(c.icon)); b.append(stripEmoji(c.label)); b.onclick = () => finish(c.value); box.append(b); }
+    for (const c of choices || []) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (c.cls || '') + (c.icon ? ' with-ic' : ''); if (c.icon) b.append(icoEl(c.icon)); b.append(c.label); b.onclick = () => finish(c.value); box.append(b); }
     for (const x of extra || []) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (x.cls || 'ghost'); b.textContent = x.label; b.onclick = () => { finish(null); x.onClick(); }; ex.append(b); }
     $('modalOk').classList.toggle('hidden', !ok);
     dlg.querySelector('.modal-actions').classList.toggle('single', !cancel || !ok);
@@ -195,6 +195,43 @@ for (const btn of document.querySelectorAll('.pw-eye')) btn.onclick = () => {
   inp.type = show ? 'text' : 'password'; btn.textContent = show ? 'Hide' : 'Show';
   btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
 };
+
+/* ---------------- Back button / swipe-back ----------------
+   Every screen or pop-up that opens on top (chat on phones, group info, a tab, sheets, popups, menus, photo viewer,
+   emoji/GIF panels) adds a browser history entry. Back (Android back, iOS swipe, browser back) closes the top one
+   instead of leaving the app. When something is closed by its own button, its entry is marked used and skipped later. */
+const layers = []; let layerSeq = 0;
+function pushLayer(close, url) {
+  const id = ++layerSeq, top = layers[layers.length - 1];
+  if (top?.dead) { layers.pop(); layers.push({ id, close }); history.replaceState({ ic: id }, '', url || location.href); }
+  else { layers.push({ id, close }); history.pushState({ ic: id }, '', url || location.href); }
+  return id;
+}
+function dropLayer(id) { const l = id && layers.find(x => x.id === id); if (l) l.dead = true; }
+const layerLive = id => !!id && layers.some(l => l.id === id && !l.dead);
+// Close a layer from the UI: go back through history when it's the top one, so the history stays tidy
+function closeLayer(id, close) {
+  const top = layers[layers.length - 1];
+  if (top && top.id === id && !top.dead) history.back(); else { dropLayer(id); close(); }
+}
+window.addEventListener('popstate', e => {
+  const idx = layers.findIndex(l => l.id === e.state?.ic);
+  const closing = layers.splice(idx + 1);
+  let closed = 0;
+  for (const l of closing.reverse()) if (!l.dead) { closed++; try { l.close(); } catch {} }
+  // one Back = one visible step: skip entries whose pop-up was already closed by its own button
+  if (idx >= 0 && (layers[idx].dead || !closed)) history.back();
+});
+// All <dialog>s (sheets, popups, profile card, style picker…)
+{
+  const show = HTMLDialogElement.prototype.showModal;
+  HTMLDialogElement.prototype.showModal = function () {
+    show.call(this);
+    const dlg = this;
+    const id = pushLayer(() => { const ev = new Event('cancel', { cancelable: true }); dlg.dispatchEvent(ev); if (dlg.open) dlg.close(); });
+    dlg.addEventListener('close', () => dropLayer(id), { once: true });
+  };
+}
 
 /* ---------------- Helpers ---------------- */
 const slug = s => s.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 30);
@@ -244,8 +281,8 @@ function linkIntent() {
 let pendingIntent = null;
 function runIntent(intent) {
   if (!intent) return;
-  if (intent.act === 'new') { history.replaceState(null, '', location.pathname); return openNewGroup(); }
-  if (intent.act === 'friends') { history.replaceState(null, '', location.pathname); return setTab('friends'); }
+  if (intent.act === 'new') { history.replaceState(history.state, '', location.pathname); return openNewGroup(); }
+  if (intent.act === 'friends') { history.replaceState(history.state, '', location.pathname); return setTab('friends'); }
   pendingIntent = intent.act === 'open' ? null : intent;
   if (intent.room !== current) openRoom(intent.room); else applyIntent();
 }
@@ -253,7 +290,7 @@ function runIntent(intent) {
 function applyIntent() {
   const it = pendingIntent; if (!it || it.room !== current) return;
   pendingIntent = null;
-  history.replaceState(null, '', `#/g/${current}`);
+  history.replaceState(history.state, '', `#/g/${current}`);
   const el = it.key && [...$('messages').children].find(x => x.dataset.key === it.key);
   if (it.act === 'walkie' || it.act === 'talk') {
     if (!walkie.on) openWalkie();
@@ -329,7 +366,8 @@ function enterApp() {
   paintMe();
   refreshRooms().then(() => {
     const intent = linkIntent();
-    if (intent) return runIntent(intent);
+    // start from the chat list so Back from a linked chat lands there instead of leaving the app
+    if (intent) { history.replaceState(null, '', location.pathname); return runIntent(intent); }
     const target = wide() ? (rooms.some(r => r.room === store.get('ic-room')) ? store.get('ic-room') : 'general') : null;
     if (target) openRoom(target);
   });
@@ -386,7 +424,7 @@ async function signOut() {
   await disableNotifications(true);
   try { await api('auth/logout'); } catch {}
   me.token = ''; store.del('ic-token'); store.del('ic-user');
-  history.replaceState(null, '', location.pathname);
+  history.replaceState(history.state, '', location.pathname);
   setTab('chats'); showLogin();
 }
 
@@ -458,10 +496,11 @@ async function openRoom(room, force) {
   if (!force && current === room && $('app').classList.contains('in-chat')) return;
   const info = roomInfo(room);
   // Private group we haven't joined yet: ask for its password first
-  if (info.locked && info.access === false) { if (!(await askPassword(room))) { if (linkedRoom() === room) history.replaceState(null, '', location.pathname); return; } }
+  if (info.locked && info.access === false) { if (!(await askPassword(room))) { if (linkedRoom() === room) history.replaceState(history.state, '', location.pathname); return; } }
   leaveRoom();
   current = room; store.set('ic-room', room);
-  if (!pendingIntent && location.hash !== `#/g/${room}`) history.replaceState(null, '', `#/g/${room}`);
+  if (!wide() && !layerLive(chatLayer)) chatLayer = pushLayer(closeChatUI, `#/g/${room}`);
+  else if (!pendingIntent && location.hash !== `#/g/${room}`) history.replaceState(history.state, '', `#/g/${room}`);
   session++; since = ''; version = ''; seen = new Set(); pending = new Map(); receipts = [];
   acked = { delivered: '', read: '' }; openReceipts = new Set(); group = null; lastRendered = null; unseenBelow = 0; xsince = 0; edits = {};
   cancelReply(); closeGifs(); updateToBottom();
@@ -486,10 +525,12 @@ function leaveRoom() {
   if (current) markRead(current, since);
   current = null; group = null; tellSW();
 }
-$('backBtn').onclick = () => {
-  leaveRoom(); history.replaceState(null, '', location.pathname);
+let chatLayer = null;
+function closeChatUI() {
+  leaveRoom(); history.replaceState(history.state, '', location.pathname);
   $('app').classList.remove('in-chat', 'info-open'); renderRooms(); refreshRooms();
-};
+}
+$('backBtn').onclick = () => closeLayer(chatLayer, closeChatUI);
 window.addEventListener('hashchange', () => { if ($('app').classList.contains('hidden')) return; const it = linkIntent(); if (it && (it.act !== 'open' || it.room !== current)) runIntent(it); });
 
 async function askPassword(room, again) {
@@ -639,7 +680,7 @@ function render(m, isPending) {
     const img = document.createElement('img');
     img.className = 'gif'; img.src = m.localUrl || m.gif.url; img.alt = m.gif.title || 'GIF'; img.loading = 'lazy';
     if (m.gif.w && m.gif.h) { img.width = m.gif.w; img.height = m.gif.h; }
-    img.onclick = () => { $('viewer').querySelector('img').src = img.src; $('viewer').classList.remove('hidden'); };
+    img.onclick = () => viewPhoto(img.src);
     img.onload = () => { if (nearBottom(600)) scrollDown(true); };
     el.append(img);
   }
@@ -995,9 +1036,11 @@ $('gifBtn').onclick = () => {
   closeEmoji();
   const open = $('gifPanel').classList.toggle('hidden') === false;
   $('gifBtn').classList.toggle('active', open);
+  if (open) gifLayer = pushLayer(() => { $('gifPanel').classList.add('hidden'); $('gifBtn').classList.remove('active'); }); else dropLayer(gifLayer);
   if (open) { if (gifQuery === null) loadGifs(''); if (finePointer) $('gifSearch').focus(); }
 };
-function closeGifs() { $('gifPanel').classList.add('hidden'); $('gifBtn').classList.remove('active'); }
+let gifLayer = null;
+function closeGifs() { $('gifPanel').classList.add('hidden'); $('gifBtn').classList.remove('active'); dropLayer(gifLayer); }
 $('gifSearch').oninput = () => { clearTimeout(gifTimer); gifTimer = setTimeout(() => loadGifs($('gifSearch').value.trim()), 350); };
 $('gifSearch').onkeydown = e => { if (e.key === 'Escape') closeGifs(); };
 async function loadGifs(q) {
@@ -1031,8 +1074,9 @@ $('gifFile').onchange = async () => {
   closeGifs();
   sendMessage({ gif: { ...dims, title: file.name.slice(0, 80) }, upload: file, localUrl });
 };
-$('viewer').onclick = () => $('viewer').classList.add('hidden');
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('viewer').classList.add('hidden'); });
+const hideViewer = () => { if (!$('viewer').classList.contains('hidden')) closeLayer(viewerLayer, () => $('viewer').classList.add('hidden')); };
+$('viewer').onclick = hideViewer;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideViewer(); });
 
 /* ---------------- Location ---------------- */
 const geo = { loc: null, watch: null, error: null };
@@ -1147,7 +1191,10 @@ async function loadMembers() {
   const room = current; if (!room) return;
   try { const d = await api('group/members', { room }); if (room === current) { membersCache = { room, list: d.members }; renderInfo(); } } catch {}
 }
-function openInfo() { if (!current) return; infoMode = 'info'; infoSig = ''; $('app').classList.add('info-open'); renderInfo(); loadMembers(); }
+let infoLayer = null;
+function closeInfoUI() { $('app').classList.remove('info-open'); infoMode = 'info'; }
+function showInfoPane() { if (!$('app').classList.contains('info-open') || !layerLive(infoLayer)) infoLayer = pushLayer(closeInfoUI); $('app').classList.add('info-open'); }
+function openInfo() { if (!current) return; infoMode = 'info'; infoSig = ''; showInfoPane(); renderInfo(); loadMembers(); }
 async function makeAdmin(mm) {
   const yes = await popup({ icon: 'crown', title: `Make ${mm.name} an admin?`,
     text: `${mm.name} will be able to change the group’s name, photo, password${group?.geo ? ', range' : ''} and make other people admins. ${group?.adminName || 'The owner'} stays the owner.`,
@@ -1178,14 +1225,14 @@ async function deleteGroup() {
 }
 // The group was deleted (by you or by its owner): close it and drop it from the list
 function groupGone(room, msg) {
-  if (current === room) { leaveRoom(); history.replaceState(null, '', location.pathname); $('app').classList.remove('in-chat', 'info-open', 'has-room'); }
+  if (current === room) { leaveRoom(); history.replaceState(history.state, '', location.pathname); $('app').classList.remove('in-chat', 'info-open', 'has-room'); }
   rooms = rooms.filter(r => r.room !== room); renderRooms(); refreshRooms();
   toast(msg);
 }
-$('infoBtn').onclick = () => $('app').classList.contains('info-open') ? $('app').classList.remove('info-open') : openInfo();
+$('infoBtn').onclick = () => $('app').classList.contains('info-open') ? closeLayer(infoLayer, closeInfoUI) : openInfo();
 $('chatMenuBtn').onclick = e => openChatMenu(e.currentTarget);
 $('chatHead').onclick = openInfo;
-$('infoClose').onclick = () => { $('app').classList.remove('info-open'); infoMode = 'info'; };
+$('infoClose').onclick = () => closeLayer(infoLayer, closeInfoUI);
 
 function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
 // Only redraw the info panel when something it shows changed (redrawing on every poll swallowed taps on its buttons)
@@ -1507,7 +1554,7 @@ function openMsgMenu(el) {
   if (!deleted && m.text) add('Copy text', ICON.copy, async () => { try { await navigator.clipboard.writeText(m.text); toast('Copied'); } catch { toast('Couldn’t copy'); } });
   if (mine) add('Message info', ICON.info, () => messageInfo(el));
   if (!deleted && (mine || group?.isAdmin)) add(mine ? 'Delete for everyone' : 'Delete (admin)', ICON.trash, () => deleteMsg(el), 'danger');
-  $('msgMenu').classList.remove('hidden');
+  $('msgMenu').classList.remove('hidden'); menuLayer = pushLayer(() => { $('msgMenu').classList.add('hidden'); menuFor = null; });
   // Position the card next to the message, kept inside the screen
   const card = $('mmCard'), r = el.getBoundingClientRect(), cw = card.offsetWidth, ch = card.offsetHeight;
   const left = Math.min(Math.max(12, mine ? r.right - cw : r.left), innerWidth - cw - 12);
@@ -1515,7 +1562,8 @@ function openMsgMenu(el) {
   card.style.left = left + 'px'; card.style.top = top + 'px';
   (reacts.querySelector('button') || acts.querySelector('button'))?.focus();
 }
-function closeMsgMenu() { $('msgMenu').classList.add('hidden'); menuFor = null; }
+let menuLayer = null;
+function closeMsgMenu() { $('msgMenu').classList.add('hidden'); menuFor = null; dropLayer(menuLayer); }
 $('msgMenu').addEventListener('click', e => { if (e.target === $('msgMenu')) closeMsgMenu(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && menuFor) closeMsgMenu(); });
 // a message's menu follows that message, so close it on scroll; the ⋮ menus stay open
@@ -1977,14 +2025,17 @@ const groupMap = {
 
 
 /* ---------------- Tabs: Chats / Friends / Settings ---------------- */
-let currentTab = 'chats';
+let currentTab = 'chats', tabLayer = null;
 function setTab(tab) {
   currentTab = tab;
   for (const b of document.querySelectorAll('.nav-btn')) b.classList.toggle('on', b.dataset.tab === tab);
   $('viewChats').classList.toggle('hidden', tab !== 'chats');
   $('viewFriends').classList.toggle('hidden', tab !== 'friends');
   $('viewSettings').classList.toggle('hidden', tab !== 'settings');
-  if (!wide() && $('app').classList.contains('in-chat')) $('backBtn').click();
+  if (!wide() && $('app').classList.contains('in-chat')) { dropLayer(chatLayer); closeChatUI(); }
+  // Friends / Settings sit on top of Chats: back returns to Chats
+  if (tab !== 'chats' && !layerLive(tabLayer)) tabLayer = pushLayer(() => setTab('chats'));
+  if (tab === 'chats') dropLayer(tabLayer);
   if (tab === 'friends') { loadFriends(); if (finePointer) $('friendSearch').focus(); }
   if (tab === 'settings') renderSettings();
 }
@@ -2008,7 +2059,7 @@ function simpleMenu(anchor, items) {
     const ic = document.createElement('span'); ic.className = 'mm-emoji'; ic.innerHTML = svgFor(it.icon);
     b.append(ic, it.label); b.onclick = () => { closeMsgMenu(); it.onClick(); }; acts.append(b);
   }
-  $('msgMenu').classList.remove('hidden');
+  $('msgMenu').classList.remove('hidden'); menuLayer = pushLayer(() => { $('msgMenu').classList.add('hidden'); menuFor = null; });
   const card = $('mmCard'), r = anchor.getBoundingClientRect(), cw = card.offsetWidth, ch = card.offsetHeight;
   card.style.left = Math.max(12, Math.min(r.right - cw, innerWidth - cw - 12)) + 'px';
   card.style.top = Math.max(12, Math.min(r.bottom + 4, innerHeight - ch - 12)) + 'px';
@@ -2383,11 +2434,13 @@ function insertText(t) {
   ta.dispatchEvent(new Event('input'));
   if (finePointer) ta.focus();
 }
-function closeEmoji() { $('emojiPanel').classList.add('hidden'); $('emojiBtn').classList.remove('active'); }
+let emojiLayer = null;
+function closeEmoji() { $('emojiPanel').classList.add('hidden'); $('emojiBtn').classList.remove('active'); dropLayer(emojiLayer); }
 $('emojiBtn').onclick = () => {
   buildEmoji();
   const open = $('emojiPanel').classList.toggle('hidden') === false;
   $('emojiBtn').classList.toggle('active', open);
+  if (open) emojiLayer = pushLayer(() => { $('emojiPanel').classList.add('hidden'); $('emojiBtn').classList.remove('active'); }); else dropLayer(emojiLayer);
   if (open) { closeGifs(); $('text').blur(); }
 };
 
@@ -2423,7 +2476,8 @@ function needProfiles(uids, refreshInfo) {
     if (refreshInfo && $('app').classList.contains('info-open')) renderInfo();
   }, 80);
 }
-function viewPhoto(url) { $('viewer').querySelector('img').src = url; $('viewer').classList.remove('hidden'); }
+let viewerLayer = null;
+function viewPhoto(url) { $('viewer').querySelector('img').src = url; $('viewer').classList.remove('hidden'); viewerLayer = pushLayer(() => $('viewer').classList.add('hidden')); }
 const statusText = st => st ? `${st.emoji && !st.emoji.startsWith('ic:') ? st.emoji + ' ' : ''}${st.text || ''}`.trim() : '';
 function statusPill(st, extra = '') { const p = el('div', 'status-pill'); if (svgFor(st.emoji)) p.append(icoEl(st.emoji)); p.append(statusText(st) + extra); return p; }
 
@@ -2693,7 +2747,7 @@ let infoMode = 'info', searchTimer = null;
 function openSearch() {
   if (!current) return;
   infoMode = 'search';
-  $('app').classList.add('info-open');
+  showInfoPane();
   $('infoTitle').textContent = 'Search messages';
   const body = $('infoBody'); body.innerHTML = '';
   const box = el('div', 'search-box'); const inp = el('input'); inp.type = 'search'; inp.placeholder = 'Search this chat…'; inp.id = 'msgSearch'; inp.setAttribute('aria-label', 'Search messages');
