@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@netlify/blobs": "^11.1.9",
+    "netlify-cli": "^27.20.1",
     "web-push": "^3.6.7"
   },
   "license": "MIT"
