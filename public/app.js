@@ -2276,7 +2276,8 @@ function renderSettings() {
   row('users', 'Close friends', storyFeed.closeFriends.length ? `${storyFeed.closeFriends.length} people · see your close-friends stories` : 'Choose who sees your close-friends stories', editCloseFriends);
   row('bellOff', 'Muted stories', storyFeed.muted.length ? `${storyFeed.muted.length} muted` : 'Nobody muted', manageMutedStories);
   body.append(el('h3', 'sec-title', 'Notifications'));
-  if (pushSupported() && Notification.permission !== 'denied') row(pushActive ? '🔔' : '🔕', 'Message notifications', pushActive ? 'On for this device' : 'Off — tap to turn on', () => (pushActive ? disableNotifications() : enableNotifications()).then(renderSettings));
+  if (nativeApp()) row('bell', 'Message notifications', 'Coming to the app soon — for now, keep notifications on in the website', () => toast('App notifications are coming in the next update'));
+  else if (pushSupported() && Notification.permission !== 'denied') row(pushActive ? '🔔' : '🔕', 'Message notifications', pushActive ? 'On for this device' : 'Off — tap to turn on', () => (pushActive ? disableNotifications() : enableNotifications()).then(renderSettings));
   else row('🔕', 'Message notifications', isIOS && !isStandalone() ? 'Add Intra Chat to your Home Screen first' : 'Blocked in your browser’s site settings', () => (isIOS && !isStandalone() ? iosHelp() : toast('Allow notifications for this site in your browser settings')));
   if (installPrompt) row('📲', 'Install the app', 'Full screen, from your home screen', installApp);
   body.append(el('h3', 'sec-title', 'Account'));
@@ -3202,6 +3203,82 @@ async function loadMySteps() {
   if (healthStatus?.connected && !healthStatus.error && Date.now() - healthStatus.lastSync > 10 * 60_000 && !healthSyncing) syncHealthNow(true);
   return myStepsData;
 }
+/* Inside the native Android / iOS app: read daily steps straight from Health Connect / Apple Health */
+const nativeApp = () => !!window.Capacitor?.isNativePlatform?.();
+const nativeOS = () => window.Capacitor?.getPlatform?.() || 'web';
+const hcCall = (method, opts = {}) => window.Capacitor.nativePromise('Health', method, opts);
+const phoneHealthName = () => nativeOS() === 'ios' ? 'Apple Health' : 'Health Connect';
+let phoneHealth = { checked: false, available: false, reason: '', granted: store.get('ic-hc-on') === '1', lastSync: Number(store.get('ic-hc-at')) || 0, syncing: false };
+async function checkPhoneHealth() {
+  if (!nativeApp()) return phoneHealth;
+  try { const a = await hcCall('isAvailable'); phoneHealth.available = !!a.available; phoneHealth.reason = a.reason || ''; } catch (e) { phoneHealth.available = false; phoneHealth.reason = e.message; }
+  phoneHealth.checked = true;
+  return phoneHealth;
+}
+async function connectPhoneHealth(onChange) {
+  if (!phoneHealth.checked) await checkPhoneHealth();
+  if (!phoneHealth.available) {
+    const yes = await popup({ icon: 'footprints', title: `${phoneHealthName()} isn’t ready`, text: nativeOS() === 'android' ? 'Install or update “Health Connect by Android” from the Play Store (built in on Android 14+), then try again.' : (phoneHealth.reason || 'Apple Health isn’t available on this device.'), ok: nativeOS() === 'android' ? 'Open Health Connect' : 'OK', cancel: 'Close' });
+    if (yes && nativeOS() === 'android') hcCall('openHealthConnectSettings').catch(() => {});
+    return;
+  }
+  try {
+    const st = await hcCall('requestAuthorization', { read: ['steps'], write: [] });
+    // Apple never says whether read access was given, so on iPhone we just try reading
+    const ok = nativeOS() === 'ios' || (st?.readAuthorized || []).includes('steps');
+    if (!ok) { toast(`Allow ${phoneHealthName()} to share Steps to sync automatically`); return; }
+    phoneHealth.granted = true; store.set('ic-hc-on', '1');
+    await syncPhoneHealth(false); onChange?.();
+  } catch (e) { toast(e.message || `Couldn’t connect ${phoneHealthName()}`); }
+}
+function disconnectPhoneHealth(onChange) {
+  phoneHealth.granted = false; store.del('ic-hc-on');
+  toast(`${phoneHealthName()} sync off. To remove access fully, open ${phoneHealthName()} settings.`);
+  onChange?.();
+}
+// Read the last 7 days of daily step totals on the phone and send them to the server (it never lowers a day)
+async function syncPhoneHealth(quiet = true) {
+  if (!nativeApp() || !phoneHealth.granted || phoneHealth.syncing || !me.token) return;
+  phoneHealth.syncing = true;
+  try {
+    const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - 6);
+    const { samples = [] } = await hcCall('queryAggregated', { dataType: 'steps', startDate: start.toISOString(), endDate: new Date().toISOString(), bucket: 'day', aggregation: 'sum' });
+    const days = {};
+    for (const x of samples) { const d = new Date(x.startDate); const key = new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); days[key] = Math.round(x.value || 0); }
+    const r = await api('steps/import', { room: current || 'general', days, src: nativeOS() === 'ios' ? 'apple-health' : 'health-connect', today: localDay() });
+    phoneHealth.lastSync = Date.now(); store.set('ic-hc-at', String(phoneHealth.lastSync));
+    if (!quiet) toast(`Synced from ${phoneHealthName()} · today ${fmtN(days[localDay()] || 0)} steps`);
+    if (r.updated) { await loadMySteps(); if (infoMode === 'steps') { await loadBoard(); renderSteps(); } refreshMyStepsSheet?.(); renderStepsBanner(); }
+  } catch (e) {
+    if (/permission|authoriz|SecurityException/i.test(e.message || '')) { phoneHealth.granted = false; store.del('ic-hc-on'); }
+    if (!quiet) toast(e.message || 'Sync failed');
+  } finally { phoneHealth.syncing = false; }
+}
+function phoneHealthBox(onChange) {
+  if (!nativeApp()) return null;
+  const on = phoneHealth.granted;
+  const box = el('div', 'health-box' + (on ? ' on' : ''));
+  const mid = el('div', 'hb-mid'), acts = el('div', 'hb-acts');
+  const btn = (label, cls, fn) => { const b = el('button', 'btn small ' + cls, label); b.type = 'button'; b.onclick = fn; acts.append(b); return b; };
+  if (!on) {
+    mid.append(el('b', null, `Sync steps from ${phoneHealthName()}`), el('small', null, nativeOS() === 'android' ? 'Reads your phone’s step count (and Google Fit, Samsung Health or your watch, if they share to Health Connect). Updates when you open the app.' : 'Reads your iPhone and Apple Watch steps. Updates when you open the app.'));
+    btn('Connect', 'primary', () => connectPhoneHealth(onChange));
+  } else {
+    mid.append(el('b', null, `${phoneHealthName()} connected`), el('small', null, phoneHealth.lastSync ? `Synced ${agoText(phoneHealth.lastSync)} · updates when you open the app` : 'Syncing…'));
+    const sb = btn('Sync now', '', async () => { sb.disabled = true; await syncPhoneHealth(false); sb.disabled = false; onChange?.(); });
+    btn('Turn off', 'ghost', () => disconnectPhoneHealth(onChange));
+  }
+  box.append(icoEl('footprints', 'hb-ic'), mid, acts);
+  return box;
+}
+if (nativeApp()) {
+  checkPhoneHealth();
+  const tick = () => { if (!document.hidden) syncPhoneHealth(true); };
+  setTimeout(tick, 4000);
+  document.addEventListener('visibilitychange', tick);
+  setInterval(tick, 15 * 60_000);
+}
+
 /* Google Health (Health Connect / Fitbit / Pixel Watch) automatic step sync */
 let healthStatus = null, healthSyncing = false;
 async function connectHealth() {
@@ -3285,7 +3362,8 @@ function personalCard(d, onChange) {
   const addB = el('button', 'btn with-ic'); addB.type = 'button'; addB.append(icoEl('plus'), 'Add steps'); addB.onclick = () => addStepsManually(d, onChange);
   const goalB = el('button', 'btn ghost with-ic'); goalB.type = 'button'; goalB.append(icoEl('flag'), 'Goal'); goalB.onclick = () => editStepGoal(d, onChange);
   btns.append(walkB, addB, goalB); card.append(btns);
-  const hb = healthBox(onChange); if (hb) card.append(hb);
+  const pb = phoneHealthBox(onChange); if (pb) card.append(pb);
+  const hb = !nativeApp() || !phoneHealth.granted ? healthBox(onChange) : null; if (hb) card.append(hb);
   // badges
   const bw = el('div', 'sm-badges'); bw.append(el('h3', null, `Badges · ${d.badges.filter(b => b.got).length} of ${d.badges.length}`));
   const grid = el('div', 'badge-grid');

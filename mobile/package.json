@@ -1,0 +1,17 @@
+{
+  "name": "intra-chat-mobile",
+  "private": true,
+  "description": "Native Android (and later iOS) shell for Intra Chat, built with Capacitor. Loads the live web app and adds Health Connect step sync.",
+  "scripts": {
+    "sync": "cap sync android",
+    "build:debug": "cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.2",
+    "@capacitor/core": "8.6.2",
+    "@capgo/capacitor-health": "8.13.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2"
+  }
+}

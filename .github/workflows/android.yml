@@ -1,0 +1,48 @@
+name: Android app
+
+# Builds the Intra Chat Android app (Capacitor) on every push that touches the mobile app,
+# or on demand from the Actions tab. Download the APK from the run's "Artifacts".
+on:
+  push:
+    paths: ['mobile/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+      - run: npx cap sync android
+      - name: Signing key (optional)
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS" ]; then echo "$KS" | base64 -d > android/intra-chat.p12; echo "Using the Intra Chat signing key"; else echo "No signing key secret: using the standard debug key"; fi
+      - name: Build APK
+        working-directory: mobile/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk "IntraChat-${{ github.run_number }}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IntraChat-android-${{ github.run_number }}
+          path: mobile/IntraChat-${{ github.run_number }}.apk
+          retention-days: 30
