@@ -4,5 +4,5 @@
     <string name="title_activity_main">Intra Chat</string>
     <string name="package_name">app.intrachat.mobile</string>
     <string name="custom_url_scheme">app.intrachat.mobile</string>
-    <string name="health_connect_privacy_policy_url">https://intra-chat-7ed6e7.netlify.app/privacy.html</string>
+    <string name="health_connect_privacy_policy_url">https://intra-chat-7ed6e7-v2.netlify.app/privacy.html</string>
 </resources>

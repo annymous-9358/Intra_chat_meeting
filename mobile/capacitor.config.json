@@ -3,7 +3,7 @@
   "appName": "Intra Chat",
   "webDir": "www",
   "server": {
-    "url": "https://intra-chat-7ed6e7.netlify.app",
+    "url": "https://intra-chat-7ed6e7-v2.netlify.app",
     "androidScheme": "https",
     "errorPath": "offline.html"
   },
