@@ -47,9 +47,9 @@
         <button class="btn primary block" id="loginBtn">Sign in</button>
         <p class="auth-switch muted small" id="authSwitch">New here? <button type="button" class="link-btn" id="switchToSignup">Create an account</button></p>
         <ul class="feature-list" aria-label="What you can do">
-          <li><span>🤝</span>Add friends and chat 1:1</li>
-          <li><span>👥</span>Open, private and 📍 location groups</li>
-          <li><span>🎙</span>Voice notes, 📻 walkie-talkie, GIFs and reactions</li>
+          <li><span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c1-4 4-6 7-6s6 2 7 6M16 11l2 2 4-4"/></svg></span>Add friends and chat 1:1</li>
+          <li><span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 14.6c2.6.1 4.5 1.8 5 4.4"/></svg></span>Open, private and location groups</li>
+          <li><span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span>Voice notes, walkie-talkie, GIFs and reactions</li>
         </ul>
       </form>
     </div>
@@ -84,7 +84,7 @@
           <button class="chip-btn" data-filter="groups">Groups</button>
         </div>
         <div id="notifBanner" class="notif-banner hidden" role="region" aria-label="Notifications">
-          <span class="nb-icon" aria-hidden="true">🔔</span>
+          <span class="nb-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg></span>
           <div class="nb-text"><b id="nbTitle">Get notified about new messages</b><small id="nbText">Even when Intra Chat is closed.</small></div>
           <button class="btn small primary" id="nbAction">Turn on</button>
           <button class="icon-btn nb-close" id="nbClose" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
@@ -116,7 +116,7 @@
         <div class="empty-art" aria-hidden="true"><svg viewBox="0 0 512 512" class="logo-mark huge" aria-hidden="true">  <defs>    <linearGradient id="cg" x1="0" y1="0" x2="1" y2="1">      <stop offset="0" stop-color="#25d0a0"/>      <stop offset="1" stop-color="#007a63"/>    </linearGradient>    <linearGradient id="cs" x1="0" y1="0" x2="0" y2="1">      <stop offset="0" stop-color="#ffffff"/>      <stop offset="1" stop-color="#e6fff6"/>    </linearGradient>  </defs>  <rect width="512" height="512" rx="116" fill="url(#cg)"/>  <path d="M120 150h214c32 0 58 26 58 58v104c0 32-26 58-58 58H232l-74 58c-9 7-21 0-19-11l9-47h-28c-32 0-58-26-58-58V208c0-32 26-58 58-58z" fill="url(#cs)"/>  <rect x="166" y="232" width="30" height="58" rx="15" fill="#00a884"/>  <rect x="212" y="210" width="30" height="102" rx="15" fill="#00a884"/>  <rect x="258" y="240" width="30" height="42" rx="15" fill="#00a884"/>  <path d="M360 96a96 96 0 0 1 64 64" fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round" opacity=".95"/>  <path d="M352 50a150 150 0 0 1 116 116" fill="none" stroke="#fff" stroke-width="22" stroke-linecap="round" opacity=".55"/></svg></div>
         <h2><span class="wordmark">intra<b>chat</b></span> for web</h2>
         <p class="muted">Send and receive messages, voice notes and walkie-talkie calls. Pick a chat on the left, or start a new one.</p>
-        <p class="muted small">🔒 Private chats are only visible to you and your friend.</p>
+        <p class="muted small ic-line"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg> Private chats are only visible to you and your friend.</p>
       </div>
 
       <header class="bar chat-bar hidden" id="chatBar">
@@ -149,7 +149,7 @@
       <footer class="composer-wrap hidden" id="composerWrap">
         <div id="walkiePanel" class="walkie hidden" role="region" aria-label="Walkie-talkie">
           <div class="wk-head">
-            <b>📻 Walkie-talkie</b>
+            <b class="ic-line"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="7" width="12" height="15" rx="2"/><path d="M9 7V2M10 11h4M10 14h4"/><circle cx="12" cy="18" r="1.5"/></svg> Walkie-talkie</b>
             <span id="wkListeners" class="muted small"></span>
             <button type="button" class="icon-btn" id="wkClose" aria-label="Close walkie-talkie"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
           </div>
@@ -170,7 +170,7 @@
         <div id="gifPanel" class="gif-panel hidden">
           <div class="gif-bar">
             <input id="gifSearch" type="search" placeholder="Search GIFs" autocomplete="off" maxlength="50" aria-label="Search GIFs">
-            <button type="button" class="btn" id="gifUpload" title="Send a photo, GIF or image from your device">📷 Photo</button>
+            <button type="button" class="btn" id="gifUpload" title="Send a photo, GIF or image from your device"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg> Photo</button>
           </div>
           <div id="gifGrid" class="gif-grid"></div>
           <div id="gifNote" class="gif-note"></div>
@@ -214,8 +214,8 @@
         <h2>New chat</h2>
         <button type="button" class="icon-btn" id="ncClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </header>
-      <button class="nc-row" id="ncGroup"><span class="nc-ico">👥</span><span><b>New group</b><small>Open, private or 📍 location group</small></span></button>
-      <button class="nc-row" id="ncFriend"><span class="nc-ico">➕</span><span><b>Add a friend</b><small>Find someone by their @username</small></span></button>
+      <button class="nc-row" id="ncGroup"><span class="nc-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 14.6c2.6.1 4.5 1.8 5 4.4"/></svg></span><span><b>New group</b><small>Open, private or location group</small></span></button>
+      <button class="nc-row" id="ncFriend"><span class="nc-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c1-4 4-6 7-6s6 2 7 6M19 8v6M16 11h6"/></svg></span><span><b>Add a friend</b><small>Find someone by their @username</small></span></button>
       <h3 class="nc-sub">Your friends</h3>
       <div id="ncFriends" class="nc-friends"></div>
     </div>
@@ -230,9 +230,9 @@
       </header>
       <label class="field"><span>Group name</span><input id="ngName" maxlength="30" required placeholder="e.g. Floor 3 team" autocomplete="off"></label>
       <div class="type-cards" role="radiogroup" aria-label="Who can join">
-        <label><input type="radio" name="ngType" value="open" checked><span><i>💬</i><b>Open</b><small>Anyone with the link</small></span></label>
-        <label><input type="radio" name="ngType" value="private"><span><i>🔒</i><b>Private</b><small>Needs a password</small></span></label>
-        <label><input type="radio" name="ngType" value="geo"><span><i>📍</i><b>Location</b><small>Only within a range</small></span></label>
+        <label><input type="radio" name="ngType" value="open" checked><span><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8.5 8.5 0 0 1-12.6 7.4L3 21l1.7-5A8.5 8.5 0 1 1 21 12z"/></svg></i><b>Open</b><small>Anyone with the link</small></span></label>
+        <label><input type="radio" name="ngType" value="private"><span><i><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></i><b>Private</b><small>Needs a password</small></span></label>
+        <label><input type="radio" name="ngType" value="geo"><span><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg></i><b>Location</b><small>Only within a range</small></span></label>
       </div>
       <div id="ngGeo" class="ng-section hidden">
         <div class="range-row"><span>Range</span><output id="ngRadiusOut">500 m</output></div>
@@ -261,8 +261,8 @@
         <button type="button" class="icon-btn" id="wallClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </header>
       <div class="wall-preview" id="wallPreview" aria-hidden="true">
-        <div class="wp-bubble in">Hi! How do I look? 👋</div>
-        <div class="wp-bubble out">Love this wallpaper ✨</div>
+        <div class="wp-bubble in">Hi! How do I look?</div>
+        <div class="wp-bubble out">Love this wallpaper</div>
       </div>
       <div class="wall-dim hidden" id="wallDimRow">
         <label for="wallDim">Dim photo</label><input type="range" id="wallDim" min="0" max="80" step="5" value="20" aria-label="Dim photo">

@@ -1,5 +1,5 @@
 /* Intra Chat service worker: offline app shell + WhatsApp-style push notifications */
-const CACHE = 'intra-chat-v18';
+const CACHE = 'intra-chat-v19';
 const SHELL = ['/', '/index.html', '/app.css', '/app.js', '/manifest.webmanifest', '/logo.svg', '/favicon.ico', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', e => {
@@ -55,7 +55,7 @@ async function showMessage(d) {
 
   // "Remind me" notifications stand alone and always show
   if (d.type === 'reminder') {
-    return self.registration.showNotification(d.title || '⏰ Reminder', {
+    return self.registration.showNotification(d.title || 'Reminder', {
       body: d.body || '', tag: 'reminder-' + (d.ts || Date.now()), requireInteraction: true,
       icon: '/icons/icon-192.png', badge: '/icons/badge-96.png', timestamp: d.ts || Date.now(), vibrate: [120, 60, 120],
       data: { url: d.url || '/', room, act: 'show', key: (d.url || '').split('k=')[1] ? decodeURIComponent(d.url.split('k=')[1]) : null, direct: true },
@@ -67,7 +67,7 @@ async function showMessage(d) {
   const line = d.name ? `${d.name}: ${d.body}` : d.body;
   const lines = [...(prev?.data?.lines || []), line].slice(-5);
   const count = (prev?.data?.count || 0) + 1;
-  const title = (d.mentioned === true ? '@ ' : d.replyToYou === true ? '↩ ' : '') + (count > 1 ? `${d.title} (${count} messages)` : d.title);
+  const title = (d.mentioned === true ? 'Mentioned you · ' : d.replyToYou === true ? 'Replied to you · ' : '') + (count > 1 ? `${d.title} (${count} messages)` : d.title);
   await self.registration.showNotification(title, {
     body: count > 1 ? lines.join('\n') : line,
     tag, renotify: true,
@@ -75,7 +75,7 @@ async function showMessage(d) {
     timestamp: d.ts || Date.now(),
     vibrate: [80, 40, 80],
     // Quick actions: voice/walkie messages get Reply (hold-to-talk) and Play; other messages get Reply
-    actions: d.type === 'friend' ? [] : d.audio ? [{ action: 'reply', title: '🎙 Reply' }, { action: 'play', title: '▶ Play' }] : [{ action: 'reply', title: '↩ Reply' }],
+    actions: d.type === 'friend' ? [] : d.audio ? [{ action: 'reply', title: 'Reply' }, { action: 'play', title: 'Play' }] : [{ action: 'reply', title: 'Reply' }],
     data: { url: d.url || '/', room, count, lines, key: d.key, audio: !!d.audio },
   });
   await updateBadge();

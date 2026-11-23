@@ -17,6 +17,68 @@ const ICON = {
   info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
 };
+/* ---------------- Icons (one line-icon set used everywhere; no emoji in the interface) ---------------- */
+const IC = {
+  "user": "<circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 21c1-4 4.5-6 8-6s7 2 8 6\"/>",
+  "userPlus": "<circle cx=\"9\" cy=\"8\" r=\"4\"/><path d=\"M2 21c1-4 4-6 7-6s6 2 7 6M19 8v6M16 11h6\"/>",
+  "userMinus": "<circle cx=\"9\" cy=\"8\" r=\"4\"/><path d=\"M2 21c1-4 4-6 7-6s6 2 7 6M16 11h6\"/>",
+  "userCheck": "<circle cx=\"9\" cy=\"8\" r=\"4\"/><path d=\"M2 21c1-4 4-6 7-6s6 2 7 6M16 11l2 2 4-4\"/>",
+  "users": "<circle cx=\"9\" cy=\"8\" r=\"3.5\"/><path d=\"M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5\"/><circle cx=\"17\" cy=\"9\" r=\"2.6\"/><path d=\"M16.5 14.6c2.6.1 4.5 1.8 5 4.4\"/>",
+  "info": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 11v6M12 7.5v.01\"/>",
+  "message": "<path d=\"M21 12a8.5 8.5 0 0 1-12.6 7.4L3 21l1.7-5A8.5 8.5 0 1 1 21 12z\"/>",
+  "eye": "<path d=\"M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>",
+  "contrast": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 3a9 9 0 0 1 0 18z\" fill=\"currentColor\"/>",
+  "sparkles": "<path d=\"M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z\"/><path d=\"M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z\"/>",
+  "image": "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2.5\"/><circle cx=\"9\" cy=\"10\" r=\"2\"/><path d=\"M21 16l-5-5-9 9\"/>",
+  "radio": "<rect x=\"6\" y=\"7\" width=\"12\" height=\"15\" rx=\"2\"/><path d=\"M9 7V2M10 11h4M10 14h4\"/><circle cx=\"12\" cy=\"18\" r=\"1.5\"/>",
+  "bell": "<path d=\"M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8\"/><path d=\"M10.3 21a1.9 1.9 0 0 0 3.4 0\"/>",
+  "bellOff": "<path d=\"M8.7 3.6A6 6 0 0 1 18 8c0 3 .5 5 1.2 6.3M17 17H3s3-1 3-8c0-.6.1-1.2.3-1.8\"/><path d=\"M10.3 21a1.9 1.9 0 0 0 3.4 0M3 3l18 18\"/>",
+  "download": "<path d=\"M12 3v12M7 10l5 5 5-5M5 21h14\"/>",
+  "key": "<circle cx=\"7.5\" cy=\"15.5\" r=\"4.5\"/><path d=\"M10.7 12.3 21 2M16 7l3 3M18.5 4.5l2 2\"/>",
+  "logout": "<path d=\"M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H3\"/>",
+  "settings": "<circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z\"/>",
+  "link": "<path d=\"M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1\"/><path d=\"M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1\"/>",
+  "search": "<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"M20 20l-4-4\"/>",
+  "clock": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7v5l3 2\"/>",
+  "lock": "<rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V7a4 4 0 0 1 8 0v4\"/>",
+  "unlock": "<rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V7a4 4 0 0 1 7.6-1.7\"/>",
+  "pin": "<path d=\"M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z\"/><circle cx=\"12\" cy=\"9\" r=\"2.5\"/>",
+  "trash": "<path d=\"M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6\"/>",
+  "pencil": "<path d=\"M4 20h4L19 9l-4-4L4 16v4z\"/><path d=\"m14 6 4 4\"/>",
+  "crown": "<path d=\"M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z\"/>",
+  "camera": "<path d=\"M3 8.5A2.5 2.5 0 0 1 5.5 6H7l2-2h6l2 2h1.5A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z\"/><circle cx=\"12\" cy=\"13\" r=\"3.5\"/>",
+  "pinned": "<path d=\"M9 4h6l-1 6 4 4H6l4-4-1-6zM12 14v7\"/>",
+  "calendar": "<rect x=\"3\" y=\"5\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M3 10h18M8 3v4M16 3v4\"/>",
+  "check": "<path d=\"M5 12.5l4.5 4.5L19 7.5\"/>",
+  "checks": "<path d=\"M2 12.5l4.5 4.5L16 7.5M10.5 16.5l.5.5L20.5 7.5\"/>",
+  "x": "<path d=\"M6 6l12 12M18 6 6 18\"/>",
+  "smile": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M8.5 14.5s1.3 2 3.5 2 3.5-2 3.5-2M9 9.5h.01M15 9.5h.01\"/>",
+  "ban": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M5.6 5.6l12.8 12.8\"/>",
+  "mic": "<rect x=\"9\" y=\"3\" width=\"6\" height=\"11\" rx=\"3\"/><path d=\"M5 11a7 7 0 0 0 14 0M12 18v3\"/>",
+  "volume": "<path d=\"M4 9h4l5-4v14l-5-4H4z\"/><path d=\"M16.5 9a4 4 0 0 1 0 6M19.5 6a8 8 0 0 1 0 12\"/>",
+  "signal": "<path d=\"M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0M12 19h.01M3 3l18 18\"/>",
+  "hourglass": "<path d=\"M7 3h10M7 21h10M8 3c0 4 8 5 8 9s-8 5-8 9M16 3c0 4-8 5-8 9s8 5 8 9\"/>",
+  "globe": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18\"/>",
+  "coffee": "<path d=\"M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 11h1.5a2.5 2.5 0 0 1 0 5H17M8 2.5v3M12 2.5v3\"/>",
+  "headphones": "<path d=\"M4 16v-4a8 8 0 0 1 16 0v4\"/><rect x=\"3\" y=\"14\" width=\"4\" height=\"7\" rx=\"1.5\"/><rect x=\"17\" y=\"14\" width=\"4\" height=\"7\" rx=\"1.5\"/>",
+  "car": "<path d=\"M5 15l1.6-5.2A2 2 0 0 1 8.5 8.5h7a2 2 0 0 1 1.9 1.3L19 15M3 15h18v4H3zM6.5 19v2M17.5 19v2\"/>",
+  "home": "<path d=\"M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z\"/>",
+  "thermometer": "<path d=\"M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z\"/>",
+  "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4\"/>",
+  "play": "<path d=\"M7 4v16l13-8z\" fill=\"currentColor\" stroke=\"none\"/>",
+  "send": "<path d=\"M22 2 11 13M22 2l-7 20-4-9-9-4z\"/>",
+  "gif": "<rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"2.5\"/><path d=\"M10 10H8.5a1.5 1.5 0 0 0-1.5 1.5v1A1.5 1.5 0 0 0 8.5 14H10v-2M13 10v4M16 14v-4h2M16 12h1.5\"/>"
+  };
+const EMOJI_IC = {"🙂": "user", "🔑": "key", "👋": "logout", "🔒": "lock", "🔓": "unlock", "📍": "pin", "🔗": "link", "👑": "crown", "✏️": "pencil", "🗑️": "trash", "📲": "download", "🔔": "bell", "🔕": "bellOff", "👥": "users", "➕": "userPlus", "✨": "sparkles", "🎨": "image", "⚙️": "settings", "🔍": "search", "⏰": "clock", "📻": "radio", "👁️": "eye", "🌓": "contrast", "🚪": "logout", "💬": "message", "📷": "camera", "📅": "calendar", "🍽️": "coffee", "🎧": "headphones", "🚗": "car", "🏠": "home", "🤒": "thermometer", "🏖️": "sun", "🤝": "userCheck", "📡": "signal", "⏳": "hourglass", "🚫": "ban", "🖼️": "image", "🎙": "mic", "🔊": "volume", "📌": "pinned", "ℹ️": "info"};
+// svg markup for an icon name (or one of the old emoji names / a status 'ic:name'); '' when it isn't an icon
+function svgFor(x) {
+  const name = typeof x === 'string' ? (x.startsWith('ic:') ? x.slice(3) : EMOJI_IC[x] || EMOJI_IC[x.replace(/\uFE0F/g, '')] || x) : '';
+  return IC[name] ? `<svg viewBox="0 0 24 24" aria-hidden="true">${IC[name]}</svg>` : '';
+}
+function icoEl(x, cls = 'ic') { const s = document.createElement('span'); s.className = cls; s.innerHTML = svgFor(x); return s; }
+// a line of UI text with a leading icon
+function icoText(x, text, cls = 'ic-line') { const s = document.createElement('span'); s.className = cls; s.append(icoEl(x), text); return s; }
+const stripEmoji = t => String(t).replace(/(\p{Extended_Pictographic}|[\u2600-\u27BF])\uFE0F?\s?/gu, '').replace(/\s{2,}/g, ' ').trim();
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const finePointer = matchMedia('(pointer: fine)').matches;
 const wide = () => matchMedia('(min-width: 768px)').matches;
@@ -75,7 +137,7 @@ const markRead = (room, key) => { if (key && key > (lastRead[room] || '')) { las
 /* ---------------- Toasts & popups (no browser alert/confirm/prompt) ---------------- */
 let toastTimer;
 function toast(msg) {
-  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  const t = $('toast'); t.textContent = stripEmoji(msg); t.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
 }
 /**
@@ -85,7 +147,7 @@ function toast(msg) {
 function popup({ icon = '', title, text = '', input = null, ok = 'OK', cancel = 'Cancel', danger = false, onConfirm = null, choices = null, extra = null }) {
   return new Promise(resolve => {
     const dlg = $('modal'), field = $('modalField'), inp = $('modalInput'), eye = $('modalEye');
-    $('modalIcon').textContent = icon; $('modalIcon').classList.toggle('danger', danger);
+    $('modalIcon').innerHTML = svgFor(icon); $('modalIcon').classList.toggle('danger', danger);
     $('modalTitle').textContent = title; $('modalText').textContent = text; $('modalText').classList.toggle('hidden', !text);
     $('modalErr').textContent = '';
     $('modalOk').textContent = ok; $('modalOk').className = 'btn ' + (danger ? 'danger' : 'primary'); $('modalOk').disabled = false;
@@ -105,7 +167,7 @@ function popup({ icon = '', title, text = '', input = null, ok = 'OK', cancel = 
     let ex = $('modalExtra');
     if (!ex) { ex = document.createElement('div'); ex.id = 'modalExtra'; ex.className = 'modal-extra'; dlg.querySelector('.modal-actions').after(ex); }
     box.innerHTML = ''; ex.innerHTML = '';
-    for (const c of choices || []) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (c.cls || ''); b.textContent = c.label; b.onclick = () => finish(c.value); box.append(b); }
+    for (const c of choices || []) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (c.cls || '') + (c.icon ? ' with-ic' : ''); if (c.icon) b.append(icoEl(c.icon)); b.append(stripEmoji(c.label)); b.onclick = () => finish(c.value); box.append(b); }
     for (const x of extra || []) { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (x.cls || 'ghost'); b.textContent = x.label; b.onclick = () => { finish(null); x.onClick(); }; ex.append(b); }
     $('modalOk').classList.toggle('hidden', !ok);
     dlg.querySelector('.modal-actions').classList.toggle('single', !cancel || !ok);
@@ -196,7 +258,7 @@ function applyIntent() {
   if (it.act === 'walkie' || it.act === 'talk') {
     if (!walkie.on) openWalkie();
     if (el && it.act === 'talk') startReply(el, { focus: false });
-    toast(el && it.act === 'talk' ? `Hold the button to reply to ${el._msg?.name}` : '📻 Walkie-talkie on — hold the button to talk');
+    toast(el && it.act === 'talk' ? `Hold the button to reply to ${el._msg?.name}` : 'Walkie-talkie on — hold the button to talk');
   } else if (el && it.act === 'reply') startReply(el);
   else if (el && (it.act === 'play' || it.act === 'show')) {
     el.scrollIntoView({ block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
@@ -243,7 +305,7 @@ $('loginForm').onsubmit = async e => {
     Object.assign(me, d.user); store.set('ic-user', JSON.stringify(d.user));
     $('password').value = '';
     enterApp();
-    if (authMode === 'signup') toast(`Welcome, ${d.user.name}! 👋`);
+    if (authMode === 'signup') toast(`Welcome, ${d.user.name}!`);
   } catch (err) { fail(err.message, { username: 'username', name: 'name', password: 'password' }[err.field]); }
   finally { $('loginBtn').disabled = false; }
 };
@@ -348,13 +410,13 @@ function renderRooms() {
     if (r.last?.ts) { const tm = document.createElement('span'); tm.className = 'room-time'; tm.textContent = listTime(r.last.ts); top.append(tm); }
     const bottom = document.createElement('div'); bottom.className = 'room-bottom';
     const sub = document.createElement('small');
-    if (r.last?.text) sub.textContent = (isMine(r.last) ? (r.dm ? '' : 'You: ') : r.dm ? '' : r.last.name + ': ') + r.last.text;
-    else if (r.dm) sub.textContent = r.peer?.status ? `${r.peer.status.emoji} ${r.peer.status.text}`.trim() : `@${r.peer?.username || ''} · say hi 👋`;
-    else if (r.locked && !r.access) sub.textContent = '🔒 Private group · tap to enter password';
-    else if (r.geo) sub.textContent = `📍 Location group · ${fmtDist(r.radius)} range`;
+    if (r.last?.text) { const kind = mediaKind(r.last.text); sub.replaceChildren((isMine(r.last) ? (r.dm ? '' : 'You: ') : r.dm ? '' : r.last.name + ': ')); if (kind) sub.append(icoText(kind[0], kind[1], 'ic-inline')); else sub.append(r.last.text); }
+    else if (r.dm) sub.textContent = r.peer?.status ? statusText(r.peer.status) : `@${r.peer?.username || ''} · say hi`;
+    else if (r.locked && !r.access) sub.replaceChildren(icoText('lock', 'Private group · tap to enter password'));
+    else if (r.geo) sub.replaceChildren(icoText('pin', `Location group · ${fmtDist(r.radius)} range`));
     else sub.textContent = r.room === 'general' ? 'Everyone' : 'No messages yet';
     bottom.append(sub);
-    if (isMuted(r.room)) { const mu = document.createElement('span'); mu.className = 'room-mute'; mu.textContent = '🔕'; mu.title = 'Muted'; bottom.append(mu); }
+    if (isMuted(r.room)) { const mu = document.createElement('span'); mu.className = 'room-mute'; mu.innerHTML = svgFor('bellOff'); mu.title = 'Muted'; bottom.append(mu); }
     if (n) { const dot = document.createElement('span'); dot.className = 'unread-dot'; dot.textContent = n === true ? '' : n > 99 ? '99+' : n; dot.setAttribute('aria-label', 'Unread'); bottom.append(dot); }
     meta.append(top, bottom); b.append(av, meta);
     b.onclick = () => openRoom(r.room);
@@ -362,7 +424,7 @@ function renderRooms() {
   }
   if (!shown.length) {
     const li = document.createElement('li'); li.className = 'room-empty';
-    li.textContent = q ? `No chats match “${q}”.` : roomFilter === 'unread' ? 'No unread chats 🎉' : roomFilter === 'dm' ? 'No friend chats yet — add a friend in the Friends tab.' : 'No chats yet — tap ＋ to start one.';
+    li.textContent = q ? `No chats match “${q}”.` : roomFilter === 'unread' ? 'No unread chats' : roomFilter === 'dm' ? 'No friend chats yet — add a friend in the Friends tab.' : 'No chats yet — tap ＋ to start one.';
     list.append(li);
   }
   const unreadChats = rooms.filter(r => unreadCount(r)).length;
@@ -376,6 +438,12 @@ for (const c of document.querySelectorAll('#filterChips .chip-btn')) c.onclick =
   renderRooms();
 };
 // Unread count for a chat: the server's count when we have it, else a dot (true) from the newest message
+// "📻 Walkie-talkie" / "Voice message" etc. → [icon, text] (old previews were stored with an emoji in front)
+function mediaKind(t) {
+  const m = String(t).match(/^(?:(?:🚫|📻|🎤|🎞️|🎞)\s*)?(Message deleted|Walkie-talkie(?: message)?|Voice message|GIF)$/u);
+  if (!m) return null;
+  return [{ 'Message deleted': 'ban', 'GIF': 'gif', 'Voice message': 'mic' }[m[1]] || 'radio', m[1]];
+}
 function unreadCount(r) {
   if (r.room === current || !r.last?.key || isMine(r.last)) return 0;
   if (r.locked && !r.access) return 0;
@@ -518,8 +586,8 @@ function renderPresence(users) {
     $('typing').textContent = '';
   } else {
     sub = typing.length ? `${typing.join(', ')} typing…` : users.length > 1 ? `${users.length} online` : 'tap here for group info';
-    if (group?.geo) sub += ` · 📍 ${fmtDist(group.radius)}`;
-    if (group?.locked) sub += ' · 🔒';
+    if (group?.geo) sub += ` · ${fmtDist(group.radius)} range`;
+    if (group?.locked) sub += ' · private';
   }
   $('chatSub').textContent = sub;
   if ($('app').classList.contains('info-open') && users.some(u => !(membersCache.list || []).some(m => m.uid === u.uid))) loadMembers();   // someone new joined
@@ -584,17 +652,17 @@ function render(m, isPending) {
       el.append(q);
     }
   }
-  if (m.deleted) { el.classList.add('deleted'); const body = document.createElement('span'); body.className = 'body'; body.textContent = '🚫 This message was deleted'; el.append(body); }
+  if (m.deleted) { el.classList.add('deleted'); const body = document.createElement('span'); body.className = 'body'; body.append(icoEl('ban'), 'This message was deleted'); el.append(body); }
   else if (m.text) { const body = document.createElement('span'); body.className = 'body'; body.append(fmtText(m.text)); el.append(body); }
   if (!mine && m.mentions?.includes(me.uid)) el.classList.add('mentions-me');
   if (!m.text && !m.deleted) el.classList.add('media-only');
 
   const foot = document.createElement('span'); foot.className = 'foot';
-  if (m.scheduled) foot.append(Object.assign(document.createElement('span'), { className: 'f-tag', textContent: '⏰', title: 'Scheduled message' }));
+  if (m.scheduled) foot.append(Object.assign(document.createElement('span'), { className: 'f-tag', innerHTML: svgFor('clock'), title: 'Scheduled message' }));
   if (m.edited) foot.append(Object.assign(document.createElement('span'), { className: 'f-tag edited', textContent: 'edited' }));
   foot.append(timeLabel(m.ts));
   if (mine) {
-    const t = document.createElement('span'); t.className = 'ticks clock'; t.textContent = '🕓'; t.title = 'Sending…';
+    const t = document.createElement('span'); t.className = 'ticks clock'; t.innerHTML = svgFor('clock'); t.title = 'Sending…';
     t.onclick = e => { e.stopPropagation(); const k = el.dataset.key; if (!k) return; openReceipts.has(k) ? openReceipts.delete(k) : openReceipts.add(k); updateTicks(); };
     foot.append(t);
   }
@@ -605,7 +673,7 @@ function render(m, isPending) {
   btn.onclick = e => { e.stopPropagation(); startReply(el); };
   const icon = document.createElement('div'); icon.className = 'swipe-icon'; icon.innerHTML = ICON.reply;
   const more = document.createElement('button');
-  more.type = 'button'; more.className = 'msg-btn'; more.textContent = '😊'; more.title = 'React and more'; more.setAttribute('aria-label', 'Message actions');
+  more.type = 'button'; more.className = 'msg-btn'; more.innerHTML = svgFor('smile'); more.title = 'React and more'; more.setAttribute('aria-label', 'Message actions');
   more.onclick = e => { e.stopPropagation(); openMsgMenu(el); };
   el.append(btn, more, icon);
   el.addEventListener('dblclick', e => { if (!e.target.closest('img, .voice, .reacts') && !window.getSelection().toString()) startReply(el); });
@@ -637,7 +705,7 @@ function jumpTo(key) {
   target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
 }
-const previewText = m => m.text || (m.audio ? `${m.audio.walkie ? '📻 Walkie-talkie' : '🎤 Voice message'} (${fmtDur(m.audio.dur)})` : m.gif ? '🎞️ GIF' : '');
+const previewText = m => m.text || (m.audio ? `${m.audio.walkie ? 'Walkie-talkie' : 'Voice message'} (${fmtDur(m.audio.dur)})` : m.gif ? 'GIF' : '');
 
 function notify(m) {
   if (isMine(m) || !document.hidden || pushActive) return;   // push notifications take over when enabled
@@ -661,7 +729,7 @@ function updateTicks() {
     const delivered = others.filter(r => r.delivered >= key && !(r.read >= key)).map(r => r.name);
     t.classList.remove('clock');
     t.classList.toggle('seen', readers.length > 0);
-    t.textContent = readers.length || delivered.length ? '✓✓' : '✓';
+    t.innerHTML = svgFor(readers.length || delivered.length ? 'checks' : 'check');
     t.title = [readers.length && 'Seen by ' + readers.join(', '), delivered.length && 'Delivered to ' + delivered.join(', ')].filter(Boolean).join('\n') || 'Sent';
     const open = openReceipts.has(key);
     if (!(open || (key === lastKey && readers.length))) { line?.remove(); continue; }
@@ -870,7 +938,7 @@ let playingAudio = null;
 function stopAllAudio() { if (playingAudio) { playingAudio.pause(); playingAudio = null; } }
 function voicePlayer(a, localUrl) {
   const wrap = document.createElement('div'); wrap.className = 'voice';
-  if (a.walkie) { const tag = document.createElement('span'); tag.className = 'voice-tag'; tag.textContent = '📻 Walkie-talkie'; setTimeout(() => wrap.before(tag)); }
+  if (a.walkie) { const tag = document.createElement('span'); tag.className = 'voice-tag'; tag.append(icoEl('radio'), 'Walkie-talkie'); setTimeout(() => wrap.before(tag)); }
   const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'play'; btn.innerHTML = ICON.play; btn.setAttribute('aria-label', 'Play voice message');
   const wave = document.createElement('div'); wave.className = 'wave'; wave.setAttribute('role', 'slider'); wave.setAttribute('aria-label', 'Seek');
   let peaks = a.peaks?.length ? a.peaks : null;
@@ -1036,7 +1104,7 @@ function updateComposerLock() {
   if (locked.dataset.key === key) return;             // avoid re-rendering (and losing focus) on every poll
   locked.dataset.key = key; locked.innerHTML = '';
   const row = document.createElement('div'); row.className = 'row';
-  const ico = document.createElement('span'); ico.className = 'ico'; ico.textContent = icon;
+  const ico = document.createElement('span'); ico.className = 'ico'; ico.innerHTML = svgFor(icon);
   const p = document.createElement('span'); p.textContent = msg;
   row.append(ico, p); locked.append(row);
   if (action) { const b = document.createElement('button'); b.className = 'btn primary'; b.textContent = action[0]; b.onclick = action[1]; locked.append(b); }
@@ -1055,7 +1123,7 @@ function renderAdminBanner() {
   if (!n) { b.classList.add('hidden'); return; }
   b.classList.remove('hidden'); b.innerHTML = '';
   const t = document.createElement('span'); t.className = 'grow';
-  t.textContent = `🔔 ${n} ${n > 1 ? 'people want' : 'person wants'} to chat from outside the range`;
+  t.textContent = `${n} ${n > 1 ? 'people want' : 'person wants'} to chat from outside the range`;
   const btn = document.createElement('button'); btn.className = 'btn small primary'; btn.textContent = 'Review';
   btn.onclick = openInfo;
   b.append(t, btn);
@@ -1107,11 +1175,11 @@ function renderInfo() {
   const av = el('div', 'avatar'); paintAvatar(av, title, { geo: isGeoRoom, locked: isLocked, photo: g?.photo || ri.photo });
   if (g?.photo) { av.classList.add('click'); av.onclick = () => viewPhoto(g.photo); }
   if (g?.isAdmin) {
-    const cam = el('button', 'cam-btn', '📷'); cam.type = 'button'; cam.title = 'Change group photo'; cam.setAttribute('aria-label', 'Change group photo');
+    const cam = el('button', 'cam-btn'); cam.innerHTML = svgFor('camera'); cam.type = 'button'; cam.title = 'Change group photo'; cam.setAttribute('aria-label', 'Change group photo');
     cam.onclick = e => { e.stopPropagation(); choosePhoto(current, !!g.photo); };
     av.append(cam);
   }
-  const kind = isGeoRoom ? '📍 Location group' : isLocked ? '🔒 Private group' : current === 'general' ? '💬 Everyone' : '💬 Open group';
+  const kind = isGeoRoom ? 'Location group' : isLocked ? 'Private group' : current === 'general' ? 'Everyone' : 'Open group';
   const adminTxt = g?.isAdmin ? ' · you’re the admin' : g?.adminName ? ` · admin ${g.adminName}` : '';
   hero.append(av, el('h2', null, title), el('span', 'muted', kind + adminTxt));
   body.append(hero);
@@ -1128,7 +1196,7 @@ function renderInfo() {
   const nc = el('div', 'card'); nc.append(el('h3', null, 'Notifications'));
   const ns = el('div', 'setting'), nm = el('div', 's-meta');
   const muted = isMuted(current);
-  nm.append(el('b', null, muted ? '🔕 Muted' : pushActive ? '🔔 On' : '🔔 Off on this device'),
+  nm.append(el('b', null, muted ? 'Muted' : pushActive ? 'On' : 'Off on this device'),
     el('small', null, muted ? `Until ${fmtUntil(mutes[current])}` : pushActive ? 'You’ll be notified of new messages, even when the app is closed' : 'Turn on notifications to hear about new messages'));
   const nb = el('button', 'btn small ' + (!pushActive && !muted ? 'primary' : ''), muted ? 'Unmute' : pushActive ? 'Mute' : 'Turn on');
   nb.onclick = () => (pushActive || muted) ? muteGroup() : enableNotifications().then(renderInfo);
@@ -1176,7 +1244,7 @@ function renderInfo() {
         try { const loc = await getLocationOnce(); await api('group/update', { recenter: true, loc }); toast('Centre moved'); repoll(); } catch (e) { toast(e.message); }
       };
       const btns = el('div', 'btn-row'); btns.append(save, recBtn);
-      c.append(el('h3', null, 'Change range'), sr, btns, el('p', 'muted small', 'Tip: drag the 📍 pin on the map to move the centre.'));
+      c.append(el('h3', null, 'Change range'), sr, btns, el('p', 'muted small', 'Tip: drag the pin on the map to move the centre.'));
     }
     body.append(c);
 
@@ -1281,10 +1349,10 @@ for (const r of document.querySelectorAll('input[name=ngType]')) r.onchange = as
   if (ngType() === 'geo' && !ngLoc) {
     const s = $('ngLoc'); s.className = 'loc-status'; s.textContent = 'Getting your location…';
     try {
-      ngLoc = await getLocationOnce(); s.className = 'loc-status ok'; s.textContent = `✓ Location found (±${fmtDist(ngLoc.acc)}). Drag the 📍 pin to adjust the centre.`;
+      ngLoc = await getLocationOnce(); s.className = 'loc-status ok'; s.textContent = `Location found (±${fmtDist(ngLoc.acc)}). Drag the pin to adjust the centre.`;
       $('ngMap').classList.remove('hidden');
       rangeMap($('ngMap'), { center: ngLoc, radius: sliderToRadius(+$('ngRadius').value), draggable: true,
-        onMove: ll => { ngLoc = { lat: ll.lat, lng: ll.lng, acc: 0 }; s.textContent = '✓ Centre set where you dropped the pin.'; return true; } })
+        onMove: ll => { ngLoc = { lat: ll.lat, lng: ll.lng, acc: 0 }; s.textContent = 'Centre set where you dropped the pin.'; return true; } })
         .then(v => { ngMapView = v; v.setYou(null); }).catch(() => $('ngMap').classList.add('hidden'));
     }
     catch (e) { s.className = 'loc-status bad'; s.textContent = e.message; }
@@ -1318,7 +1386,7 @@ function applyEdit(key) {
   if (e.deleted && !el.classList.contains('deleted')) {
     el.classList.add('deleted'); el.classList.remove('media-only');
     el.querySelectorAll('.gif, .voice, .body, .quote').forEach(n => n.remove());
-    const body = document.createElement('span'); body.className = 'body'; body.textContent = '🚫 This message was deleted';
+    const body = document.createElement('span'); body.className = 'body'; body.append(icoEl('ban'), 'This message was deleted');
     el.insertBefore(body, el.querySelector('.foot'));
     if (el._msg) el._msg = { ...el._msg, deleted: true, text: '', gif: null, audio: null };
   }
@@ -1418,7 +1486,7 @@ async function deleteMsg(el) {
 function messageInfo(el) {
   const key = el.dataset.key, others = receipts.filter(r => r.uid !== me.uid);
   const read = others.filter(r => r.read >= key).map(r => r.name), got = others.filter(r => r.delivered >= key && !(r.read >= key)).map(r => r.name);
-  const lines = [read.length ? `✓✓ Seen by: ${read.join(', ')}` : 'Not seen yet', got.length ? `✓✓ Delivered to: ${got.join(', ')}` : ''].filter(Boolean);
+  const lines = [read.length ? `Seen by: ${read.join(', ')}` : 'Not seen yet', got.length ? `Delivered to: ${got.join(', ')}` : ''].filter(Boolean);
   popup({ icon: 'ℹ️', title: 'Message info', text: `Sent ${new Date(el._msg.ts).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}\n${lines.join('\n')}`, ok: 'Done', cancel: '' });
 }
 
@@ -1630,7 +1698,7 @@ function stopBackgroundAudio() {
 }
 // Play through the continuous stream when it's running, otherwise straight to the speakers
 const walkieOutput = () => (walkie.out?.ok ? walkie.out.dest : walkie.ctx.destination);
-function updateMediaSession(text = '📻 Walkie-talkie · listening') {
+function updateMediaSession(text = 'Walkie-talkie · listening') {
   if (!('mediaSession' in navigator) || !walkieListening() || walkie.mediaText === text) return;
   walkie.mediaText = text;
   try {
@@ -1652,24 +1720,24 @@ function renderWalkie() {
   $('walkieBanner').classList.toggle('hidden', !showBanner);
   if (showBanner) {
     const who = othersTalking ? f.name : walkie.speaker;
-    $('wbText').textContent = listening ? `🔊 ${who} is talking…` : `${who} is talking on the walkie-talkie`;
+    $('wbText').textContent = listening ? `${who} is talking…` : `${who} is talking on the walkie-talkie`;
     $('wbListen').textContent = listening ? 'Talk back' : 'Listen';
   }
-  if (!walkie.on) { if (listening) updateMediaSession(othersTalking || hearing ? `🔊 ${othersTalking ? f.name : walkie.speaker} is talking` : '📻 Walkie-talkie · listening'); return; }
+  if (!walkie.on) { if (listening) updateMediaSession(othersTalking || hearing ? `${othersTalking ? f.name : walkie.speaker} is talking` : 'Walkie-talkie · listening'); return; }
   $('wkListeners').textContent = listeners ? `${listeners} listening` : 'Nobody else listening yet';
   const st = $('wkStatus'), btn = $('pttBtn');
   st.className = 'wk-status';
   $('walkiePanel').classList.toggle('hearing', hearing && !walkie.talking);
-  updateMediaSession(walkie.talking ? '🔴 You’re talking' : (othersTalking || hearing) ? `🔊 ${othersTalking ? f.name : walkie.speaker} is talking` : '📻 Walkie-talkie · listening');
-  if (walkie.talking) { st.classList.add('live'); st.textContent = `🔴 You’re live · ${fmtDur((Date.now() - walkie.start) / 1000)}`; }
-  else if (othersTalking || hearing) { st.classList.add('hearing'); st.textContent = `🔊 ${othersTalking ? f.name : walkie.speaker} is talking…`; }
+  updateMediaSession(walkie.talking ? 'You’re talking' : (othersTalking || hearing) ? `${othersTalking ? f.name : walkie.speaker} is talking` : 'Walkie-talkie · listening');
+  if (walkie.talking) { st.classList.add('live'); st.textContent = `Live · ${fmtDur((Date.now() - walkie.start) / 1000)}`; }
+  else if (othersTalking || hearing) { st.classList.add('hearing'); st.textContent = `${othersTalking ? f.name : walkie.speaker} is talking…`; }
   else st.textContent = canTalk ? 'Hold the button to talk' : 'You can listen here, but you’re outside the range to talk';
   btn.classList.toggle('talking', walkie.talking);
   btn.classList.toggle('busy', !!othersTalking && !walkie.talking);
   btn.disabled = !canTalk;
   $('pttLabel').textContent = walkie.talking ? 'Release to stop' : othersTalking ? `${f.name.split(' ')[0]} is talking` : replyTo ? `Hold to reply to ${replyTo.name.split(' ')[0]}` : 'Hold to talk';
-  $('wkHint').textContent = finePointer ? 'Tip: hold the Space bar to talk. People with the walkie-talkie open hear you live; everyone else gets it as a 📻 message.'
-    : 'Keeps playing with the screen locked or in another app (like music) while this stays on. Others get it as a 📻 message.';
+  $('wkHint').textContent = finePointer ? 'Tip: hold the Space bar to talk. People with the walkie-talkie open hear you live; everyone else gets it as a walkie-talkie message.'
+    : 'Keeps playing with the screen locked or in another app (like music) while this stays on. Others get it as a walkie-talkie message.';
 }
 
 async function startTalking() {
@@ -1777,7 +1845,7 @@ function loadLeaflet() {
     document.head.append(js);
   });
 }
-const pinIcon = L => L.divIcon({ className: 'map-pin', html: '<span>📍</span><b>Centre</b>', iconSize: [70, 40], iconAnchor: [35, 34] });
+const pinIcon = L => L.divIcon({ className: 'map-pin', html: `<span class="pin-ic">${svgFor('pin')}</span><b>Centre</b>`, iconSize: [70, 40], iconAnchor: [35, 34] });
 const youIcon = L => L.divIcon({ className: 'map-you', html: '<i></i><b>You</b>', iconSize: [60, 34], iconAnchor: [30, 8] });
 function baseLayers(L) {
   const satellite = L.layerGroup([
@@ -1847,7 +1915,7 @@ const groupMap = {
     this.room = current; this.key = `${g.center?.lat},${g.center?.lng},${g.radius}`;
     const wrap = this.wrap = el('div', 'range-map-wrap');
     const box = el('div', 'range-map'); box.setAttribute('role', 'img'); box.setAttribute('aria-label', `Map of the group’s ${fmtDist(g.radius)} range`);
-    wrap.append(box, el('div', 'map-legend', '📍 group centre · dashed circle = range · 🔵 you'));
+    wrap.append(box, el('div', 'map-legend', 'Pin = group centre · dashed circle = range · blue dot = you'));
     if (!g.center) { wrap.replaceChildren(radar(g)); return; }
     rangeMap(box, { center: g.center, radius: g.radius, draggable: !!g.isAdmin, onMove: ll => this.confirmMove(ll) })
       .then(v => { if (this.wrap === wrap) { this.view = v; v.setYou(geo.loc); } else v.map.remove(); })
@@ -1893,7 +1961,7 @@ function simpleMenu(anchor, items) {
   const acts = $('mmActions'); acts.innerHTML = '';
   for (const it of items) {
     const b = document.createElement('button'); b.type = 'button'; b.className = it.danger ? 'danger' : '';
-    const ic = document.createElement('span'); ic.className = 'mm-emoji'; ic.textContent = it.icon || '';
+    const ic = document.createElement('span'); ic.className = 'mm-emoji'; ic.innerHTML = svgFor(it.icon);
     b.append(ic, it.label); b.onclick = () => { closeMsgMenu(); it.onClick(); }; acts.append(b);
   }
   $('msgMenu').classList.remove('hidden');
@@ -1941,7 +2009,7 @@ function personRow(p, actions = [], onClick = null) {
   if (onClick) { row.type = 'button'; row.onclick = onClick; }
   const a = el('div', 'avatar'); if (p.photo !== undefined) profiles[p.uid] = { ...(profiles[p.uid] || {}), ...p }; paintUser(a, p.uid, p.name);
   if (p.uid) { a.classList.add('click'); a.onclick = e => { e.stopPropagation(); showProfile(p.uid); }; }
-  const meta = el('div', 'p-meta'); meta.append(el('b', null, p.name), el('small', null, p.status ? `${p.status.emoji} ${p.status.text}`.trim() : `@${p.username}` + (p.lastSeen ? ` · ${lastSeenText(p.lastSeen).replace('tap here for contact info', '')}` : '')));
+  const meta = el('div', 'p-meta'); meta.append(el('b', null, p.name), el('small', null, p.status ? statusText(p.status) : `@${p.username}` + (p.lastSeen ? ` · ${lastSeenText(p.lastSeen).replace('tap here for contact info', '')}` : '')));
   const acts = el('div', 'p-acts');
   for (const [label, cls, fn] of actions) { const b = el('button', 'btn small ' + cls, label); b.type = 'button'; b.onclick = e => { e.stopPropagation(); fn(b); }; acts.append(b); }
   row.append(a, meta, acts);
@@ -1973,7 +2041,7 @@ function renderFriends() {
   }
   body.append(el('h3', 'sec-title', `Friends (${friends.friends.length})`));
   if (!friends.friends.length) {
-    const e = el('div', 'empty-note'); e.append(el('span', 'big', '🤝'), 'No friends yet. Search for someone’s @username above and tap “Add friend”. Once they accept, you can chat 1:1.');
+    const e = el('div', 'empty-note'); e.append(icoEl('users', 'big'), 'No friends yet. Search for someone’s @username above and tap “Add friend”. Once they accept, you can chat 1:1.');
     body.append(e);
   }
   for (const u of friends.friends) body.append(personRow(u, [['Message', 'primary', () => openDm(u.uid)]], () => openDm(u.uid)));
@@ -1997,7 +2065,7 @@ async function openDm(uid) {
   } catch (e) { toast(e.message); }
 }
 async function removeFriend(peer) {
-  const yes = await popup({ icon: '👋', title: `Remove ${peer.name}?`, text: 'You’ll stop being friends. Your chat history stays, but neither of you can start new 1:1 chats until you’re friends again.', ok: 'Remove', danger: true });
+  const yes = await popup({ icon: 'userMinus', title: `Remove ${peer.name}?`, text: 'You’ll stop being friends. Your chat history stays, but neither of you can start new 1:1 chats until you’re friends again.', ok: 'Remove', danger: true });
   if (!yes) return;
   await friendAction('remove', peer.uid, `${peer.name} removed from friends`);
 }
@@ -2027,12 +2095,12 @@ function renderContactInfo(body) {
   if (pf === undefined) needProfiles([peer.uid], true);
   if (peer.status || pf?.about) {
     const ab = el('div', 'card about-card');
-    if (peer.status) ab.append(el('div', 'status-pill', `${peer.status.emoji} ${peer.status.text}`.trim() + (peer.status.until ? ` · until ${fmtUntil(peer.status.until)}` : '')));
+    if (peer.status) ab.append(statusPill(peer.status, peer.status.until ? ` · until ${fmtUntil(peer.status.until)}` : ''));
     if (pf?.about) { ab.append(el('h3', null, 'About'), el('p', null, pf.about)); }
     body.append(ab);
   }
   const c = el('div', 'card');
-  const row = (icon, title, sub, fn, cls = '') => { const b = el('button', 'set-row ' + cls); b.type = 'button'; b.onclick = fn; const i = el('span', 's-ico', icon); const m = el('div', 's-meta'); m.append(el('b', null, title)); if (sub) m.append(el('small', null, sub)); b.append(i, m); c.append(b); };
+  const row = (icon, title, sub, fn, cls = '') => { const b = el('button', 'set-row ' + cls); b.type = 'button'; b.onclick = fn; const i = icoEl(icon, 's-ico'); const m = el('div', 's-meta'); m.append(el('b', null, title)); if (sub) m.append(el('small', null, sub)); b.append(i, m); c.append(b); };
   row('📻', 'Walkie-talkie', 'Push to talk with ' + (peer.name || '').split(' ')[0], () => { $('app').classList.remove('info-open'); if (!walkie.on) $('walkieBtn').click(); });
   row(isMuted(current) ? '🔔' : '🔕', isMuted(current) ? 'Unmute notifications' : 'Mute notifications', isMuted(current) ? `Muted until ${fmtUntil(mutes[current])}` : null, () => pushActive || isMuted(current) ? muteGroup() : enableNotifications());
   row('🎨', 'Wallpaper', 'Choose a wallpaper just for this chat', () => openWallpaper(current));
@@ -2040,7 +2108,7 @@ function renderContactInfo(body) {
   row('⏰', 'Scheduled messages', null, showScheduled);
   row('🔒', 'Private chat', 'Only you and ' + (peer.name || '').split(' ')[0] + ' can see these messages', () => {});
   const isFriend = friends.friends.some(f => f.uid === peer.uid);
-  if (isFriend) row('👋', `Remove ${peer.name} from friends`, null, () => removeFriend(peer), 'danger');
+  if (isFriend) row('userMinus', `Remove ${peer.name} from friends`, null, () => removeFriend(peer), 'danger');
   else row('➕', `Add ${peer.name} as a friend`, null, () => friendAction('request', peer.uid, 'Friend request sent'));
   body.append(c);
 }
@@ -2052,21 +2120,21 @@ function renderSettings() {
   const prof = el('div', 'profile-hero');
   const av = el('div', 'avatar'); paintAvatar(av, me.name || '?', { photo: me.photo });
   if (me.photo) { av.classList.add('click'); av.onclick = () => viewPhoto(me.photo); }
-  const cam = el('button', 'cam-btn', '📷'); cam.type = 'button'; cam.setAttribute('aria-label', 'Change profile photo'); cam.onclick = e => { e.stopPropagation(); choosePhoto(null, !!me.photo); };
+  const cam = el('button', 'cam-btn'); cam.innerHTML = svgFor('camera'); cam.type = 'button'; cam.setAttribute('aria-label', 'Change profile photo'); cam.onclick = e => { e.stopPropagation(); choosePhoto(null, !!me.photo); };
   av.append(cam);
   prof.append(av, el('h2', null, me.name), el('span', 'muted', '@' + me.username));
   body.append(prof);
-  const row = (icon, title, sub, fn, cls = '') => { const b = el('button', 'set-row ' + cls); b.type = 'button'; b.onclick = fn; const m = el('div', 's-meta'); m.append(el('b', null, title)); if (sub) m.append(el('small', null, sub)); b.append(el('span', 's-ico', icon), m); body.append(b); };
+  const row = (icon, title, sub, fn, cls = '') => { const b = el('button', 'set-row ' + cls); b.type = 'button'; b.onclick = fn; const m = el('div', 's-meta'); m.append(el('b', null, title)); if (sub) m.append(el('small', null, sub)); b.append(icoEl(icon, 's-ico'), m); body.append(b); };
   body.append(el('h3', 'sec-title', 'Profile'));
   row('🙂', 'Name', me.name, editName);
   row('ℹ️', 'About', me.about || 'Add a few words about yourself', editAbout);
   const st = me.status && (!me.status.until || me.status.until > Date.now()) ? me.status : null;
-  row(st?.emoji || '💬', 'Status', st ? `${st.text || ''}${st.until ? ' · until ' + fmtUntil(st.until) : ''}`.trim() : 'Let people know what you’re up to', editStatus);
+  row(svgFor(st?.emoji) ? st.emoji : 'message', 'Status', st ? `${st.text || ''}${st.until ? ' · until ' + fmtUntil(st.until) : ''}`.trim() : 'Let people know what you’re up to', editStatus);
   row('👁️', 'View my profile', 'See what others see', () => showProfile(me.uid));
   const themeName = { system: 'System default', light: 'Light', dark: 'Dark' }[store.get('ic-theme') || 'system'];
   body.append(el('h3', 'sec-title', 'Chats'));
   row('🌓', 'Theme', themeName, chooseTheme);
-  row('✨', 'App style', (STYLES.find(x => x.id === appStyle()).icon + ' ' + STYLES.find(x => x.id === appStyle()).name), openStylePicker);
+  row('sparkles', 'App style', STYLES.find(x => x.id === appStyle()).name, openStylePicker);
   row('🎨', 'Chat wallpaper', wallpaperName(wallFor(null)), () => openWallpaper(null));
   row('📻', 'Walkie-talkie auto-play', autoWalkie() ? 'On — you hear people live in the open chat, even in the background' : 'Off — tap “Listen” to hear people', () => {
     store.set('ic-wk-auto', autoWalkie() ? '0' : '1'); walkie.autoOff = false;
@@ -2085,7 +2153,7 @@ function renderSettings() {
 async function chooseTheme() {
   const cur = store.get('ic-theme') || 'system';
   const v = await popup({ icon: '🌓', title: 'Choose theme', ok: '', cancel: 'Cancel',
-    choices: [['system', 'System default'], ['light', 'Light'], ['dark', 'Dark']].map(([value, label]) => ({ value, label: (value === cur ? '✓ ' : '') + label, cls: value === cur ? 'primary' : '' })) });
+    choices: [['system', 'System default'], ['light', 'Light'], ['dark', 'Dark']].map(([value, label]) => ({ value, label, icon: value === cur ? 'check' : null, cls: value === cur ? 'primary' : '' })) });
   if (typeof v !== 'string') return;
   store.set('ic-theme', v); applyTheme(); renderSettings();
 }
@@ -2186,7 +2254,7 @@ function renderWallGrid() {
   };
   // 📷 pick a photo from this device
   const up = el('button', 'wall-opt photo'); up.type = 'button'; up.setAttribute('aria-label', 'Choose a photo from your device');
-  up.append('📷', el('span', null, myPhoto ? 'New photo' : 'Your photo'));
+  up.append(icoEl('camera'), el('span', null, myPhoto ? 'New photo' : 'Your photo'));
   up.onclick = () => $('wallFile').click();
   grid.append(up);
   const opts = (wallTarget ? [{ id: 'default', name: 'Default' }] : []).concat(myPhoto ? [{ id: 'custom', name: 'Your photo' }] : [], WALLPAPERS);
@@ -2311,7 +2379,8 @@ function needProfiles(uids, refreshInfo) {
   }, 80);
 }
 function viewPhoto(url) { $('viewer').querySelector('img').src = url; $('viewer').classList.remove('hidden'); }
-const statusText = st => st ? `${st.emoji || ''} ${st.text || ''}`.trim() : '';
+const statusText = st => st ? `${st.emoji && !st.emoji.startsWith('ic:') ? st.emoji + ' ' : ''}${st.text || ''}`.trim() : '';
+function statusPill(st, extra = '') { const p = el('div', 'status-pill'); if (svgFor(st.emoji)) p.append(icoEl(st.emoji)); p.append(statusText(st) + extra); return p; }
 
 // Profile card: tap someone's photo or name
 async function showProfile(uid) {
@@ -2336,15 +2405,15 @@ async function showProfile(uid) {
   const online = presenceCache.some(u => u.uid === uid) || uid === me.uid;
   inner.append(el('span', 'muted small', online ? 'online' : lastSeenText(p.lastSeen).replace('tap here for contact info', 'not seen recently')));
   const st = p.status && (!p.status.until || p.status.until > Date.now()) ? p.status : null;
-  if (st) inner.append(el('div', 'status-pill', statusText(st) + (st.until ? ` · until ${fmtUntil(st.until)}` : '')));
+  if (st) inner.append(statusPill(st, st.until ? ` · until ${fmtUntil(st.until)}` : ''));
   if (p.about) { const ab = el('div', 'ps-about'); ab.append(el('small', 'muted', 'About'), el('p', null, p.about)); inner.append(ab); }
   const acts = el('div', 'ps-actions');
   const btn = (label, cls, fn) => { const b = el('button', 'btn ' + cls, label); b.type = 'button'; b.onclick = () => fn(b); acts.append(b); };
-  if (p.friend === 'self') btn('✏️ Edit profile', 'primary', () => { dlg.close(); setTab('settings'); });
-  else if (p.friend === 'friends') btn('💬 Message', 'primary', () => { dlg.close(); openDm(uid); });
+  if (p.friend === 'self') btn('Edit profile', 'primary', () => { dlg.close(); setTab('settings'); });
+  else if (p.friend === 'friends') btn('Message', 'primary', () => { dlg.close(); openDm(uid); });
   else if (p.friend === 'out') btn('Request sent', 'ghost', () => {});
   else if (p.friend === 'in') btn('Accept friend request', 'primary', async b => { await respond(p, true, b); dlg.close(); });
-  else btn('➕ Add friend', 'primary', async b => { await friendAction('request', uid, `Friend request sent to ${p.name}`, b); dlg.close(); });
+  else btn('Add friend', 'primary', async b => { await friendAction('request', uid, `Friend request sent to ${p.name}`, b); dlg.close(); });
   inner.append(acts);
   dlg.append(inner);
   if (!dlg.open) dlg.showModal();
@@ -2359,30 +2428,30 @@ async function editAbout() {
     input: { value: me.about || '', maxLength: 140, placeholder: 'e.g. Design team · Floor 3' },
     onConfirm: v => v === (me.about || '') ? null : saveMe({ about: v }, 'About saved') });
 }
-const STATUSES = [['📅', 'In a meeting'], ['🍽️', 'At lunch'], ['🎧', 'Focusing'], ['🚗', 'Commuting'], ['🏠', 'Working from home'], ['🤒', 'Out sick'], ['🏖️', 'On leave']];
+const STATUSES = [['ic:calendar', 'In a meeting'], ['ic:coffee', 'At lunch'], ['ic:headphones', 'Focusing'], ['ic:car', 'Commuting'], ['ic:home', 'Working from home'], ['ic:thermometer', 'Out sick'], ['ic:sun', 'On leave']];
 async function editStatus() {
   const cur = me.status && (!me.status.until || me.status.until > Date.now()) ? me.status : null;
   const pick = await popup({ icon: '💬', title: 'Set a status', text: cur ? `Now: ${statusText(cur)}` : 'Shown next to your name. It clears itself when you want.', ok: '', cancel: 'Cancel',
-    choices: [...STATUSES.map(([e, t]) => ({ value: e + '|' + t, label: `${e}  ${t}` })), { value: 'custom', label: '✏️  Write my own…' }, ...(cur ? [{ value: 'clear', label: '✖  Clear status', cls: 'danger' }] : [])] });
+    choices: [...STATUSES.map(([e, t]) => ({ value: e + '|' + t, label: t, icon: e })), { value: 'custom', label: 'Write my own…', icon: 'pencil' }, ...(cur ? [{ value: 'clear', label: 'Clear status', icon: 'x', cls: 'danger' }] : [])] });
   if (typeof pick !== 'string') return;
   if (pick === 'clear') return saveMe({ status: null }, 'Status cleared');
-  let emoji = '💬', txt = '';
+  let emoji = 'ic:message', txt = '';
   if (pick === 'custom') {
-    const v = await popup({ icon: '✏️', title: 'Your status', text: 'Start with an emoji if you like, e.g. “🏃 Back in 5”.', ok: 'Next', input: { value: '', maxLength: 60, required: true, requiredMsg: 'Write something' } });
+    const v = await popup({ icon: '✏️', title: 'Your status', text: 'e.g. “Back in 5 minutes”.', ok: 'Next', input: { value: '', maxLength: 60, required: true, requiredMsg: 'Write something' } });
     if (v === null) return;
     const m = v.match(/^(\p{Extended_Pictographic}[\u{FE0F}\u{200D}\p{Extended_Pictographic}]*)\s*(.*)$/u);
     if (m) { emoji = m[1]; txt = m[2]; } else txt = v;
   } else [emoji, txt] = pick.split('|');
   const endOfDay = new Date(); endOfDay.setHours(23, 59, 0, 0);
-  const until = await popup({ icon: emoji, title: 'Clear after', ok: '', cancel: 'Cancel',
+  const until = await popup({ icon: svgFor(emoji) ? emoji : 'clock', title: 'Clear after', ok: '', cancel: 'Cancel',
     choices: [{ value: 3600e3, label: '1 hour' }, { value: 4 * 3600e3, label: '4 hours' }, { value: endOfDay - Date.now(), label: 'Today' }, { value: 7 * 864e5, label: 'This week' }, { value: 0, label: 'Don’t clear' }] });
   if (typeof until !== 'number') return;
-  await saveMe({ status: { emoji, text: txt, until: until ? Date.now() + until : 0 } }, `Status set: ${emoji} ${txt}`);
+  await saveMe({ status: { emoji, text: txt, until: until ? Date.now() + until : 0 } }, `Status set: ${txt}`);
 }
 // Change / remove a profile photo (yours, or a group's when room is given)
 async function choosePhoto(room, has) {
   if (has) {
-    const v = await popup({ icon: '📷', title: room ? 'Group photo' : 'Profile photo', ok: '', cancel: 'Cancel', choices: [{ value: 'new', label: '🖼️  Choose a new photo' }, { value: 'remove', label: '🗑️  Remove photo', cls: 'danger' }] });
+    const v = await popup({ icon: '📷', title: room ? 'Group photo' : 'Profile photo', ok: '', cancel: 'Cancel', choices: [{ value: 'new', label: 'Choose a new photo', icon: 'image' }, { value: 'remove', label: 'Remove photo', icon: 'trash', cls: 'danger' }] });
     if (v === 'remove') {
       if (room) { try { await api('group/update', { room, photo: null }); toast('Group photo removed'); repoll(); refreshRooms(); } catch (e) { toast(e.message); } }
       else await saveMe({ photo: null }, 'Photo removed');
@@ -2506,8 +2575,8 @@ function renderPinBar() {
   if (!p) return;
   pinBar.innerHTML = '';
   const dots = el('div', 'pin-dots'); for (let i = 0; i < pins.length; i++) dots.append(el('i', i === pinIdx ? 'on' : ''));
-  const t = el('div', 'pin-text'); t.append(el('b', null, pins.length > 1 ? `📌 Pinned message ${pinIdx + 1} of ${pins.length}` : '📌 Pinned message'), el('span', null, `${p.name}: ${p.text}`));
-  const x = el('button', 'icon-btn pin-x', '✕'); x.type = 'button'; x.title = 'Unpin'; x.setAttribute('aria-label', 'Unpin');
+  const t = el('div', 'pin-text'); t.append(icoText('pinned', pins.length > 1 ? `Pinned message ${pinIdx + 1} of ${pins.length}` : 'Pinned message', 'pin-title'), el('span', null, `${p.name}: ${p.text}`));
+  const x = el('button', 'icon-btn pin-x'); x.innerHTML = svgFor('x'); x.type = 'button'; x.title = 'Unpin'; x.setAttribute('aria-label', 'Unpin');
   pinBar.append(dots, t, x);
 }
 async function pinKey(key, on) {
@@ -2522,7 +2591,7 @@ async function pickTime(title, icon, quick) {
   if (new Date().getHours() < 19) opts.push({ value: at(0, 20), label: 'Tonight at 8 PM' });
   opts.push({ value: at(1, 9), label: 'Tomorrow at 9 AM' });
   const mon = new Date(); mon.setDate(mon.getDate() + ((8 - mon.getDay()) % 7 || 7)); mon.setHours(9, 0, 0, 0);
-  opts.push({ value: mon.getTime(), label: 'Monday at 9 AM' }, { value: 'custom', label: '📅 Pick date & time…' });
+  opts.push({ value: mon.getTime(), label: 'Monday at 9 AM' }, { value: 'custom', label: 'Pick date & time…', icon: 'calendar' });
   const v = await popup({ icon, title, ok: '', cancel: 'Cancel', choices: opts });
   if (v === 'custom') {
     const d = new Date(Date.now() + 3600e3 - new Date().getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
@@ -2543,7 +2612,7 @@ async function remindMsg(el) {
 /* ---------------- Scheduled messages ---------------- */
 async function scheduleCurrent() {
   const body = text.value.trim();
-  if (!body) return toast('Type a message first, then hold ➤ to schedule it');
+  if (!body) return toast('Type a message first, then press and hold Send to schedule it');
   if (group?.me && !group.me.canChat) return toast('You can’t send messages here right now');
   const t = await pickTime('Schedule message', '⏰', [[3600e3, 'In 1 hour'], [3 * 3600e3, 'In 3 hours']]);
   if (!t) return;
@@ -2556,7 +2625,7 @@ async function scheduleCurrent() {
 async function showScheduled() {
   let list;
   try { list = (await api('schedule/list')).scheduled; } catch (e) { return toast(e.message); }
-  const v = await popup({ icon: '⏰', title: 'Scheduled messages', text: list.length ? 'Tap one to cancel it.' : 'Nothing scheduled in this chat. Type a message, then press and hold ➤ (or right-click it) to send it later.', ok: '', cancel: 'Close',
+  const v = await popup({ icon: '⏰', title: 'Scheduled messages', text: list.length ? 'Tap one to cancel it.' : 'Nothing scheduled in this chat. Type a message, then press and hold Send (or right-click it) to send it later.', ok: '', cancel: 'Close',
     choices: list.map(j => ({ value: j.id, label: `${whenText(j.at)} — ${j.text.length > 50 ? j.text.slice(0, 50) + '…' : j.text}` })) });
   if (typeof v !== 'string') return;
   const j = list.find(x => x.id === v);
@@ -2649,13 +2718,13 @@ function openStylePicker() {
     const grid = el('div', 'style-grid');
     for (const st of STYLES) {
       const b = el('button', 'style-opt' + (st.id === appStyle() ? ' on' : '')); b.type = 'button'; b.setAttribute('aria-pressed', st.id === appStyle());
-      const t = el('b', null, `${st.icon} ${st.name}`); if (st.id === appStyle()) t.append(el('span', null, '✓'));
+      const t = el('b', null, st.name); if (st.id === appStyle()) t.append(icoEl('check'));
       b.append(stylePreview(st), t, el('small', null, st.desc));
       b.onclick = () => { store.set('ic-style', st.id); applyTheme(); renderSettings(); render(); if (current) applyWallpaper(current); };
       grid.append(b);
     }
     inner.append(grid);
-    const th = el('button', 'btn block'); th.type = 'button'; th.textContent = '🌓 Theme: ' + ({ system: 'System default', light: 'Light', dark: 'Dark' }[store.get('ic-theme') || 'system']);
+    const th = el('button', 'btn block'); th.type = 'button'; th.append(icoEl('contrast')); th.classList.add('with-ic'); th.append('Theme: ' + ({ system: 'System default', light: 'Light', dark: 'Dark' }[store.get('ic-theme') || 'system']));
     th.onclick = async () => { dlg.close(); await chooseTheme(); openStylePicker(); };
     inner.append(th);
     dlg.append(inner);
