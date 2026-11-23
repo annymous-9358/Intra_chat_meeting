@@ -1889,7 +1889,7 @@ function closeWalkie() {
   $('walkiePanel').classList.add('hidden'); $('walkieBtn').classList.remove('on'); $('walkieBtn').setAttribute('aria-pressed', 'false');
   renderWalkie();
 }
-$('walkieBtn').onclick = () => walkie.on ? (closeWalkie(), repoll()) : openWalkie();
+$('walkieBtn').onclick = () => { gameWalkie = false; walkie.on ? (closeWalkie(), repoll()) : openWalkie(); };
 $('wkClose').onclick = () => { closeWalkie(); repoll(); };
 $('wbListen').onclick = openWalkie;
 
@@ -4033,13 +4033,19 @@ async function openGamePicker() {
   inner.append(grid);
   d.showModal();
 }
+let gameWalkie = false;          // true when the game (not you) switched the walkie-talkie on
 function openGame() {
   if (!game) return openGamePicker();
-  if (['mafia', 'episode', 'imposter'].includes(game.kind) && !walkie.on) openWalkie();   // voice games: hear each other live
+  // voice games: hear each other live while the game runs (not for a finished game)
+  if (['mafia', 'episode', 'imposter'].includes(game.kind) && game.phase !== 'over' && !walkie.on) { openWalkie(); gameWalkie = true; }
   const { d } = sheet('gameSheet', '');
   d.classList.add('game-sheet');
   renderGame();
-  if (!d.open) d.showModal();
+  if (!d.open) {
+    d.showModal();
+    // closing the game puts the walkie-talkie back the way it was (unless you're talking right now)
+    d.addEventListener('close', () => { if (gameWalkie && walkie.on && !walkie.talking) { closeWalkie(); repoll(); } gameWalkie = false; }, { once: true });
+  }
   clearInterval(gameTick);
   gameTick = setInterval(() => { if (!d.open) { clearInterval(gameTick); return; } const t = d.querySelector('.g-timer'); if (t) t.textContent = timerText(); }, 500);
 }
