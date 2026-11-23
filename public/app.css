@@ -1418,3 +1418,62 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .pick-list { max-height: 50dvh; overflow-y: auto; margin: 6px -18px 8px; }
 .pick-row { cursor: pointer; }
 .pick-row input { width: 22px; height: 22px; accent-color: var(--brand); }
+
+/* ---------------- Mini-games ---------------- */
+.game-banner { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 14px; border: 0; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, color-mix(in srgb, #7c3aed 14%, var(--surface)), var(--surface)); color: var(--text); text-align: left; }
+.gb-ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: #7c3aed; color: #fff; flex: none; }
+.gb-ic svg { width: 19px; height: 19px; }
+.gb-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gb-text b { font-size: 14px; } .gb-text small { font-size: 12px; color: var(--muted); }
+.gb-go { font-weight: 700; color: #7c3aed; font-size: 13px; }
+.game-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0 4px; }
+.game-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px; border: 1.5px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--text); text-align: left; }
+.game-card:hover { border-color: #7c3aed; }
+.game-card b { font-size: 15px; } .game-card small { font-size: 12px; color: var(--muted); line-height: 1.3; } .game-card em { font-style: normal; font-size: 11px; font-weight: 700; color: #7c3aed; margin-top: auto; }
+.gc-ic { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, #7c3aed 14%, var(--surface)); color: #7c3aed; margin-bottom: 4px; }
+.gc-ic svg { width: 21px; height: 21px; }
+.game-sheet .sheet-inner { display: flex; flex-direction: column; gap: 10px; }
+.g-top { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--muted); font-weight: 600; }
+.g-timer { font-variant-numeric: tabular-nums; color: #7c3aed; font-weight: 800; font-size: 15px; }
+.g-scores { display: flex; flex-wrap: wrap; gap: 6px; }
+.g-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; border-radius: 999px; background: var(--surface-2); font-size: 13px; }
+.g-chip b { min-width: 22px; height: 22px; border-radius: 11px; display: grid; place-items: center; background: #7c3aed; color: #fff; font-size: 12px; padding: 0 5px; }
+.g-chip.me { outline: 2px solid #7c3aed; } .g-chip.out { opacity: .45; text-decoration: line-through; }
+.g-body { display: flex; flex-direction: column; gap: 10px; }
+.g-say { margin: 0; font-size: 14.5px; } .g-say.muted { color: var(--muted); font-size: 13.5px; } .g-say.strong { font-weight: 700; }
+.g-card { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 16px; border-radius: 18px; text-align: center; color: #fff; background: linear-gradient(135deg, #7c3aed, #2563eb); }
+.g-card.danger { background: linear-gradient(135deg, #e11d48, #7c3aed); }
+.g-card b { font-size: 26px; letter-spacing: .02em; } .g-card small { opacity: .9; font-size: 12.5px; }
+.g-input { width: 100%; box-sizing: border-box; padding: 11px 14px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit; resize: vertical; }
+.g-input:focus { outline: none; border-color: #7c3aed; }
+.g-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.g-pick .btn { flex: 1 1 40%; }
+.g-list { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+.g-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.g-row:last-child { border-bottom: 0; }
+.g-ansrow { flex-wrap: wrap; } .g-ansrow span { flex: 1 1 100%; } .g-ansrow em { font-style: normal; font-size: 12px; color: var(--muted); flex: 1; }
+.btn.g-answer { text-align: left; white-space: normal; height: auto; padding: 12px 14px; border-radius: 12px; font-weight: 500; }
+.g-yt { width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 12px; background: #000; }
+.g-emoji { font-size: 56px; text-align: center; letter-spacing: .08em; padding: 8px 0; }
+.btn.g-wyr { display: flex; flex-direction: column; gap: 4px; height: auto; padding: 16px; border-radius: 16px; font-size: 16px; white-space: normal; }
+.btn.g-wyr.on { border-color: #7c3aed; background: color-mix(in srgb, #7c3aed 12%, var(--surface)); }
+.btn.g-wyr small { font-weight: 500; color: var(--muted); font-size: 12.5px; }
+.g-ttt { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: min(100%, 300px); margin: 0 auto; }
+.g-cell { aspect-ratio: 1; border: 0; border-radius: 14px; background: var(--surface-2); font-size: 40px; font-weight: 800; color: #7c3aed; }
+.g-cell.win { background: #7c3aed; color: #fff; }
+.btn.g-rps { font-size: 30px; height: 64px; }
+.g-ctl { display: flex; gap: 8px; justify-content: flex-end; }
+.g-ctl .btn { flex: 1; }
+.sys-msg .ic svg { color: inherit; }
+.g-narrator { padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, #7c3aed 10%, var(--surface)); border-left: 4px solid #7c3aed; font-size: 14.5px; font-style: italic; }
+.game-sheet:has(.g-night) { background: #05060d; color: #cbd5e1; }
+.game-sheet:has(.g-night) .g-chip { background: #111827; color: #94a3b8; }
+.game-sheet:has(.g-night) .sheet-head h2, .game-sheet:has(.g-night) .icon-btn { color: #cbd5e1; }
+.game-sheet:has(.g-night) .g-narrator { background: #111827; color: #e2e8f0; }
+.g-night { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 40px 16px; text-align: center; }
+.g-night b { font-size: 20px; color: #e2e8f0; } .g-night small { color: #94a3b8; }
+.g-moon { font-size: 64px; animation: moon 3s ease-in-out infinite; }
+@keyframes moon { 50% { transform: translateY(-6px); opacity: .85; } }
+.btn.g-ptt { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 64px; border-radius: 32px; background: #7c3aed; border-color: #7c3aed; color: #fff; font-size: 16px; font-weight: 700; touch-action: none; user-select: none; -webkit-user-select: none; }
+.btn.g-ptt.on { background: var(--danger); border-color: var(--danger); transform: scale(1.03); }
+.btn.g-ptt svg { width: 24px; height: 24px; }

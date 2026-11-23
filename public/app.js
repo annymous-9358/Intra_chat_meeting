@@ -567,7 +567,7 @@ async function openRoom(room, force) {
   $('chatTitle').textContent = roomTitle(room); $('chatSub').textContent = info.dm ? lastSeenText(info.peer?.lastSeen) : 'tap here for info';
   $('messages').classList.toggle('dm', !!info.dm); applyWallpaper(room); closeEmoji();
   paintAvatar($('chatAvatar'), info.title || room, { ...info, photo: info.dm ? info.peer?.photo : info.photo });
-  setPins([]); closeMention();
+  setPins([]); closeMention(); setGame(null); gameDraft = {};
   renderRooms(); updateComposerLock(); renderAdminBanner();
   if (info.geo) startLocation();
   tellSW(); swPost({ type: 'read', room });
@@ -641,6 +641,7 @@ async function poll(mySession) {
     if (typeof d.muteUntil === 'number' && pollStart > muteChangedAt && (mutes[current] || 0) !== d.muteUntil) { if (d.muteUntil) mutes[current] = d.muteUntil; else delete mutes[current]; store.setJson('ic-mutes', mutes); }
     setRooms(d.rooms);
     if (d.pins) setPins(d.pins);
+    if ('game' in d) setGame(d.game);
     receipts = d.receipts || [];
     setGroup(d.group);
     renderPresence(d.users || []);
@@ -728,8 +729,8 @@ function render(m, isPending) {
   if (m.sys) {          // celebration / challenge notes: a centred pill, tap to open the step challenge
     const s = document.createElement('button'); s.className = 'sys-msg'; s.type = 'button'; s.dataset.key = m.key; s._msg = m;
     const tx = document.createElement('span'), tm = document.createElement('small'); tx.textContent = m.text; tm.textContent = timeLabel(m.ts);
-    s.append(icoEl(m.sys === 'steps' ? 'footprints' : 'info'), tx, tm);
-    s.onclick = () => openSteps();
+    s.append(icoEl(m.sys === 'steps' ? 'footprints' : m.sys === 'game' ? 'sparkles' : 'info'), tx, tm);
+    s.onclick = () => m.sys === 'game' ? openGame() : openSteps();
     box.append(s); lastRendered = null;
     return s;
   }
@@ -2325,6 +2326,7 @@ function openChatMenu(anchor) {
   if (!group?.dm) items.push({ icon: '🔗', label: 'Invite people', onClick: shareInvite });
   items.push({ icon: '🔍', label: 'Search messages', onClick: openSearch });
   items.push({ icon: '⏰', label: 'Scheduled messages', onClick: showScheduled });
+  items.push({ icon: 'sparkles', label: game && game.phase !== 'over' ? `Game: ${game.name}` : 'Games', onClick: () => game && game.phase !== 'over' ? openGame() : openGamePicker() });
   items.push({ icon: 'footprints', label: group?.dm ? 'Step duel' : 'Step challenge', onClick: openSteps });
   items.push({ icon: '🎨', label: 'Wallpaper', onClick: () => openWallpaper(current) });
   items.push({ icon: isMuted(current) ? '🔔' : '🔕', label: isMuted(current) ? 'Unmute notifications' : 'Mute notifications', onClick: () => pushActive || isMuted(current) ? muteGroup() : enableNotifications() });
@@ -3926,6 +3928,267 @@ async function noSensor(onDone) {
   if (yes) addStepsManually(myStepsData, onDone);
 }
 document.addEventListener('visibilitychange', () => { if (walk.on && document.hidden) saveWalk(); });
+
+/* ---------------- Mini-games ---------------- */
+// One game per chat. The server sends each player only what they may see; this renders it and sends moves.
+let game = null, gameSig = '', gameClockOff = 0, gameTick = null, gameBanner = null, gameDraft = {};
+const GAME_ICON = { imposter: 'eye', mafia: 'ban', episode: 'play', emoji: 'smile', wyr: 'users', ttt: 'checks', rps: 'sparkles' };
+const pname = uid => uid === me.uid ? 'You' : (game?.players.find(p => p.uid === uid)?.name || 'Someone');
+function setGame(g) {
+  const sig = JSON.stringify(g && { ...g, now: 0 });
+  if (g) gameClockOff = g.now - Date.now();
+  if (sig === gameSig) return;
+  gameSig = sig; game = g;
+  renderGameBanner();
+  if ($('gameSheet')?.open) renderGame();
+}
+function renderGameBanner() {
+  if (!gameBanner) { gameBanner = el('button', 'game-banner hidden'); gameBanner.type = 'button'; gameBanner.onclick = openGame; ($('pinBar') || $('walkieBanner')).after(gameBanner); }
+  const live = game && game.phase !== 'over';
+  gameBanner.classList.toggle('hidden', !live);
+  if (!live) return;
+  gameBanner.replaceChildren(icoEl(GAME_ICON[game.kind] || 'sparkles', 'gb-ic'),
+    Object.assign(el('div', 'gb-text'), {}), el('span', 'gb-go', game.phase === 'lobby' && !game.joined ? 'Join' : 'Open'));
+  const t = gameBanner.querySelector('.gb-text');
+  t.append(el('b', null, game.name), el('small', null, game.phase === 'lobby' ? `${game.players.length} joined · ${game.hostName} is hosting` : `Round ${game.round}${game.rounds ? ' of ' + game.rounds : ''} · ${game.joined ? 'tap to play' : 'tap to watch'}`));
+}
+async function gameApi(action, body = {}) {
+  try { const r = await api('game/' + action, body); if (r.game !== undefined) setGame(r.game); return r; }
+  catch (e) { toast(e.message); throw e; }
+}
+// Narrator: the app reads the game's lines aloud (Android app: native text-to-speech; browsers: Web Speech)
+let lastSaid = '';
+function narrate(text) {
+  if (!text || text === lastSaid) return;
+  lastSaid = text;
+  try {
+    if (window.Capacitor?.isNativePlatform?.()) { window.Capacitor.nativePromise('TextToSpeech', 'speak', { text, lang: 'en-IN', rate: 0.95, pitch: 1, volume: 1, category: 'playback' }).catch(() => {}); return; }
+    if (!('speechSynthesis' in window)) return;
+    speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'en-IN'; u.rate = 0.95; speechSynthesis.speak(u);
+  } catch {}
+}
+// Say a player's name instead of tapping it (Android app: native speech recognition; Chrome: Web Speech)
+async function listenForName(names) {
+  let heard = [];
+  if (window.Capacitor?.isNativePlatform?.()) {
+    const sr = (m, o = {}) => window.Capacitor.nativePromise('SpeechRecognition', m, o);
+    const perm = await sr('requestPermissions').catch(() => ({}));
+    if (perm.speechRecognition && perm.speechRecognition !== 'granted') throw new Error('Allow the microphone for voice picks');
+    heard = (await sr('start', { language: 'en-IN', maxResults: 5, prompt: 'Say a player’s name', partialResults: false, popup: true })).matches || [];
+  } else {
+    const R = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!R) throw new Error('Voice picking isn’t supported in this browser — tap a name');
+    heard = await new Promise((res, rej) => { const r = new R(); r.lang = 'en-IN'; r.maxAlternatives = 5; r.onresult = e => res([...e.results[0]].map(a => a.transcript)); r.onerror = e => rej(new Error(e.error === 'not-allowed' ? 'Allow the microphone for voice picks' : 'Didn’t catch that — try again')); r.onend = () => res([]); r.start(); });
+  }
+  const n = x => String(x).toLowerCase().replace(/[^a-z0-9 ]/g, '');
+  for (const h of heard) { const w = n(h); const hit = names.find(p => w.includes(n(p.name).split(' ')[0]) || n(p.name).includes(w)); if (hit) return hit; }
+  throw new Error(heard.length ? `Heard “${heard[0]}” — no player with that name` : 'Didn’t catch that — try again');
+}
+// Hold-to-talk inside a game: uses the chat's walkie-talkie so everyone hears you live
+function gameTalkButton(label = 'Hold to talk') {
+  const b = el('button', 'btn g-ptt'); b.type = 'button'; b.append(icoEl('mic'), el('span', null, label));
+  const down = e => { e.preventDefault(); if (!walkie.on) openWalkie(); b.classList.add('on'); b.setPointerCapture?.(e.pointerId); startTalking(); };
+  const up = () => { if (!b.classList.contains('on')) return; b.classList.remove('on'); stopTalking(false); };
+  b.addEventListener('pointerdown', down); b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
+  b.addEventListener('contextmenu', e => e.preventDefault());
+  return b;
+}
+async function openGamePicker() {
+  let list; try { list = (await api('game/list')).games; } catch (e) { return toast(e.message); }
+  const { d, inner } = sheet('gamePicker', group?.dm ? 'Play together' : 'Group games');
+  inner.append(el('p', 'muted small', 'Pick a game. Everyone in the chat gets a note to join.'));
+  const grid = el('div', 'game-grid');
+  for (const x of list) {
+    const b = el('button', 'game-card'); b.type = 'button';
+    b.append(icoEl(GAME_ICON[x.kind] || 'sparkles', 'gc-ic'), el('b', null, x.name), el('small', null, x.desc), el('em', null, x.min === x.max ? `${x.min} players` : `${x.min}+ players`));
+    b.onclick = async () => {
+      let extra = {};
+      if (x.kind === 'episode') {
+        d.close();
+        const series = await popup({ icon: 'play', title: 'Which show?', text: 'Each turn, a player picks an episode number of this show. Everyone watches a 15–20 s clip from it, the player tells the storyline out loud, and the rest vote if they got it right.', ok: 'Start', input: { value: 'Taarak Mehta Ka Ooltah Chashmah', maxLength: 60, required: true } });
+        if (series === null) return;
+        extra = { series };
+      }
+      try { await gameApi('start', { kind: x.kind, ...extra }); if (d.open) d.close(); openGame(); } catch {}
+    };
+    grid.append(b);
+  }
+  inner.append(grid);
+  d.showModal();
+}
+function openGame() {
+  if (!game) return openGamePicker();
+  if (['mafia', 'episode', 'imposter'].includes(game.kind) && !walkie.on) openWalkie();   // voice games: hear each other live
+  const { d } = sheet('gameSheet', '');
+  d.classList.add('game-sheet');
+  renderGame();
+  if (!d.open) d.showModal();
+  clearInterval(gameTick);
+  gameTick = setInterval(() => { if (!d.open) { clearInterval(gameTick); return; } const t = d.querySelector('.g-timer'); if (t) t.textContent = timerText(); }, 500);
+}
+function timerText() {
+  if (!game?.deadline) return '';
+  const s = Math.max(0, Math.ceil((game.deadline - (Date.now() + gameClockOff)) / 1000));
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s}s`;
+}
+function renderGame() {
+  const d = $('gameSheet'); if (!d) return;
+  const inner = d.querySelector('.sheet-inner'); if (!inner) return;
+  const keepFocus = document.activeElement?.dataset?.gk, keepVal = document.activeElement?.value;
+  const oldYt = inner.querySelector('.g-yt'); oldYt?.remove();          // keep the playing clip (re-adding it as-is doesn't restart it)
+  [...inner.children].slice(1).forEach(n => n.remove());
+  inner.querySelector('.sheet-head h2').textContent = game ? game.name : 'Games';
+  if (!game) { inner.append(el('p', 'empty-note', 'No game running.')); return; }
+  const g = game, host = g.host === me.uid, canEnd = host || group?.isAdmin;
+  if (g.data?.say && g.phase !== 'lobby') narrate(g.data.say);
+  // header: round, timer, scoreboard
+  const top = el('div', 'g-top');
+  top.append(el('span', 'g-round', g.phase === 'lobby' ? 'Waiting for players' : g.phase === 'over' ? 'Game over' : `Round ${g.round}${g.rounds ? ' / ' + g.rounds : ''}`), el('span', 'g-timer', timerText()));
+  inner.append(top);
+  const board = el('div', 'g-scores');
+  for (const p of [...g.players].sort((a, b) => (g.scores[b.uid] || 0) - (g.scores[a.uid] || 0))) {
+    const c = el('span', 'g-chip' + (p.uid === me.uid ? ' me' : '') + (g.kind === 'mafia' && g.data.alive && !g.data.alive.includes(p.uid) ? ' out' : ''));
+    c.append(el('b', null, String(g.scores[p.uid] || 0)), p.uid === me.uid ? 'You' : p.name);
+    board.append(c);
+  }
+  inner.append(board);
+  const body = el('div', 'g-body'); inner.append(body);
+  const btn = (label, cls, fn) => { const b = el('button', 'btn ' + cls, label); b.type = 'button'; b.onclick = async () => { b.disabled = true; try { await fn(); } catch {} b.disabled = false; }; return b; };
+  const say = (t, cls = '') => body.append(el('p', 'g-say ' + cls, t));
+  const input = (key, ph, max = 60, area = false) => { const i = el(area ? 'textarea' : 'input', 'g-input'); i.placeholder = ph; i.maxLength = max; i.dataset.gk = key; i.value = gameDraft[key] || ''; i.oninput = () => { gameDraft[key] = i.value; }; if (area) i.rows = 3; return i; };
+  const send = (key, body2) => async () => { const v = (gameDraft[key] || '').trim(); if (!v) return toast('Type something first'); await gameApi('move', body2(v)); gameDraft[key] = ''; };
+  const players = (filter, onPick, label = p => pname(p.uid)) => { const w = el('div', 'g-pick'); for (const p of g.players.filter(filter)) w.append(btn(label(p), '', () => onPick(p))); return w; };
+
+  if (g.phase === 'lobby') {
+    say(`${g.players.length} player${g.players.length === 1 ? '' : 's'}: ${g.players.map(p => pname(p.uid)).join(', ')}`);
+    if (!g.joined) body.append(btn('Join game', 'primary block', () => gameApi('join')));
+    else if (!host) body.append(btn('Leave', 'ghost block', () => gameApi('leave')));
+    if (host) body.append(btn('Start game', 'primary block', () => gameApi('begin')));
+    else say(`Waiting for ${g.hostName} to start…`, 'muted');
+  } else if (g.kind === 'imposter') {
+    const card = el('div', 'g-card' + (g.you.imposter ? ' danger' : ''));
+    if (g.you.imposter) card.append(el('small', null, 'You are the'), el('b', null, 'IMPOSTER'), el('small', null, `Category: ${g.data.cat}. Blend in!`));
+    else if (g.you.word) card.append(el('small', null, `Category: ${g.data.cat}`), el('b', null, g.you.word), el('small', null, 'Give a clue — not too obvious!'));
+    if (g.joined && g.phase !== 'reveal') body.append(card);
+    if (g.phase === 'clue') {
+      if (g.joined) { body.append(gameTalkButton('Hold to say your clue')); body.append(input('clue', 'Or type your one-word clue', 24)); body.append(btn('Send clue', 'primary block', send('clue', text => ({ text })))); }
+      say('Everyone gives one clue, then you vote.', 'muted');
+    } else {
+      const cl = el('div', 'g-list'); for (const u of g.data.order || []) { const r = el('div', 'g-row'); r.append(el('b', null, pname(u)), el('span', null, g.data.clues?.[u] || '…')); cl.append(r); } body.append(cl);
+      if (g.phase === 'vote') { say('Who is the imposter?'); if (g.joined) body.append(players(p => p.uid !== me.uid, p => gameApi('move', { target: p.uid }))); }
+      if (g.phase === 'guess') { say(`${pname(g.data.imposter)} was caught! They get one guess at the word…`); if (g.you.imposter) { body.append(input('guess', 'Your guess', 40)); body.append(btn('Guess', 'primary block', send('guess', text => ({ text })))); } }
+      if (g.phase === 'reveal' || g.phase === 'over') {
+        say(`The word was “${g.data.word}”. Imposter: ${pname(g.data.imposter)}.`);
+        say({ escaped: 'The imposter got away! (+2)', stole: 'Caught — but guessed the word! (+2 to the imposter)', caught: 'Caught! Everyone else +1.' }[g.data.result] || '', 'strong');
+      }
+    }
+  } else if (g.kind === 'mafia') {
+    const night = ['mafia', 'doctor', 'detective'].includes(g.phase), alive = p => g.data.alive.includes(p.uid);
+    if (g.data.say) body.append(el('div', 'g-narrator', g.data.say));
+    if (night && !g.you.awake) {                           // everyone else: eyes closed
+      const dark = el('div', 'g-night'); dark.append(el('div', 'g-moon', '🌙'), el('b', null, g.you.role && !g.you.alive ? 'You’re out — the city sleeps' : 'The city is asleep'), el('small', null, 'Close your eyes… the narrator will wake you.'));
+      body.append(dark);
+    } else {
+      if (g.you.role) {
+        const card = el('div', 'g-card' + (g.you.role === 'mafia' ? ' danger' : ''));
+        card.append(el('small', null, g.you.alive ? 'Your secret role' : 'You’re out — your role was'), el('b', null, g.you.role.toUpperCase()),
+          el('small', null, { mafia: `Team: ${(g.you.team || []).map(pname).join(', ')}`, doctor: 'Save one person each night (even yourself).', detective: 'Check one person each night.', villager: 'Find the mafia by talking and voting.' }[g.you.role]));
+        if (g.phase !== 'reveal') body.append(card);
+        if (g.you.checks?.length) say('Your checks: ' + g.you.checks.map(c => `${pname(c.uid)} ${c.mafia ? 'IS mafia' : 'is not mafia'}`).join(' · '));
+      }
+      const choose = (filter, verb) => {
+        const opts = g.players.filter(filter);
+        body.append(players(filter, p => gameApi('move', { target: p.uid }).then(() => toast(`${verb} ${p.name}`))));
+        body.append(btn('🎙 Say a name', 'ghost block', async () => { try { const p = await listenForName(opts); await gameApi('move', { target: p.uid }); toast(`${verb} ${p.name}`); } catch (e) { toast(e.message); } }));
+      };
+      if (night && g.you.awake) {
+        say({ mafia: 'Choose someone to eliminate:', doctor: 'Choose someone to save:', detective: 'Choose someone to investigate:' }[g.phase], 'strong');
+        choose(p => alive(p) && !(g.phase === 'mafia' && (g.you.team || []).includes(p.uid)) && !(g.phase === 'detective' && p.uid === me.uid), { mafia: 'Chose', doctor: 'Saving', detective: 'Checking' }[g.phase]);
+      }
+      if (g.phase === 'day') {
+        if (g.you.alive) { body.append(gameTalkButton('Hold to talk to the town')); say('Vote who to throw out:'); choose(p => alive(p) && p.uid !== me.uid, 'Voted'); body.append(btn('Skip vote', 'ghost block', () => gameApi('move', { target: 'skip' }))); }
+        else say('You’re out — listen to the town decide.', 'muted');
+      }
+    }
+    if (g.data.winner) say(g.data.winner === 'town' ? 'Town wins! The mafia is gone.' : 'Mafia wins!', 'strong');
+    if (g.data.roles) { const l = el('div', 'g-list'); for (const [u, r] of Object.entries(g.data.roles)) { const row = el('div', 'g-row'); row.append(el('b', null, pname(u)), el('span', null, r)); l.append(row); } body.append(l); }
+  } else if (g.kind === 'episode') {
+    const teller = g.data.teller, tname = pname(teller);
+    say(`${g.data.series || ''}`, 'muted');
+    if (g.phase === 'pick') {
+      if (g.you.teller) {
+        say('Your turn! Pick an episode number — you’ll get a random 15–20 s clip from it, then tell its storyline out loud.', 'strong');
+        body.append(input('ep', 'Episode number', 6));
+        const r = el('div', 'g-pick');
+        r.append(btn('Play episode', 'primary', async () => { const n = parseInt(gameDraft.ep, 10); if (!n) return toast('Type an episode number'); await gameApi('move', { episode: n }).catch(e => { if (e.code === 'no_search') gameDraft.needLink = true; renderGame(); }); }));
+        r.append(btn('🎲 Random', '', () => gameApi('move', { random: true }).catch(e => { if (e.code === 'no_search') { gameDraft.needLink = true; renderGame(); } })));
+        body.append(r);
+        if (gameDraft.needLink) { body.append(input('link', 'Paste a YouTube link to the episode', 300)); body.append(btn('Use this link', 'block', () => gameApi('move', { url: gameDraft.link }))); }
+      } else say(`${tname} is picking an episode…`);
+    }
+    if ((g.phase === 'watch' || g.phase === 'tell') && g.data.clip) {
+      const c = g.data.clip, f = el('iframe', 'g-yt');
+      f.src = `https://www.youtube-nocookie.com/embed/${c.id}?start=${c.start}&end=${c.start + c.dur}&autoplay=1&playsinline=1&rel=0&modestbranding=1&controls=0&disablekb=1`;
+      f.allow = 'autoplay; encrypted-media'; f.title = 'Clip';
+      body.append(oldYt && oldYt.src === f.src ? oldYt : f);
+      if (g.data.episode) say(`Episode ${g.data.episode}`, 'muted');
+    }
+    if (g.phase === 'watch') say(g.you.teller ? 'Watch closely — you’ll tell the story next!' : `Watch with ${tname}…`, 'strong');
+    if (g.phase === 'tell') {
+      if (g.you.teller) {
+        say('Tell everyone the storyline of this episode — hold the button and talk.', 'strong');
+        body.append(gameTalkButton('Hold to tell the story'));
+        body.append(input('told', 'Optional: type a short summary too', 400, true));
+        body.append(btn('I’m done', 'primary block', async () => { await gameApi('move', { done: true, text: gameDraft.told || '' }); gameDraft.told = ''; }));
+      } else say(`🎙 ${tname} is telling the story — listen!`, 'strong');
+    }
+    if (g.phase === 'judge') {
+      if (g.data.told) say(`“${g.data.told}”`);
+      if (g.you.teller) say('The others are deciding if you got it right…', 'muted');
+      else { say(`Did ${tname} get the storyline right?`, 'strong'); const r = el('div', 'g-pick'); r.append(btn('✓ Correct', 'primary', () => gameApi('move', { verdict: 'yes' }).then(() => toast('Voted ✓'))), btn('✗ Wrong', 'danger', () => gameApi('move', { verdict: 'no' }).then(() => toast('Voted ✗')))); body.append(r); }
+    }
+    if (g.phase === 'reveal') {
+      if (g.data.skipped) say(`${tname} didn’t pick an episode in time.`, 'muted');
+      else say(g.data.right ? `✓ ${tname} got it right! (+3)` : `✗ Not quite (${g.data.yes || 0} ✓ · ${g.data.no || 0} ✗)`, 'strong');
+      if (g.data.videoTitle) say(`It was: ${g.data.videoTitle}`, 'muted');
+    }
+  } else if (g.kind === 'emoji') {
+    body.append(el('div', 'g-emoji', g.data.emoji));
+    say(`${g.data.cat} · ${g.data.letters} letters`, 'muted');
+    if (g.phase === 'guess' && g.joined) {
+      const solved = (g.data.solved || []).includes(me.uid);
+      if (solved) say('You got it! Waiting for the others…', 'strong');
+      else { body.append(input('eg', 'Your guess', 60)); body.append(btn('Guess', 'primary block', async () => { const v = (gameDraft.eg || '').trim(); if (!v) return; const r = await gameApi('move', { text: v }); toast(r.correct ? 'Correct!' : 'Not quite — try again'); if (r.correct) gameDraft.eg = ''; })); }
+    }
+    if ((g.data.solved || []).length) say('Solved: ' + g.data.solved.map(pname).join(', '));
+    if (g.phase === 'reveal') say(`Answer: ${g.data.answer}`, 'strong');
+  } else if (g.kind === 'wyr') {
+    say('Would you rather…', 'strong');
+    for (const k of ['a', 'b']) {
+      const b = btn(g.data[k], 'g-wyr' + (g.data.picks?.[me.uid] === k ? ' on' : ''), () => gameApi('move', { choice: k }));
+      if (g.phase === 'reveal') { const who = Object.entries(g.data.picks || {}).filter(([, c]) => c === k).map(([u]) => pname(u)); b.append(el('small', null, who.length ? who.join(', ') : 'nobody')); b.disabled = true; }
+      body.append(b);
+    }
+  } else if (g.kind === 'ttt') {
+    const grid = el('div', 'g-ttt');
+    g.data.board.forEach((v, i) => { const c = el('button', 'g-cell' + (g.data.line?.includes(i) ? ' win' : ''), v || ''); c.type = 'button'; c.disabled = !!v || g.phase !== 'play' || g.data.turn !== me.uid; c.onclick = () => gameApi('move', { i }); grid.append(c); });
+    body.append(grid);
+    say(g.phase === 'play' ? (g.data.turn === me.uid ? `Your turn (${g.data.x === me.uid ? 'X' : 'O'})` : `${pname(g.data.turn)}’s turn`) : g.data.draw ? 'Draw!' : `${pname(g.data.winner)} wins!`, 'strong');
+  } else if (g.kind === 'rps') {
+    const w = g.data.wins || {}; say(g.players.map(p => `${pname(p.uid)} ${w[p.uid] || 0}`).join(' — ') + ' · first to 3', 'strong');
+    if (g.data.last && Object.values(g.data.last).some(Boolean)) say('Last throw: ' + Object.entries(g.data.last).map(([u, h]) => `${pname(u)} ${({ rock: '✊', paper: '✋', scissors: '✌️' })[h] || '—'}`).join('  vs  '));
+    if (g.phase === 'throw' && g.joined) { const r = el('div', 'g-pick'); for (const [h, e] of [['rock', '✊'], ['paper', '✋'], ['scissors', '✌️']]) r.append(btn(e, 'g-rps', () => gameApi('move', { hand: h }).then(() => toast('Thrown — waiting…')))); body.append(r); }
+    if (g.data.champ) say(`${pname(g.data.champ)} wins the match!`, 'strong');
+  }
+
+  // host controls
+  const ctl = el('div', 'g-ctl');
+  if (g.phase === 'reveal' && (host || (g.kind === 'episode' && g.you.teller))) ctl.append(btn(g.kind === 'mafia' || (g.rounds && g.round >= g.rounds) || (g.kind === 'episode' && g.round >= g.players.length) ? 'Finish game' : g.kind === 'ttt' || g.kind === 'rps' ? 'Play again' : g.kind === 'episode' ? 'Next player’s turn' : 'Next round', 'primary', () => gameApi('next')));
+  if (g.phase === 'over') { say('Thanks for playing!', 'strong'); ctl.append(btn('New game', 'primary', async () => { await gameApi('end'); $('gameSheet').close(); openGamePicker(); })); }
+  else if (canEnd) ctl.append(btn('End game', 'ghost', () => gameApi('end')));
+  inner.append(ctl);
+  if (keepFocus) { const i = inner.querySelector(`[data-gk="${keepFocus}"]`); if (i) { i.focus(); if (keepVal != null) i.value = keepVal; } }
+}
 
 /* ---------------- App style picker ---------------- */
 function stylePreview(st) {
