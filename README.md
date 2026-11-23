@@ -8,6 +8,9 @@ A quick group chat app. Run it in two ways with the same code:
 | **Netlify** | Netlify Functions + Netlify Blobs | Anyone with the link (groups can have their own password) |
 
 ## Features
+- **App styles** (Settings → ✨ App style): 💬 **Classic**, 🫧 **Glass** (glassmorphism: frosted panels over a soft colour mesh),
+  🧱 **Brutal** (neo-brutalism: bold borders, hard shadows, yellow accents) and ◻️ **Minimal** (black & white, no clutter).
+  Each works in light, dark or system mode, and comes with a matching default wallpaper.
 - **Profiles**: profile photo (shown on messages, chat list, members, friends), *About* text, and a **status**
   (📅 In a meeting, 🍽️ At lunch, 🏖️ On leave… or your own) that clears itself after 1 h / 4 h / today / this week.
   Tap anyone's photo or name to see their profile card and message them or add them as a friend. Admins can set a **group photo**.

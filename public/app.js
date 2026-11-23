@@ -1905,6 +1905,7 @@ function simpleMenu(anchor, items) {
 $('listMenuBtn').onclick = e => simpleMenu(e.currentTarget, [
   { icon: '👥', label: 'New group', onClick: openNewGroup },
   { icon: '➕', label: 'Add a friend', onClick: () => setTab('friends') },
+  { icon: '✨', label: 'App style', onClick: openStylePicker },
   { icon: '🎨', label: 'Chat wallpaper', onClick: () => openWallpaper(null) },
   { icon: '⚙️', label: 'Settings', onClick: () => setTab('settings') },
 ]);
@@ -2065,7 +2066,8 @@ function renderSettings() {
   const themeName = { system: 'System default', light: 'Light', dark: 'Dark' }[store.get('ic-theme') || 'system'];
   body.append(el('h3', 'sec-title', 'Chats'));
   row('🌓', 'Theme', themeName, chooseTheme);
-  row('🎨', 'Chat wallpaper', wallpaperName(store.get('ic-wall') || 'doodle'), () => openWallpaper(null));
+  row('✨', 'App style', (STYLES.find(x => x.id === appStyle()).icon + ' ' + STYLES.find(x => x.id === appStyle()).name), openStylePicker);
+  row('🎨', 'Chat wallpaper', wallpaperName(wallFor(null)), () => openWallpaper(null));
   row('📻', 'Walkie-talkie auto-play', autoWalkie() ? 'On — you hear people live in the open chat, even in the background' : 'Off — tap “Listen” to hear people', () => {
     store.set('ic-wk-auto', autoWalkie() ? '0' : '1'); walkie.autoOff = false;
     if (autoWalkie()) { unlockAudio(); toast('📻 Walkie-talkie will play automatically'); } else { if (!walkie.on) stopBackgroundAudio(); toast('Walkie-talkie auto-play off'); }
@@ -2087,11 +2089,25 @@ async function chooseTheme() {
   if (typeof v !== 'string') return;
   store.set('ic-theme', v); applyTheme(); renderSettings();
 }
+// App styles: the look of the whole app (independent of light / dark)
+const STYLES = [
+  { id: 'classic', name: 'Classic', icon: '💬', desc: 'Familiar green chat look', bar: ['#008069', '#202c33'], meta: ['#008069', '#202c33'],
+    pv: { light: { bg: '#efeae2', bar: '#008069', ink: '#fff', inB: '#fff', outB: '#d9fdd3' }, dark: { bg: '#0b141a', bar: '#202c33', ink: '#e9edef', inB: '#202c33', outB: '#005c4b' } } },
+  { id: 'glass', name: 'Glass', icon: '🫧', desc: 'Frosted glass over soft colour', meta: ['#e9eefb', '#0b0f1e'],
+    pv: { light: { bg: 'radial-gradient(at 10% 10%,#a7f3d0,transparent 55%),radial-gradient(at 90% 10%,#c4b5fd,transparent 55%),radial-gradient(at 80% 90%,#93c5fd,transparent 60%),#f2f0ff', bar: 'rgba(255,255,255,.55)', ink: '#10202a', inB: 'rgba(255,255,255,.75)', outB: 'linear-gradient(135deg,#10b981,#0ea5e9)', glass: true },
+          dark: { bg: 'radial-gradient(at 10% 10%,#0f766e,transparent 55%),radial-gradient(at 90% 10%,#5b21b6,transparent 55%),radial-gradient(at 80% 90%,#1e3a8a,transparent 60%),#080b18', bar: 'rgba(18,26,46,.55)', ink: '#e8eef5', inB: 'rgba(30,41,66,.75)', outB: 'linear-gradient(135deg,#0f9f86,#0b7fb8)', glass: true } } },
+  { id: 'brutal', name: 'Brutal', icon: '🧱', desc: 'Bold borders, hard shadows', meta: ['#ffd23f', '#ffd23f'],
+    pv: { light: { bg: '#fff6dc', bar: '#ffd23f', ink: '#111', inB: '#fff', outB: '#ffd23f', brutal: '#111' }, dark: { bg: '#161616', bar: '#ffd23f', ink: '#111', inB: '#262626', outB: '#ffd23f', brutal: '#f2f2f2' } } },
+  { id: 'minimal', name: 'Minimal', icon: '◻️', desc: 'Clean, quiet, black & white', meta: ['#ffffff', '#0a0a0a'],
+    pv: { light: { bg: '#fff', bar: '#fff', ink: '#111', inB: '#f2f2f2', outB: '#111', line: '#eee' }, dark: { bg: '#0a0a0a', bar: '#0a0a0a', ink: '#f5f5f5', inB: '#1a1a1a', outB: '#f5f5f5', line: '#1d1d1d' } } },
+];
+const appStyle = () => STYLES.some(x => x.id === store.get('ic-style')) ? store.get('ic-style') : 'classic';
 function applyTheme() {
-  const t = store.get('ic-theme') || 'system';
+  const t = store.get('ic-theme') || 'system', st = appStyle();
   if (t === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  if (st === 'classic') delete document.documentElement.dataset.style; else document.documentElement.dataset.style = st;
   const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-  $('metaTheme').setAttribute('content', dark ? '#202c33' : '#008069');
+  $('metaTheme').setAttribute('content', STYLES.find(x => x.id === st).meta[dark ? 1 : 0]);
   if (current) applyWallpaper(current);
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
@@ -2111,11 +2127,15 @@ const WALLPAPERS = [
   { id: 'sunset', name: 'Sunset', light: ['#ffd8b8', 'linear-gradient(160deg,#ffe0c2,#f8c3d4 55%,#d7c6f5)'], dark: ['#2a1f2b', 'linear-gradient(160deg,#3a2430,#2a2240 60%,#16203a)'] },
   { id: 'ocean', name: 'Ocean', light: ['#cfeef0', 'linear-gradient(160deg,#d9f6f0,#c6e3f7 60%,#d8d6f6)'], dark: ['#0f2430', 'linear-gradient(160deg,#0e2e33,#10243a 60%,#161a36)'] },
   { id: 'forest', name: 'Forest', light: ['#dcefd6', 'linear-gradient(160deg,#e6f4d8,#cfe8d8 60%,#c9e1e6)'], dark: ['#12261b', 'linear-gradient(160deg,#16301f,#11281f 60%,#0f2028)'] },
+  { id: 'aurora', name: 'Aurora', light: ['transparent'], dark: ['transparent'], swatch: ['radial-gradient(at 10% 10%,#a7f3d0,transparent 55%),radial-gradient(at 90% 10%,#c4b5fd,transparent 55%),radial-gradient(at 80% 90%,#93c5fd,transparent 60%),#f2f0ff', 'radial-gradient(at 10% 10%,#0f766e,transparent 55%),radial-gradient(at 90% 10%,#5b21b6,transparent 55%),#080b18'] },
+  { id: 'grid', name: 'Grid', light: ['#fff6dc', 'linear-gradient(rgba(0,0,0,.07) 1.5px,transparent 1.5px),linear-gradient(90deg,rgba(0,0,0,.07) 1.5px,transparent 1.5px)', '28px 28px'], dark: ['#161616', 'linear-gradient(rgba(255,255,255,.06) 1.5px,transparent 1.5px),linear-gradient(90deg,rgba(255,255,255,.06) 1.5px,transparent 1.5px)', '28px 28px'] },
+  { id: 'paper', name: 'Paper', light: ['#ffffff'], dark: ['#0a0a0a'] },
   { id: 'night', name: 'Night', light: ['#2b3a55', 'linear-gradient(160deg,#283a5e,#1d2a44)'], dark: ['#0a1020', 'linear-gradient(160deg,#121a33,#070b16)'] },
 ];
 const isDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
 const wallpaperName = id => id === 'custom' ? 'Your photo' : (WALLPAPERS.find(w => w.id === id) || WALLPAPERS[0]).name;
-const wallFor = room => (room && store.get('ic-wall:' + room)) || store.get('ic-wall') || 'doodle';
+const STYLE_WALL = { classic: 'doodle', glass: 'aurora', brutal: 'grid', minimal: 'paper' };
+const wallFor = room => (room && store.get('ic-wall:' + room)) || store.get('ic-wall') || STYLE_WALL[appStyle()];
 // Your own photo: kept on this device only (like WhatsApp). Per-chat photos override the all-chats photo.
 const photoFor = room => (room && store.get('ic-wall:' + room) === 'custom' && store.get('ic-wall-img:' + room)) || store.get('ic-wall-img');
 function wallStyle(id, room) {
@@ -2128,8 +2148,8 @@ function wallStyle(id, room) {
     id = 'doodle';
   }
   const w = WALLPAPERS.find(x => x.id === id) || WALLPAPERS[0];
-  const [bg, img] = isDark() ? w.dark : w.light;
-  return { bg, img: img || 'none', size: img?.startsWith('linear') ? 'cover' : '190px' };
+  const [bg, img, size] = isDark() ? w.dark : w.light;
+  return { bg, img: img || 'none', size: size || (img?.startsWith('linear') ? 'cover' : '190px') };
 }
 function applyWallpaper(room) {
   const st = wallStyle(wallFor(room), room), pane = $('chatPane');
@@ -2145,7 +2165,7 @@ function openWallpaper(room) {
 function renderWallGrid() {
   const grid = $('wallGrid'); grid.innerHTML = '';
   const scopeKey = wallTarget ? 'ic-wall:' + wallTarget : 'ic-wall';
-  const chosen = wallTarget ? store.get(scopeKey) || 'default' : store.get('ic-wall') || 'doodle';
+  const chosen = wallTarget ? store.get(scopeKey) || 'default' : store.get('ic-wall') || STYLE_WALL[appStyle()];
   const myPhoto = wallTarget ? store.get('ic-wall-img:' + wallTarget) || store.get('ic-wall-img') : store.get('ic-wall-img');
   const select = id => {
     if (wallTarget) { if (id === 'default') store.del(scopeKey); else store.set(scopeKey, id); }
@@ -2160,9 +2180,11 @@ function renderWallGrid() {
   grid.append(up);
   const opts = (wallTarget ? [{ id: 'default', name: 'Default' }] : []).concat(myPhoto ? [{ id: 'custom', name: 'Your photo' }] : [], WALLPAPERS);
   for (const w of opts) {
-    const st = w.id === 'custom' ? { bg: '#222', img: `url("${myPhoto}")`, size: 'cover' } : wallStyle(w.id === 'default' ? (store.get('ic-wall') || 'doodle') : w.id, null);
+    const st = w.id === 'custom' ? { bg: '#222', img: `url("${myPhoto}")`, size: 'cover' } : wallStyle(w.id === 'default' ? (store.get('ic-wall') || STYLE_WALL[appStyle()]) : w.id, null);
     const b = el('button', 'wall-opt' + (w.id === chosen ? ' on' : '')); b.type = 'button'; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(w.id === chosen)); b.setAttribute('aria-label', w.name);
-    b.style.backgroundColor = st.bg; b.style.backgroundImage = st.img; b.style.backgroundSize = st.size === 'cover' ? 'cover' : '';
+    b.style.backgroundColor = st.bg; b.style.backgroundImage = st.img; b.style.backgroundSize = st.size === 'cover' ? 'cover' : st.size === '28px 28px' ? '14px 14px' : '';
+    const sw = (WALLPAPERS.find(x => x.id === (w.id === 'default' ? wallFor(null) : w.id)) || {}).swatch;
+    if (sw) b.style.background = sw[isDark() ? 1 : 0];
     b.style.backgroundPosition = 'center';
     b.append(el('span', null, w.name));
     b.onclick = () => {
@@ -2171,7 +2193,7 @@ function renderWallGrid() {
     };
     grid.append(b);
   }
-  const effective = chosen === 'default' ? (store.get('ic-wall') || 'doodle') : chosen;
+  const effective = chosen === 'default' ? (store.get('ic-wall') || STYLE_WALL[appStyle()]) : chosen;
   $('wallDimRow').classList.toggle('hidden', effective !== 'custom');
   $('wallDim').value = store.get('ic-wall-dim') ?? 20;
   const pv = $('wallPreview'), st = wallStyle(effective, wallTarget);
@@ -2573,6 +2595,60 @@ function openSearch() {
     }, 250);
   };
   setTimeout(() => inp.focus(), 60);
+}
+
+/* ---------------- App style picker ---------------- */
+function stylePreview(st) {
+  const v = st.pv[isDark() ? 'dark' : 'light'];
+  const ph = el('div', 'sp-phone'); ph.style.background = v.bg;
+  if (v.brutal) ph.style.border = `2px solid ${v.brutal}`; else if (v.line) ph.style.border = `1px solid ${v.line}`;
+  const bar = el('div', 'sp-bar'); bar.style.background = v.bar; bar.style.color = v.ink;
+  if (v.glass) { bar.style.backdropFilter = 'blur(8px)'; bar.style.borderBottom = '1px solid rgba(255,255,255,.4)'; }
+  if (v.brutal) bar.style.borderBottom = '2px solid #111';
+  if (v.line) bar.style.borderBottom = `1px solid ${v.line}`;
+  const dot = el('i'); dot.style.background = v.ink; dot.style.opacity = .55; const ln = el('s'); ln.style.background = v.ink; ln.style.opacity = .55;
+  bar.append(dot, ln);
+  const body = el('div', 'sp-body');
+  for (const [cls, bg] of [['in', v.inB], ['out', v.outB], ['in', v.inB]]) {
+    const b = el('i', 'sp-b ' + cls); b.style.background = bg;
+    if (v.brutal) { b.style.border = `2px solid ${v.brutal}`; b.style.boxShadow = `2px 2px 0 ${v.brutal}`; b.style.borderRadius = '4px'; }
+    if (v.glass) b.style.border = '1px solid rgba(255,255,255,.45)';
+    if (st.id === 'classic') b.style.borderRadius = '5px';
+    body.append(b);
+  }
+  ph.append(bar, body);
+  return ph;
+}
+function openStylePicker() {
+  let dlg = $('styleSheet');
+  if (!dlg) {
+    dlg = document.createElement('dialog'); dlg.id = 'styleSheet'; dlg.className = 'sheet';
+    dlg.onclick = e => { if (e.target === dlg) dlg.close(); };
+    document.body.append(dlg);
+  }
+  const render = () => {
+    dlg.innerHTML = '';
+    const inner = el('div', 'sheet-inner');
+    const head = el('header', 'sheet-head'); head.append(el('h2', null, 'App style'));
+    const x = el('button', 'icon-btn'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); x.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>'; x.onclick = () => dlg.close();
+    head.append(x); inner.append(head);
+    inner.append(el('p', 'muted small', 'Pick the look you like. Works with light and dark mode — change that under Theme.'));
+    const grid = el('div', 'style-grid');
+    for (const st of STYLES) {
+      const b = el('button', 'style-opt' + (st.id === appStyle() ? ' on' : '')); b.type = 'button'; b.setAttribute('aria-pressed', st.id === appStyle());
+      const t = el('b', null, `${st.icon} ${st.name}`); if (st.id === appStyle()) t.append(el('span', null, '✓'));
+      b.append(stylePreview(st), t, el('small', null, st.desc));
+      b.onclick = () => { store.set('ic-style', st.id); applyTheme(); renderSettings(); render(); if (current) applyWallpaper(current); };
+      grid.append(b);
+    }
+    inner.append(grid);
+    const th = el('button', 'btn block'); th.type = 'button'; th.textContent = '🌓 Theme: ' + ({ system: 'System default', light: 'Light', dark: 'Dark' }[store.get('ic-theme') || 'system']);
+    th.onclick = async () => { dlg.close(); await chooseTheme(); openStylePicker(); };
+    inner.append(th);
+    dlg.append(inner);
+  };
+  render();
+  if (!dlg.open) dlg.showModal();
 }
 
 /* ---------------- Start ---------------- */
