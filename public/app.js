@@ -409,11 +409,12 @@ async function openRoom(room, force) {
   if (info.geo) startLocation();
   tellSW(); swPost({ type: 'read', room });
   poll(session);
+  if (walkieListening()) startBackgroundAudio();         // walkie-talkie auto-play stays alive in the background
   if (finePointer) $('text').focus();
 }
 function leaveRoom() {
   session++; clearTimeout(pollTimer); ctrl?.abort(); polling = false;
-  stopLocation(); stopAllAudio(); closeWalkie(); groupMap.destroy();
+  stopLocation(); stopAllAudio(); closeWalkie(); stopBackgroundAudio(); groupMap.destroy();
   if (current) markRead(current, since);
   current = null; group = null; tellSW();
 }
@@ -453,7 +454,7 @@ async function poll(mySession) {
     if (since && since > acked.delivered) ack.delivered = since;
     if (since && !document.hidden && since > acked.read) ack.read = since;
     const wantCounts = Date.now() - lastCountsAt > 20000;
-    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, xsince, walkie: walkie.on, tsince: walkie.tsince ? walkie.tsince - 5000 : 0, ...(wantCounts ? { reads: readsPayload() } : {}) }, myCtrl.signal);
+    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, xsince, walkie: walkieListening(), tsince: walkie.tsince ? walkie.tsince - 5000 : 0, ...(wantCounts ? { reads: readsPayload() } : {}) }, myCtrl.signal);
     if (wantCounts) lastCountsAt = Date.now();
     if (mySession !== session) return;
     if (ack.delivered) acked.delivered = ack.delivered;
@@ -495,7 +496,7 @@ async function poll(mySession) {
     if (ctrl === myCtrl) polling = false;
     if (mySession === session) {
       clearTimeout(pollTimer);
-      const delay = failures ? Math.min(1000 * 2 ** failures, 15000) : (document.hidden && !walkie.on ? 3000 : 0);
+      const delay = failures ? Math.min(1000 * 2 ** failures, 15000) : (document.hidden && !walkieListening() ? 3000 : 0);
       // Re-poll straight away without a timer: browsers slow timers down in background tabs
       if (delay === 0) Promise.resolve().then(() => poll(mySession));
       else pollTimer = setTimeout(() => poll(mySession), delay);
@@ -1545,15 +1546,31 @@ function openWalkie() {
     walkie.ctx.resume();
     const b = walkie.ctx.createBuffer(1, 1, 22050), src = walkie.ctx.createBufferSource(); src.buffer = b; src.connect(walkie.ctx.destination); src.start(0);
   } catch {}
-  walkie.on = true; walkie.nextTime = 0;
+  walkie.on = true; walkie.autoOff = false; walkie.nextTime = 0;
   startBackgroundAudio();
   $('walkiePanel').classList.remove('hidden'); $('walkieBtn').classList.add('on'); $('walkieBtn').setAttribute('aria-pressed', 'true');
   closeGifs(); renderWalkie(); repoll();
 }
+// Auto-play: once you've tapped anywhere in the app, walkie-talkie audio in the open chat plays straight away
+// (no "Listen" tap), also with the screen locked or another app in front, like music.
+const autoWalkie = () => store.get('ic-wk-auto') !== '0';
+const walkieListening = () => walkie.on || (autoWalkie() && !walkie.autoOff && walkie.ctx?.state === 'running');
+function unlockAudio() {
+  if (!autoWalkie() && !walkie.on) return;
+  try {
+    if (!walkie.ctx) {
+      walkie.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const b = walkie.ctx.createBuffer(1, 1, 22050), src = walkie.ctx.createBufferSource(); src.buffer = b; src.connect(walkie.ctx.destination); src.start(0);
+    }
+    if (walkie.ctx.state !== 'running') walkie.ctx.resume().then(() => { if (current) repoll(); }).catch(() => {});
+  } catch { return; }
+  if (current && !walkie.autoOff && !walkie.out?.ok) startBackgroundAudio();      // keeps it alive in the background
+}
+for (const ev of ['pointerdown', 'touchend', 'keydown']) document.addEventListener(ev, unlockAudio, { capture: true, passive: true });
 function closeWalkie() {
   if (walkie.talking) stopTalking(false);
   walkie.on = false;
-  stopBackgroundAudio();
+  if (!autoWalkie() || walkie.autoOff) stopBackgroundAudio(); else { walkie.mediaText = ''; updateMediaSession(); }
   $('walkiePanel').classList.add('hidden'); $('walkieBtn').classList.remove('on'); $('walkieBtn').setAttribute('aria-pressed', 'false');
   renderWalkie();
 }
@@ -1565,7 +1582,8 @@ function onTalk(talk, xt) {
   walkie.floor = talk.floor;
   if (!walkie.tsince) { walkie.tsince = xt; renderWalkie(); return; }     // first look: don't replay older audio
   walkie.tsince = xt;
-  if (walkie.on && walkie.ctx) for (const c of talk.chunks.sort((a, b) => a.at - b.at || a.seq - b.seq)) enqueueChunk(c);
+  if (talk.chunks.length && walkie.ctx && walkie.ctx.state !== 'running' && autoWalkie()) walkie.ctx.resume().catch(() => {});
+  if (walkieListening()) for (const c of talk.chunks.sort((a, b) => a.at - b.at || a.seq - b.seq)) enqueueChunk(c);
   renderWalkie();
 }
 function enqueueChunk(c) {
@@ -1577,7 +1595,7 @@ function enqueueChunk(c) {
   const decoded = fetch(c.url).then(r => r.arrayBuffer()).then(b => walkie.ctx.decodeAudioData(b)).catch(() => null);
   walkie.queue = walkie.queue.then(async () => {
     const buf = await decoded;
-    if (!buf || !walkie.on) return;
+    if (!buf || !walkieListening()) return;
     const ctx = walkie.ctx, src = ctx.createBufferSource(); src.buffer = buf; src.connect(walkieOutput());
     const at = Math.max(ctx.currentTime + 0.05, walkie.nextTime);
     src.start(at); walkie.nextTime = at + buf.duration;
@@ -1612,14 +1630,14 @@ function stopBackgroundAudio() {
 }
 // Play through the continuous stream when it's running, otherwise straight to the speakers
 const walkieOutput = () => (walkie.out?.ok ? walkie.out.dest : walkie.ctx.destination);
-function updateMediaSession(text = '📻 Walkie-talkie') {
-  if (!('mediaSession' in navigator) || !walkie.on || walkie.mediaText === text) return;
+function updateMediaSession(text = '📻 Walkie-talkie · listening') {
+  if (!('mediaSession' in navigator) || !walkieListening() || walkie.mediaText === text) return;
   walkie.mediaText = text;
   try {
     navigator.mediaSession.metadata = new MediaMetadata({ title: text, artist: roomTitle(current), album: 'Intra Chat',
       artwork: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' }] });
     navigator.mediaSession.playbackState = 'playing';
-    for (const a of ['pause', 'stop']) navigator.mediaSession.setActionHandler(a, () => { closeWalkie(); repoll(); });
+    for (const a of ['pause', 'stop']) navigator.mediaSession.setActionHandler(a, () => { walkie.autoOff = true; closeWalkie(); stopBackgroundAudio(); repoll(); renderWalkie(); });
     navigator.mediaSession.setActionHandler('play', () => startBackgroundAudio());
   } catch {}
 }
@@ -1629,10 +1647,15 @@ function renderWalkie() {
   const listeners = presenceCache.filter(u => u.walkie && u.uid !== me.uid).length;
   const canTalk = !(group?.me && !group.me.canChat);
   // Banner for people who don't have the walkie-talkie open
-  const showBanner = !walkie.on && othersTalking;
+  const listening = walkieListening();
+  const showBanner = !walkie.on && (othersTalking || (listening && hearing));
   $('walkieBanner').classList.toggle('hidden', !showBanner);
-  if (showBanner) $('wbText').textContent = `${f.name} is talking on the walkie-talkie`;
-  if (!walkie.on) return;
+  if (showBanner) {
+    const who = othersTalking ? f.name : walkie.speaker;
+    $('wbText').textContent = listening ? `🔊 ${who} is talking…` : `${who} is talking on the walkie-talkie`;
+    $('wbListen').textContent = listening ? 'Talk back' : 'Listen';
+  }
+  if (!walkie.on) { if (listening) updateMediaSession(othersTalking || hearing ? `🔊 ${othersTalking ? f.name : walkie.speaker} is talking` : '📻 Walkie-talkie · listening'); return; }
   $('wkListeners').textContent = listeners ? `${listeners} listening` : 'Nobody else listening yet';
   const st = $('wkStatus'), btn = $('pttBtn');
   st.className = 'wk-status';
@@ -2043,6 +2066,11 @@ function renderSettings() {
   body.append(el('h3', 'sec-title', 'Chats'));
   row('🌓', 'Theme', themeName, chooseTheme);
   row('🎨', 'Chat wallpaper', wallpaperName(store.get('ic-wall') || 'doodle'), () => openWallpaper(null));
+  row('📻', 'Walkie-talkie auto-play', autoWalkie() ? 'On — you hear people live in the open chat, even in the background' : 'Off — tap “Listen” to hear people', () => {
+    store.set('ic-wk-auto', autoWalkie() ? '0' : '1'); walkie.autoOff = false;
+    if (autoWalkie()) { unlockAudio(); toast('📻 Walkie-talkie will play automatically'); } else { if (!walkie.on) stopBackgroundAudio(); toast('Walkie-talkie auto-play off'); }
+    renderSettings(); repoll();
+  });
   body.append(el('h3', 'sec-title', 'Notifications'));
   if (pushSupported() && Notification.permission !== 'denied') row(pushActive ? '🔔' : '🔕', 'Message notifications', pushActive ? 'On for this device' : 'Off — tap to turn on', () => (pushActive ? disableNotifications() : enableNotifications()).then(renderSettings));
   else row('🔕', 'Message notifications', isIOS && !isStandalone() ? 'Add Intra Chat to your Home Screen first' : 'Blocked in your browser’s site settings', () => (isIOS && !isStandalone() ? iosHelp() : toast('Allow notifications for this site in your browser settings')));

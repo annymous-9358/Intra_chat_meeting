@@ -50,6 +50,8 @@ A quick group chat app. Run it in two ways with the same code:
   the circle resize live while changing the range. Members see the group's centre; members' own positions are never shared.
   Map library: Leaflet 1.9.4 (bundled in `public/vendor/leaflet`, BSD-2 licence). Imagery © Esri / Maxar; streets © OpenStreetMap.
 - **📻 Walkie-talkie**: open it from the chat header and **hold to talk** (or hold the Space bar on a computer).
+  **Auto-play** (on by default, Settings → Walkie-talkie auto-play): once you've tapped anywhere in the app, people talking in
+  the chat you have open play straight away — no “Listen” tap — and keep playing with the screen locked or another app in front.
   Everyone with the walkie-talkie open hears you live (about 1–2 s behind), one person talks at a time, and people
   who aren't listening see "X is talking — Listen". Each transmission is also saved in the chat as a 📻 voice message
   (can be switched off), so others get a notification and can play it later. Turns are limited to 1 minute.
