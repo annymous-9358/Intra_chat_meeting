@@ -10,8 +10,10 @@ A quick group chat app. Run it in two ways with the same code:
 ## Features
 - **WhatsApp-style interface**: Chats / Friends / Settings tabs (bottom bar on phones, left rail on tablet/desktop),
   chat list with unread counts and filters (All, Unread, Friends, Groups), bubbles with tails, blue read ticks,
-  emoji picker, ⋮ menus. Light, dark or system theme, and chat wallpapers (doodles, colours, gradients) for all chats
-  or per chat.
+  emoji picker, ⋮ menus. Light, dark or system theme, and chat wallpapers (doodles, colours, gradients, or **your own
+  photo** with a dim slider) for all chats or per chat — kept on each device.
+- **Logo**: `public/logo.svg` (original mark: chat bubble with voice bars and radio waves); app icons in `public/icons`
+  are rendered from it.
 - **Friends & private 1:1 chats**: find people by @username, send a friend request (they get a notification),
   accept/decline; friends can chat 1:1 with "online / last seen", notifications, voice notes, walkie-talkie and
   reactions. 1:1 chats are visible only to the two people.

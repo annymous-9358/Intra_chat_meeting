@@ -1377,7 +1377,8 @@ function openMsgMenu(el) {
 function closeMsgMenu() { $('msgMenu').classList.add('hidden'); menuFor = null; }
 $('msgMenu').addEventListener('click', e => { if (e.target === $('msgMenu')) closeMsgMenu(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && menuFor) closeMsgMenu(); });
-$('messages').addEventListener('scroll', () => { if (menuFor) closeMsgMenu(); }, { passive: true });
+// a message's menu follows that message, so close it on scroll; the ⋮ menus stay open
+$('messages').addEventListener('scroll', () => { if (menuFor && menuFor !== 'menu') closeMsgMenu(); }, { passive: true });
 
 async function deleteMsg(el) {
   const yes = await popup({ icon: '🗑️', title: 'Delete for everyone?', text: 'The message will be replaced with “This message was deleted” for everyone in the group.', ok: 'Delete', danger: true });
@@ -2034,17 +2035,26 @@ const WALLPAPERS = [
   { id: 'night', name: 'Night', light: ['#2b3a55', 'linear-gradient(160deg,#283a5e,#1d2a44)'], dark: ['#0a1020', 'linear-gradient(160deg,#121a33,#070b16)'] },
 ];
 const isDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
-const wallpaperName = id => (WALLPAPERS.find(w => w.id === id) || WALLPAPERS[0]).name;
+const wallpaperName = id => id === 'custom' ? 'Your photo' : (WALLPAPERS.find(w => w.id === id) || WALLPAPERS[0]).name;
 const wallFor = room => (room && store.get('ic-wall:' + room)) || store.get('ic-wall') || 'doodle';
-function wallStyle(id) {
+// Your own photo: kept on this device only (like WhatsApp). Per-chat photos override the all-chats photo.
+const photoFor = room => (room && store.get('ic-wall:' + room) === 'custom' && store.get('ic-wall-img:' + room)) || store.get('ic-wall-img');
+function wallStyle(id, room) {
+  if (id === 'custom') {
+    const img = photoFor(room);
+    if (img) {
+      const dim = Math.min(Math.max(+(store.get('ic-wall-dim') ?? 20), 0), 80) / 100 + (isDark() ? .15 : 0);
+      return { bg: '#222', img: `linear-gradient(rgba(0,0,0,${dim}),rgba(0,0,0,${dim})), url("${img}")`, size: 'cover' };
+    }
+    id = 'doodle';
+  }
   const w = WALLPAPERS.find(x => x.id === id) || WALLPAPERS[0];
   const [bg, img] = isDark() ? w.dark : w.light;
   return { bg, img: img || 'none', size: img?.startsWith('linear') ? 'cover' : '190px' };
 }
 function applyWallpaper(room) {
-  const st = wallStyle(wallFor(room)), m = $('messages');
-  m.style.setProperty('--wall', st.bg); m.style.setProperty('--wall-img', st.img); m.style.setProperty('--wall-size', st.size);
-  for (const x of [$('typing'), $('composerWrap'), $('chatPane')]) x.style.setProperty('--wall', st.bg);
+  const st = wallStyle(wallFor(room), room), pane = $('chatPane');
+  pane.style.setProperty('--wall', st.bg); pane.style.setProperty('--wall-img', st.img); pane.style.setProperty('--wall-size', st.size);
 }
 let wallTarget = null;
 function openWallpaper(room) {
@@ -2055,24 +2065,74 @@ function openWallpaper(room) {
 }
 function renderWallGrid() {
   const grid = $('wallGrid'); grid.innerHTML = '';
-  const chosen = wallTarget ? store.get('ic-wall:' + wallTarget) || 'default' : store.get('ic-wall') || 'doodle';
-  const opts = (wallTarget ? [{ id: 'default', name: 'Default' }] : []).concat(WALLPAPERS);
+  const scopeKey = wallTarget ? 'ic-wall:' + wallTarget : 'ic-wall';
+  const chosen = wallTarget ? store.get(scopeKey) || 'default' : store.get('ic-wall') || 'doodle';
+  const myPhoto = wallTarget ? store.get('ic-wall-img:' + wallTarget) || store.get('ic-wall-img') : store.get('ic-wall-img');
+  const select = id => {
+    if (wallTarget) { if (id === 'default') store.del(scopeKey); else store.set(scopeKey, id); }
+    else store.set('ic-wall', id);
+    if (current) applyWallpaper(current);
+    renderWallGrid(); renderSettings();
+  };
+  // 📷 pick a photo from this device
+  const up = el('button', 'wall-opt photo'); up.type = 'button'; up.setAttribute('aria-label', 'Choose a photo from your device');
+  up.append('📷', el('span', null, myPhoto ? 'New photo' : 'Your photo'));
+  up.onclick = () => $('wallFile').click();
+  grid.append(up);
+  const opts = (wallTarget ? [{ id: 'default', name: 'Default' }] : []).concat(myPhoto ? [{ id: 'custom', name: 'Your photo' }] : [], WALLPAPERS);
   for (const w of opts) {
-    const st = wallStyle(w.id === 'default' ? (store.get('ic-wall') || 'doodle') : w.id);
+    const st = w.id === 'custom' ? { bg: '#222', img: `url("${myPhoto}")`, size: 'cover' } : wallStyle(w.id === 'default' ? (store.get('ic-wall') || 'doodle') : w.id, null);
     const b = el('button', 'wall-opt' + (w.id === chosen ? ' on' : '')); b.type = 'button'; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(w.id === chosen)); b.setAttribute('aria-label', w.name);
-    b.style.backgroundColor = st.bg; b.style.backgroundImage = st.img; if (st.size === 'cover') b.style.backgroundSize = 'cover';
+    b.style.backgroundColor = st.bg; b.style.backgroundImage = st.img; b.style.backgroundSize = st.size === 'cover' ? 'cover' : '';
+    b.style.backgroundPosition = 'center';
     b.append(el('span', null, w.name));
     b.onclick = () => {
-      if (wallTarget) { if (w.id === 'default') store.del('ic-wall:' + wallTarget); else store.set('ic-wall:' + wallTarget, w.id); }
-      else store.set('ic-wall', w.id);
-      if (current) applyWallpaper(current);
-      renderWallGrid(); renderSettings();
+      if (w.id === 'custom' && wallTarget && !store.get('ic-wall-img:' + wallTarget)) store.set('ic-wall-img:' + wallTarget, myPhoto);
+      select(w.id);
     };
     grid.append(b);
   }
-  const pv = $('wallPreview'), st = wallStyle(chosen === 'default' ? (store.get('ic-wall') || 'doodle') : chosen);
+  const effective = chosen === 'default' ? (store.get('ic-wall') || 'doodle') : chosen;
+  $('wallDimRow').classList.toggle('hidden', effective !== 'custom');
+  $('wallDim').value = store.get('ic-wall-dim') ?? 20;
+  const pv = $('wallPreview'), st = wallStyle(effective, wallTarget);
   pv.style.setProperty('--pv-bg', st.bg); pv.style.setProperty('--pv-img', st.img); pv.style.setProperty('--pv-size', st.size);
 }
+$('wallDim').oninput = () => { store.set('ic-wall-dim', $('wallDim').value); renderWallGrid(); if (current) applyWallpaper(current); };
+// Shrink the photo (longest side ≤ 1440 px, JPEG) so it fits in this device's storage
+function shrinkImage(file, max, quality) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); resolve(c.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file isn’t a picture we can use')); };
+    img.src = url;
+  });
+}
+$('wallFile').onchange = async () => {
+  const file = $('wallFile').files[0]; $('wallFile').value = '';
+  if (!file) return;
+  const key = wallTarget ? 'ic-wall-img:' + wallTarget : 'ic-wall-img';
+  try {
+    let saved = false;
+    for (const [max, q] of [[1440, .82], [1080, .7], [800, .6]]) {          // smaller until it fits
+      const data = await shrinkImage(file, max, q);
+      try { localStorage.setItem(key, data); saved = true; break; } catch {}
+    }
+    if (!saved) {
+      // make room: drop other chats' photos, then try once more
+      for (const k of Object.keys(localStorage)) if (k.startsWith('ic-wall-img:') && k !== key) localStorage.removeItem(k);
+      localStorage.setItem(key, await shrinkImage(file, 800, .55));
+    }
+    if (wallTarget) store.set('ic-wall:' + wallTarget, 'custom'); else store.set('ic-wall', 'custom');
+    if (current) applyWallpaper(current);
+    renderWallGrid(); renderSettings(); toast('🖼️ Wallpaper set');
+  } catch (e) { toast(e.message?.includes('quota') ? 'Not enough space on this device for that photo' : (e.message || 'Couldn’t use that photo')); }
+};
 $('wallClose').onclick = () => $('wallSheet').close();
 $('wallSheet').onclick = e => { if (e.target === $('wallSheet')) $('wallSheet').close(); };
 

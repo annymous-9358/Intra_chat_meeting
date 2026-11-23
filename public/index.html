@@ -6,7 +6,8 @@
 <meta name="theme-color" content="#00796b" id="metaTheme">
 <meta name="description" content="Chat with friends and groups — private 1:1 chats, open, private and location groups, voice notes and walkie-talkie.">
 <title>Intra Chat</title>
-<link rel="icon" href="/icons/icon-192.png">
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="alternate icon" href="/icons/icon-192.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -24,7 +25,7 @@
   <main id="login" class="login hidden">
     <div class="login-band" aria-hidden="true"></div>
     <div class="auth-wrap">
-      <div class="login-brand"><span class="brand-mark"><svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg></span><b>INTRA CHAT</b></div>
+      <div class="login-brand"><svg viewBox="0 0 512 512" class="logo-mark big" aria-hidden="true">  <defs>    <linearGradient id="ag" x1="0" y1="0" x2="1" y2="1">      <stop offset="0" stop-color="#25d0a0"/>      <stop offset="1" stop-color="#007a63"/>    </linearGradient>    <linearGradient id="as" x1="0" y1="0" x2="0" y2="1">      <stop offset="0" stop-color="#ffffff"/>      <stop offset="1" stop-color="#e6fff6"/>    </linearGradient>  </defs>  <rect width="512" height="512" rx="116" fill="url(#ag)"/>  <path d="M120 150h214c32 0 58 26 58 58v104c0 32-26 58-58 58H232l-74 58c-9 7-21 0-19-11l9-47h-28c-32 0-58-26-58-58V208c0-32 26-58 58-58z" fill="url(#as)"/>  <rect x="166" y="232" width="30" height="58" rx="15" fill="#00a884"/>  <rect x="212" y="210" width="30" height="102" rx="15" fill="#00a884"/>  <rect x="258" y="240" width="30" height="42" rx="15" fill="#00a884"/>  <path d="M360 96a96 96 0 0 1 64 64" fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round" opacity=".95"/>  <path d="M352 50a150 150 0 0 1 116 116" fill="none" stroke="#fff" stroke-width="22" stroke-linecap="round" opacity=".55"/></svg><span class="wordmark">intra<b>chat</b></span></div>
       <form id="loginForm" class="login-card" novalidate>
         <h1 id="welcomeTitle">Welcome back</h1>
         <p class="muted" id="welcomeText">Sign in to your Intra Chat account.</p>
@@ -66,7 +67,7 @@
       <!-- Chats -->
       <section class="view" id="viewChats">
         <header class="bar list-bar">
-          <div class="bar-title"><strong class="app-name">Intra Chat</strong><small class="muted me-line" id="meName"></small></div>
+          <div class="bar-title"><span class="logo-lockup" aria-label="Intra Chat"><svg viewBox="0 0 512 512" class="logo-mark " aria-hidden="true">  <defs>    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">      <stop offset="0" stop-color="#25d0a0"/>      <stop offset="1" stop-color="#007a63"/>    </linearGradient>    <linearGradient id="bs" x1="0" y1="0" x2="0" y2="1">      <stop offset="0" stop-color="#ffffff"/>      <stop offset="1" stop-color="#e6fff6"/>    </linearGradient>  </defs>  <rect width="512" height="512" rx="116" fill="url(#bg)"/>  <path d="M120 150h214c32 0 58 26 58 58v104c0 32-26 58-58 58H232l-74 58c-9 7-21 0-19-11l9-47h-28c-32 0-58-26-58-58V208c0-32 26-58 58-58z" fill="url(#bs)"/>  <rect x="166" y="232" width="30" height="58" rx="15" fill="#00a884"/>  <rect x="212" y="210" width="30" height="102" rx="15" fill="#00a884"/>  <rect x="258" y="240" width="30" height="42" rx="15" fill="#00a884"/>  <path d="M360 96a96 96 0 0 1 64 64" fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round" opacity=".95"/>  <path d="M352 50a150 150 0 0 1 116 116" fill="none" stroke="#fff" stroke-width="22" stroke-linecap="round" opacity=".55"/></svg><span class="wordmark">intra<b>chat</b></span></span><small class="muted me-line" id="meName"></small></div>
           <button class="icon-btn" id="listMenuBtn" aria-label="More options"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="19" r="1.6" fill="currentColor"/></svg></button>
         </header>
         <div class="search-wrap">
@@ -109,8 +110,8 @@
     <!-- Conversation -->
     <section id="chatPane" class="chat-pane" aria-label="Conversation">
       <div class="empty-chat" id="emptyChat">
-        <div class="empty-art" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 20h28a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H30l-9 7v-7h-3a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6z" fill="currentColor"/></svg></div>
-        <h2>Intra Chat for web</h2>
+        <div class="empty-art" aria-hidden="true"><svg viewBox="0 0 512 512" class="logo-mark huge" aria-hidden="true">  <defs>    <linearGradient id="cg" x1="0" y1="0" x2="1" y2="1">      <stop offset="0" stop-color="#25d0a0"/>      <stop offset="1" stop-color="#007a63"/>    </linearGradient>    <linearGradient id="cs" x1="0" y1="0" x2="0" y2="1">      <stop offset="0" stop-color="#ffffff"/>      <stop offset="1" stop-color="#e6fff6"/>    </linearGradient>  </defs>  <rect width="512" height="512" rx="116" fill="url(#cg)"/>  <path d="M120 150h214c32 0 58 26 58 58v104c0 32-26 58-58 58H232l-74 58c-9 7-21 0-19-11l9-47h-28c-32 0-58-26-58-58V208c0-32 26-58 58-58z" fill="url(#cs)"/>  <rect x="166" y="232" width="30" height="58" rx="15" fill="#00a884"/>  <rect x="212" y="210" width="30" height="102" rx="15" fill="#00a884"/>  <rect x="258" y="240" width="30" height="42" rx="15" fill="#00a884"/>  <path d="M360 96a96 96 0 0 1 64 64" fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round" opacity=".95"/>  <path d="M352 50a150 150 0 0 1 116 116" fill="none" stroke="#fff" stroke-width="22" stroke-linecap="round" opacity=".55"/></svg></div>
+        <h2><span class="wordmark">intra<b>chat</b></span> for web</h2>
         <p class="muted">Send and receive messages, voice notes and walkie-talkie calls. Pick a chat on the left, or start a new one.</p>
         <p class="muted small">🔒 Private chats are only visible to you and your friend.</p>
       </div>
@@ -260,7 +261,11 @@
         <div class="wp-bubble in">Hi! How do I look? 👋</div>
         <div class="wp-bubble out">Love this wallpaper ✨</div>
       </div>
+      <div class="wall-dim hidden" id="wallDimRow">
+        <label for="wallDim">Dim photo</label><input type="range" id="wallDim" min="0" max="80" step="5" value="20" aria-label="Dim photo">
+      </div>
       <div class="wall-grid" id="wallGrid" role="radiogroup" aria-label="Wallpapers"></div>
+      <input type="file" id="wallFile" accept="image/*" class="hidden">
       <p class="muted small" id="wallNote"></p>
     </div>
   </dialog>
