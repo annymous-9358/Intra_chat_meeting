@@ -2093,11 +2093,19 @@ async function chooseTheme() {
 const STYLES = [
   { id: 'classic', name: 'Classic', icon: '💬', desc: 'Familiar green chat look', bar: ['#008069', '#202c33'], meta: ['#008069', '#202c33'],
     pv: { light: { bg: '#efeae2', bar: '#008069', ink: '#fff', inB: '#fff', outB: '#d9fdd3' }, dark: { bg: '#0b141a', bar: '#202c33', ink: '#e9edef', inB: '#202c33', outB: '#005c4b' } } },
-  { id: 'glass', name: 'Glass', icon: '🫧', desc: 'Frosted glass over soft colour', meta: ['#e9eefb', '#0b0f1e'],
-    pv: { light: { bg: 'radial-gradient(at 10% 10%,#a7f3d0,transparent 55%),radial-gradient(at 90% 10%,#c4b5fd,transparent 55%),radial-gradient(at 80% 90%,#93c5fd,transparent 60%),#f2f0ff', bar: 'rgba(255,255,255,.55)', ink: '#10202a', inB: 'rgba(255,255,255,.75)', outB: 'linear-gradient(135deg,#10b981,#0ea5e9)', glass: true },
-          dark: { bg: 'radial-gradient(at 10% 10%,#0f766e,transparent 55%),radial-gradient(at 90% 10%,#5b21b6,transparent 55%),radial-gradient(at 80% 90%,#1e3a8a,transparent 60%),#080b18', bar: 'rgba(18,26,46,.55)', ink: '#e8eef5', inB: 'rgba(30,41,66,.75)', outB: 'linear-gradient(135deg,#0f9f86,#0b7fb8)', glass: true } } },
+  { id: 'glass', name: 'Glass', icon: '🫧', desc: 'Frosted Apple-style glass', meta: ['#eef2ff', '#05070f'],
+    pv: { light: { bg: 'radial-gradient(at 15% 10%,rgba(120,170,255,.6),transparent 60%),radial-gradient(at 90% 25%,rgba(190,160,255,.5),transparent 60%),radial-gradient(at 70% 95%,rgba(255,190,150,.55),transparent 60%),#f3f1ff', bar: 'rgba(255,255,255,.62)', ink: '#1c1c1e', inB: 'rgba(255,255,255,.8)', outB: 'rgba(0,122,255,.88)', glass: true },
+          dark: { bg: 'radial-gradient(at 15% 10%,rgba(40,90,230,.6),transparent 60%),radial-gradient(at 90% 25%,rgba(120,60,210,.5),transparent 60%),radial-gradient(at 70% 95%,rgba(200,80,120,.35),transparent 60%),#06070f', bar: 'rgba(28,28,30,.55)', ink: '#f5f5f7', inB: 'rgba(58,58,62,.7)', outB: 'rgba(10,132,255,.85)', glass: true } } },
+  { id: 'ios', name: 'iOS', icon: '🍎', desc: 'iMessage look, blue bubbles', meta: ['#f9f9f9', '#161618'],
+    pv: { light: { bg: '#fff', bar: '#f9f9f9', ink: '#000', inB: '#e9e9eb', outB: '#007aff', line: '#e5e5ea', round: 1 }, dark: { bg: '#000', bar: '#161618', ink: '#fff', inB: '#26252a', outB: '#0a84ff', line: '#2c2c2e', round: 1 } } },
+  { id: 'material', name: 'Material', icon: '🎨', desc: 'Android Material You', meta: ['#f3edf7', '#211f26'],
+    pv: { light: { bg: '#fef7ff', bar: '#f3edf7', ink: '#1d1b20', inB: '#ece6f0', outB: '#eaddff', round: 1 }, dark: { bg: '#141218', bar: '#211f26', ink: '#e6e0e9', inB: '#2b2930', outB: '#4f378b', round: 1 } } },
   { id: 'brutal', name: 'Brutal', icon: '🧱', desc: 'Bold borders, hard shadows', meta: ['#ffd23f', '#ffd23f'],
     pv: { light: { bg: '#fff6dc', bar: '#ffd23f', ink: '#111', inB: '#fff', outB: '#ffd23f', brutal: '#111' }, dark: { bg: '#161616', bar: '#ffd23f', ink: '#111', inB: '#262626', outB: '#ffd23f', brutal: '#f2f2f2' } } },
+  { id: 'neon', name: 'Neon', icon: '🌃', desc: 'Glowing pink & cyan, always dark', meta: ['#0e0a1c', '#0e0a1c'],
+    pv: { light: { bg: '#07040f', bar: '#0e0a1c', ink: '#00f0ff', inB: '#150f2b', outB: 'linear-gradient(135deg,#ff2fd6,#a63cff)', neon: 1 }, dark: { bg: '#07040f', bar: '#0e0a1c', ink: '#00f0ff', inB: '#150f2b', outB: 'linear-gradient(135deg,#ff2fd6,#a63cff)', neon: 1 } } },
+  { id: 'clay', name: 'Clay', icon: '🧸', desc: 'Soft, squishy pastel 3D', meta: ['#f4f0ff', '#262140'],
+    pv: { light: { bg: '#efeaff', bar: '#f4f0ff', ink: '#6243e8', inB: '#fff', outB: '#ffd9c7', clay: 1 }, dark: { bg: '#1d1933', bar: '#262140', ink: '#b9a6ff', inB: '#2e2950', outB: '#6d4c9f', clay: 1 } } },
   { id: 'minimal', name: 'Minimal', icon: '◻️', desc: 'Clean, quiet, black & white', meta: ['#ffffff', '#0a0a0a'],
     pv: { light: { bg: '#fff', bar: '#fff', ink: '#111', inB: '#f2f2f2', outB: '#111', line: '#eee' }, dark: { bg: '#0a0a0a', bar: '#0a0a0a', ink: '#f5f5f5', inB: '#1a1a1a', outB: '#f5f5f5', line: '#1d1d1d' } } },
 ];
@@ -2129,12 +2137,15 @@ const WALLPAPERS = [
   { id: 'forest', name: 'Forest', light: ['#dcefd6', 'linear-gradient(160deg,#e6f4d8,#cfe8d8 60%,#c9e1e6)'], dark: ['#12261b', 'linear-gradient(160deg,#16301f,#11281f 60%,#0f2028)'] },
   { id: 'aurora', name: 'Aurora', light: ['transparent'], dark: ['transparent'], swatch: ['radial-gradient(at 10% 10%,#a7f3d0,transparent 55%),radial-gradient(at 90% 10%,#c4b5fd,transparent 55%),radial-gradient(at 80% 90%,#93c5fd,transparent 60%),#f2f0ff', 'radial-gradient(at 10% 10%,#0f766e,transparent 55%),radial-gradient(at 90% 10%,#5b21b6,transparent 55%),#080b18'] },
   { id: 'grid', name: 'Grid', light: ['#fff6dc', 'linear-gradient(rgba(0,0,0,.07) 1.5px,transparent 1.5px),linear-gradient(90deg,rgba(0,0,0,.07) 1.5px,transparent 1.5px)', '28px 28px'], dark: ['#161616', 'linear-gradient(rgba(255,255,255,.06) 1.5px,transparent 1.5px),linear-gradient(90deg,rgba(255,255,255,.06) 1.5px,transparent 1.5px)', '28px 28px'] },
-  { id: 'paper', name: 'Paper', light: ['#ffffff'], dark: ['#0a0a0a'] },
+  { id: 'paper', name: 'Paper', light: ['#ffffff'], dark: ['#000000'] },
+  { id: 'm3', name: 'Lilac', light: ['#fef7ff'], dark: ['#141218'] },
+  { id: 'clay', name: 'Clay', light: ['#efeaff'], dark: ['#1d1933'] },
+  { id: 'neon', name: 'Neon', light: ['#07040f', 'radial-gradient(ellipse at 20% 0%,rgba(255,47,214,.18),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(0,240,255,.14),transparent 55%)', 'cover'], dark: ['#07040f', 'radial-gradient(ellipse at 20% 0%,rgba(255,47,214,.18),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(0,240,255,.14),transparent 55%)', 'cover'] },
   { id: 'night', name: 'Night', light: ['#2b3a55', 'linear-gradient(160deg,#283a5e,#1d2a44)'], dark: ['#0a1020', 'linear-gradient(160deg,#121a33,#070b16)'] },
 ];
 const isDark = () => document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
 const wallpaperName = id => id === 'custom' ? 'Your photo' : (WALLPAPERS.find(w => w.id === id) || WALLPAPERS[0]).name;
-const STYLE_WALL = { classic: 'doodle', glass: 'aurora', brutal: 'grid', minimal: 'paper' };
+const STYLE_WALL = { classic: 'doodle', glass: 'aurora', ios: 'paper', material: 'm3', brutal: 'grid', neon: 'neon', clay: 'clay', minimal: 'paper' };
 const wallFor = room => (room && store.get('ic-wall:' + room)) || store.get('ic-wall') || STYLE_WALL[appStyle()];
 // Your own photo: kept on this device only (like WhatsApp). Per-chat photos override the all-chats photo.
 const photoFor = room => (room && store.get('ic-wall:' + room) === 'custom' && store.get('ic-wall-img:' + room)) || store.get('ic-wall-img');
@@ -2614,6 +2625,8 @@ function stylePreview(st) {
     if (v.brutal) { b.style.border = `2px solid ${v.brutal}`; b.style.boxShadow = `2px 2px 0 ${v.brutal}`; b.style.borderRadius = '4px'; }
     if (v.glass) b.style.border = '1px solid rgba(255,255,255,.45)';
     if (st.id === 'classic') b.style.borderRadius = '5px';
+    if (v.neon) { b.style.border = '1px solid rgba(0,240,255,.5)'; b.style.boxShadow = cls === 'out' ? '0 0 10px rgba(255,47,214,.6)' : '0 0 8px rgba(0,240,255,.3)'; }
+    if (v.clay) { b.style.boxShadow = '3px 4px 8px rgba(120,100,200,.25), inset 1px 1px 2px rgba(255,255,255,.7)'; b.style.borderRadius = '12px'; }
     body.append(b);
   }
   ph.append(bar, body);
@@ -2622,7 +2635,7 @@ function stylePreview(st) {
 function openStylePicker() {
   let dlg = $('styleSheet');
   if (!dlg) {
-    dlg = document.createElement('dialog'); dlg.id = 'styleSheet'; dlg.className = 'sheet';
+    dlg = document.createElement('dialog'); dlg.id = 'styleSheet'; dlg.className = 'sheet style-sheet';
     dlg.onclick = e => { if (e.target === dlg) dlg.close(); };
     document.body.append(dlg);
   }
