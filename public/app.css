@@ -1197,3 +1197,4 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 :root[data-style="ios"] .set-row .s-ico { color: #fff; }
 :root[data-style="ios"] .set-row .s-ico svg { width: 18px; height: 18px; }
 :root[data-style="ios"] .set-row.danger .s-ico { background: var(--danger); }
+.danger-zone { padding: 0; } .danger-zone .set-row { padding: 16px 18px; }

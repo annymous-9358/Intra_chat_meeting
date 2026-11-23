@@ -38,8 +38,9 @@ A quick group chat app. Run it in two ways with the same code:
   account (nobody can post as you), and your groups, admin rights, mutes and notifications follow you to every device.
 - **Group access**: 💬 **Open** (anyone with the link) · 🔒 **Private** (the group's own password, asked once per account)
   · 📍 **Location** (works within a range, optionally with a password too)
-- **Group admin**: the creator is admin and can rename the group, add/change/remove the password, manage a location
-  group's range and requests, and **Make admin** — hand the group over to another member.
+- **Owner & admins**: whoever creates a group is its **owner** — always an admin, and nobody can remove them. The owner and admins can
+  make more members **admins** (same settings powers). Only the owner can remove an admin; an admin can step down.
+  Only the owner can **delete the group** (type its name to confirm) — it's removed for everyone, including messages and files.
 - **Members list** in Group info for every group: who's in it, who's admin, who's online.
 - Invite links (`…/#/g/<group>`): share from the chat header; new people enter their name and go straight in (or get asked for the password)
 - Chat list with last-message previews, times, unread dots and an unread count in the tab title; previews of private groups are hidden from people who haven't joined

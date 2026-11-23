@@ -550,6 +550,7 @@ async function poll(mySession) {
     updateTicks();
   } catch (err) {
     if (mySession !== session || err.name === 'AbortError') return;
+    if (err.code === 'deleted') { groupGone(current, err.message); return; }
     if (err.code === 'locked') {
       // Password was changed (or we never had a valid key): ask again
       const room = current; roomInfo(room).access = false;
@@ -1146,14 +1147,40 @@ async function loadMembers() {
   const room = current; if (!room) return;
   try { const d = await api('group/members', { room }); if (room === current) { membersCache = { room, list: d.members }; renderInfo(); } } catch {}
 }
-function openInfo() { if (!current) return; infoMode = 'info'; $('app').classList.add('info-open'); renderInfo(); loadMembers(); }
+function openInfo() { if (!current) return; infoMode = 'info'; infoSig = ''; $('app').classList.add('info-open'); renderInfo(); loadMembers(); }
 async function makeAdmin(mm) {
-  const yes = await popup({ icon: '👑', title: `Make ${mm.name} the admin?`,
-    text: `${mm.name} will be able to change the group’s name, password${group?.geo ? ', range' : ''} and members. You’ll stay in the group, but you won’t be the admin any more.`,
+  const yes = await popup({ icon: 'crown', title: `Make ${mm.name} an admin?`,
+    text: `${mm.name} will be able to change the group’s name, photo, password${group?.geo ? ', range' : ''} and make other people admins. ${group?.adminName || 'The owner'} stays the owner.`,
     ok: 'Make admin' });
   if (!yes) return;
-  try { await api('group/transfer', { member: mm.uid }); toast(`👑 ${mm.name} is now the admin`); repoll(); loadMembers(); }
+  try { await api('group/admin/add', { member: mm.uid }); toast(`${mm.name} is now an admin`); repoll(); loadMembers(); }
   catch (e) { toast(e.message); }
+}
+async function removeAdmin(mm, self) {
+  const yes = await popup({ icon: 'userMinus', title: self ? 'Stop being an admin?' : `Remove ${mm.name} as admin?`,
+    text: self ? 'You’ll stay in the group as a normal member. An admin or the owner can make you admin again.' : `${mm.name} stays in the group as a normal member.`,
+    ok: self ? 'Step down' : 'Remove admin', danger: true });
+  if (!yes) return;
+  try { await api('group/admin/remove', { member: mm.uid }); toast(self ? 'You’re no longer an admin' : `${mm.name} is no longer an admin`); repoll(); loadMembers(); }
+  catch (e) { toast(e.message); }
+}
+async function deleteGroup() {
+  const name = group?.title || current;
+  const yes = await popup({ icon: 'trash', title: `Delete “${name}”?`, danger: true, ok: 'Delete group',
+    text: 'This deletes the group for everyone — all messages, voice notes, photos and members. It can’t be undone.\n\nType the group name to confirm.',
+    input: { placeholder: name, maxLength: 40, required: true, requiredMsg: 'Type the group name' },
+    onConfirm: async v => {
+      if (v.trim().toLowerCase() !== name.toLowerCase()) return `Type “${name}” exactly to confirm`;
+      try { await api('group/delete', { confirm: v.trim() }); return null; } catch (e) { return e.message; }
+    } });
+  if (yes === null) return;
+  groupGone(current, `“${name}” was deleted`);
+}
+// The group was deleted (by you or by its owner): close it and drop it from the list
+function groupGone(room, msg) {
+  if (current === room) { leaveRoom(); history.replaceState(null, '', location.pathname); $('app').classList.remove('in-chat', 'info-open', 'has-room'); }
+  rooms = rooms.filter(r => r.room !== room); renderRooms(); refreshRooms();
+  toast(msg);
 }
 $('infoBtn').onclick = () => $('app').classList.contains('info-open') ? $('app').classList.remove('info-open') : openInfo();
 $('chatMenuBtn').onclick = e => openChatMenu(e.currentTarget);
@@ -1161,10 +1188,16 @@ $('chatHead').onclick = openInfo;
 $('infoClose').onclick = () => { $('app').classList.remove('info-open'); infoMode = 'info'; };
 
 function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
+// Only redraw the info panel when something it shows changed (redrawing on every poll swallowed taps on its buttons)
+let infoSig = '';
 function renderInfo() {
   if (infoMode === 'search') return;
   const body = $('infoBody');
   if (body.contains(document.activeElement) && document.activeElement.type === 'range') return;   // don't disturb a slider mid-drag
+  const sig = JSON.stringify([current, group, membersCache.room === current ? membersCache.list : null, presenceCache.map(u => [u.uid, !!u.typing, !!u.walkie]),
+    mutes[current] || 0, pushActive, friends.friends.map(f => f.uid), group?.peer && profiles[group.peer.uid]?.about, roomInfo(current)?.photo]);
+  if (sig === infoSig && body.childElementCount) return;
+  infoSig = sig;
   const scroll = body.scrollTop;
   body.innerHTML = '';
   $('infoTitle').textContent = group?.dm ? 'Contact info' : 'Group info';
@@ -1180,7 +1213,7 @@ function renderInfo() {
     av.append(cam);
   }
   const kind = isGeoRoom ? 'Location group' : isLocked ? 'Private group' : current === 'general' ? 'Everyone' : 'Open group';
-  const adminTxt = g?.isAdmin ? ' · you’re the admin' : g?.adminName ? ` · admin ${g.adminName}` : '';
+  const adminTxt = g?.isOwner ? ' · you’re the owner' : g?.isAdmin ? ' · you’re an admin' : g?.adminName ? ` · owner ${g.adminName}` : '';
   hero.append(av, el('h2', null, title), el('span', 'muted', kind + adminTxt));
   body.append(hero);
 
@@ -1205,7 +1238,7 @@ function renderInfo() {
   // Admin: access settings
   if (g?.isAdmin) {
     const ac = el('div', 'card'); ac.append(el('h3', null, 'Admin settings'));
-    ac.append(el('p', 'muted small', 'You’re the admin, so only you see these settings — on any device you sign in on. To hand the group over, use “Make admin” next to a member below.'));
+    ac.append(el('p', 'muted small', g.isOwner ? 'You’re the owner, so you and the admins you choose see these settings. Use “Make admin” next to a member below to add admins.' : 'You’re an admin, so you see these settings. Use “Make admin” to add more admins.'));
     const setting = (titleTxt, sub, btnLabel, fn, cls = '') => {
       const s = el('div', 'setting'); const m = el('div', 's-meta'); m.append(el('b', null, titleTxt), el('small', null, sub));
       const b = el('button', 'btn small ' + cls, btnLabel); b.onclick = fn; s.append(m, b); ac.append(s);
@@ -1263,7 +1296,8 @@ function renderInfo() {
     const r = el('div', 'member'), you = mm.uid === me.uid, on = online.get(mm.uid);
     const a = el('div', 'avatar click'); paintUser(a, mm.uid, mm.name); a.onclick = () => showProfile(mm.uid);
     const meta = el('div', 'm-meta'), nm = el('b', null, you ? `${mm.name} (you)` : mm.name);
-    if (mm.admin) nm.append(el('span', 'chip brand admin-chip', 'Admin'));
+    if (mm.owner) nm.append(el('span', 'chip brand admin-chip', 'Owner'));
+    else if (mm.admin) nm.append(el('span', 'chip brand admin-chip', 'Admin'));
     meta.append(nm);
     const geoRec = geoBy.get(mm.uid);
     const bits = [mm.username ? '@' + mm.username : null, on ? (on.typing && !you ? 'typing…' : 'online') : null];
@@ -1277,11 +1311,21 @@ function renderInfo() {
         if (geoRec.req === 'pending') { act('Approve', 'ok', 'approve'); act('Deny', 'ghost', 'deny'); }
         else if (geoRec.approved) act('Revoke', 'ghost', 'revoke');
       }
-      const mk = el('button', 'btn small ghost', 'Make admin'); mk.onclick = () => makeAdmin(mm); acts.append(mk);
-    } else if (on) acts.append(el('span', 'dot', ''));
+      if (!mm.admin) { const mk = el('button', 'btn small ghost', 'Make admin'); mk.onclick = () => makeAdmin(mm); acts.append(mk); }
+      else if (g.isOwner && !mm.owner) { const rm = el('button', 'btn small ghost', 'Remove admin'); rm.onclick = () => removeAdmin(mm); acts.append(rm); }
+      else if (on) acts.append(el('span', 'dot', ''));
+    } else if (you && mm.admin && !mm.owner) { const sd = el('button', 'btn small ghost', 'Step down'); sd.onclick = () => removeAdmin(mm, true); acts.append(sd); }
+    else if (on) acts.append(el('span', 'dot', ''));
     r.append(a, meta, acts); mc.append(r);
   }
   body.append(mc);
+  // Danger zone: only the owner can delete the group
+  if (g?.isOwner && current !== 'general') {
+    const dz = el('div', 'card danger-zone');
+    const del = el('button', 'set-row danger'); del.type = 'button'; del.onclick = deleteGroup;
+    const dm = el('div', 's-meta'); dm.append(el('b', null, 'Delete group'), el('small', null, 'Deletes all messages and members for everyone'));
+    del.append(icoEl('trash', 's-ico'), dm); dz.append(del); body.append(dz);
+  }
   body.scrollTop = scroll;
 }
 async function renameGroup() {
@@ -1986,6 +2030,7 @@ function openChatMenu(anchor) {
   items.push({ icon: '🎨', label: 'Wallpaper', onClick: () => openWallpaper(current) });
   items.push({ icon: isMuted(current) ? '🔔' : '🔕', label: isMuted(current) ? 'Unmute notifications' : 'Mute notifications', onClick: () => pushActive || isMuted(current) ? muteGroup() : enableNotifications() });
   items.push({ icon: '📻', label: walkie.on ? 'Close walkie-talkie' : 'Walkie-talkie', onClick: () => $('walkieBtn').click() });
+  if (group?.isOwner && !group.dm && current !== 'general') items.push({ icon: 'trash', label: 'Delete group', danger: true, onClick: deleteGroup });
   simpleMenu(anchor, items);
 }
 
