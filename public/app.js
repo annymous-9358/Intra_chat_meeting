@@ -3952,8 +3952,25 @@ function renderGameBanner() {
   const t = gameBanner.querySelector('.gb-text');
   t.append(el('b', null, game.name), el('small', null, game.phase === 'lobby' ? `${game.players.length} joined · ${game.hostName} is hosting` : `Round ${game.round}${game.rounds ? ' of ' + game.rounds : ''} · ${game.joined ? 'tap to play' : 'tap to watch'}`));
 }
+// The player's country, as a hint for servers that can't see it (Netlify tells the server directly)
+const regionHint = (() => {
+  const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })();
+  const byTz = { 'Asia/Kolkata': 'IN', 'Asia/Calcutta': 'IN', 'Asia/Karachi': 'PK', 'Asia/Dhaka': 'BD', 'Asia/Dubai': 'AE', 'Asia/Singapore': 'SG', 'Europe/London': 'GB', 'America/New_York': 'US', 'America/Chicago': 'US', 'America/Denver': 'US', 'America/Los_Angeles': 'US', 'America/Toronto': 'CA', 'Australia/Sydney': 'AU' };
+  return byTz[tz] || (navigator.language || '').split('-')[1]?.toUpperCase() || '';
+})();
+const reportedClips = new Set();
+window.addEventListener('message', e => {
+  if (!/^https:\/\/www\.youtube(-nocookie)?\.com$/.test(e.origin)) return;
+  let d; try { d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
+  if (d?.event !== 'onError') return;
+  const f = document.querySelector('iframe.g-yt'), clip = f?.dataset.clip;
+  if (!clip || reportedClips.has(clip)) return;
+  reportedClips.add(clip);
+  toast('This clip won’t play here — finding another…');
+  gameApi('move', { clipFailed: true, clipId: clip }).catch(() => {});
+});
 async function gameApi(action, body = {}) {
-  try { const r = await api('game/' + action, body); if (r.game !== undefined) setGame(r.game); return r; }
+  try { const r = await api('game/' + action, { region: regionHint, ...body }); if (r.game !== undefined) setGame(r.game); return r; }
   catch (e) { toast(e.message); throw e; }
 }
 // Narrator: the app reads the game's lines aloud (Android app: native text-to-speech; browsers: Web Speech)
@@ -4117,6 +4134,7 @@ function renderGame() {
     say(`${g.data.series || ''}`, 'muted');
     if (g.phase === 'pick') {
       if (g.you.teller) {
+        if (g.data.notice) say(g.data.notice, 'warn');
         say('Your turn! Pick an episode number — you’ll get a random 15–20 s clip from it, then tell its storyline out loud.', 'strong');
         body.append(input('ep', 'Episode number', 6));
         const r = el('div', 'g-pick');
@@ -4124,12 +4142,17 @@ function renderGame() {
         r.append(btn('🎲 Random', '', () => gameApi('move', { random: true }).catch(e => { if (e.code === 'no_search') { gameDraft.needLink = true; renderGame(); } })));
         body.append(r);
         if (gameDraft.needLink) { body.append(input('link', 'Paste a YouTube link to the episode', 300)); body.append(btn('Use this link', 'block', () => gameApi('move', { url: gameDraft.link }))); }
-      } else say(`${tname} is picking an episode…`);
+      } else { if (g.data.notice) say(g.data.notice, 'muted'); say(`${tname} is picking an episode…`); }
     }
     if ((g.phase === 'watch' || g.phase === 'tell') && g.data.clip) {
       const c = g.data.clip, f = el('iframe', 'g-yt');
-      f.src = `https://www.youtube-nocookie.com/embed/${c.id}?start=${c.start}&end=${c.start + c.dur}&autoplay=1&playsinline=1&rel=0&modestbranding=1&controls=0&disablekb=1`;
+      f.src = `https://www.youtube-nocookie.com/embed/${c.id}?start=${c.start}&end=${c.start + c.dur}&autoplay=1&playsinline=1&rel=0&modestbranding=1&controls=0&disablekb=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
       f.allow = 'autoplay; encrypted-media'; f.title = 'Clip';
+      if (!(oldYt && oldYt.src === f.src)) {
+        // Ask the player to tell us about errors (blocked in this country, removed, not embeddable…)
+        f.dataset.clip = c.id;
+        f.onload = () => { try { f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 'g-yt', channel: 'widget' }), '*'); f.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'addEventListener', args: ['onError'], id: 'g-yt', channel: 'widget' }), '*'); } catch {} };
+      }
       body.append(oldYt && oldYt.src === f.src ? oldYt : f);
       if (g.data.episode) say(`Episode ${g.data.episode}`, 'muted');
     }
