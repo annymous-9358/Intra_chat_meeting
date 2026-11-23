@@ -931,11 +931,11 @@ btn.addEventListener('pointerdown', async e => {
   btn.setPointerCapture(e.pointerId); rec.btn = btn;
   rec.state = 'starting'; rec.x0 = e.clientX; rec.cancel = false; rec.pointer = e.pointerId; rec.pressedAt = Date.now();
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48000 } });
     if (rec.state !== 'starting') { stream.getTracks().forEach(t => t.stop()); return; }   // released while the permission prompt was up
     rec.stream = stream; rec.chunks = []; rec.peaks = [];
     const mime = pickMime();
-    rec.recorder = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : undefined);
+    rec.recorder = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined);
     rec.recorder.ondataavailable = ev => ev.data.size && rec.chunks.push(ev.data);
     rec.recorder.start(250);
     try {
@@ -1101,12 +1101,17 @@ $('gifUpload').onclick = () => $('gifFile').click();
 $('gifFile').onchange = async () => {
   const file = $('gifFile').files[0]; $('gifFile').value = '';
   if (!file) return;
-  if (file.size > 4 * 1024 * 1024) return toast('That file is too large (max 4 MB)');
-  const localUrl = URL.createObjectURL(file);
+  let up = file;
+  if (file.type !== 'image/gif' && file.size > 1.5 * 1024 * 1024) {        // big phone photos: high-quality resize, not a refusal
+    try { for (const [mx, q] of [[2560, .9], [2048, .86], [1600, .82]]) { up = await (await fetch(await shrinkImage(file, mx, q))).blob(); if (up.size <= 3.8 * 1024 * 1024) break; } }
+    catch { return toast('That doesn’t look like an image'); }
+  }
+  if (up.size > 4 * 1024 * 1024) return toast('That file is too large (max 4 MB)');
+  const localUrl = URL.createObjectURL(up);
   const dims = await new Promise(res => { const i = new Image(); i.onload = () => res({ w: i.naturalWidth, h: i.naturalHeight }); i.onerror = () => res({}); i.src = localUrl; });
   if (!dims.w) return toast('That doesn’t look like an image');
   closeGifs();
-  sendMessage({ gif: { ...dims, title: file.name.slice(0, 80) }, upload: file, localUrl });
+  sendMessage({ gif: { ...dims, title: file.name.slice(0, 80) }, upload: up, localUrl });
 };
 const hideViewer = () => { if (!$('viewer').classList.contains('hidden')) closeLayer(viewerLayer, () => $('viewer').classList.add('hidden')); };
 $('viewer').onclick = hideViewer;
@@ -1728,7 +1733,7 @@ const walkie = {
   talking: false, talkId: null, seq: 0, stream: null, seg: null, segTimer: null, full: null, fullChunks: [], start: 0, timer: null, send: Promise.resolve(),
   analyser: null, peaks: [], listeners: 0,
 };
-const SEG_MS = 1000, MAX_TALK_S = 60;
+const SEG_MS = 700, MAX_TALK_S = 60;              // shorter pieces = lower delay
 $('wkSave').checked = store.get('ic-wk-save') !== '0';
 $('wkSave').onchange = () => store.set('ic-wk-save', $('wkSave').checked ? '1' : '0');
 
@@ -1897,7 +1902,7 @@ async function startTalking() {
   renderWalkie();
   try {
     const [stream] = await Promise.all([
-      navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }),
+      navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48000 } }),
       api('talk/start', { talkId, loc: geo.loc }),
     ]);
     if (!walkie.talking || walkie.talkId !== talkId) { stream.getTracks().forEach(t => t.stop()); api('talk/end').catch(() => {}); return; }   // released already
@@ -1905,7 +1910,7 @@ async function startTalking() {
     if (navigator.vibrate) navigator.vibrate(30);
     const mime = pickMime();
     // full recording (saved to chat afterwards)
-    walkie.full = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : undefined);
+    walkie.full = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined);
     walkie.full.ondataavailable = e => e.data.size && walkie.fullChunks.push(e.data);
     walkie.full.start(500);
     // level meter for the ring + waveform for the saved message
@@ -1931,7 +1936,7 @@ async function startTalking() {
 // Each piece is a separate, complete recording so listeners can play it on its own
 function recordSegment(mime) {
   if (!walkie.stream) return;
-  const rec = new MediaRecorder(walkie.stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : undefined);
+  const rec = new MediaRecorder(walkie.stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined);   // clear Opus voice
   const parts = [], seq = walkie.seq++, talkId = walkie.talkId;
   rec.ondataavailable = e => e.data.size && parts.push(e.data);
   rec.onstop = () => {
@@ -2443,9 +2448,19 @@ function shrinkImage(file, max, quality) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file), img = new Image();
     img.onload = () => {
+      // High-quality resize: halve step by step (avoids the blur/jaggies of one big downscale), best smoothing
       const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-      const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const W = Math.round(img.naturalWidth * k), H = Math.round(img.naturalHeight * k);
+      let src = img, sw = img.naturalWidth, sh = img.naturalHeight;
+      while (sw / 2 >= W * 1.05 && sh / 2 >= H * 1.05) {
+        const t = document.createElement('canvas'); t.width = Math.round(sw / 2); t.height = Math.round(sh / 2);
+        const tc = t.getContext('2d'); tc.imageSmoothingEnabled = true; tc.imageSmoothingQuality = 'high'; tc.drawImage(src, 0, 0, t.width, t.height);
+        src = t; sw = t.width; sh = t.height;
+      }
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const cx = c.getContext('2d'); cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
+      cx.fillStyle = '#fff'; cx.fillRect(0, 0, W, H);            // transparent PNGs get a white background, not black
+      cx.drawImage(src, 0, 0, W, H);
       URL.revokeObjectURL(url); resolve(c.toDataURL('image/jpeg', quality));
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file isn’t a picture we can use')); };
@@ -2625,7 +2640,7 @@ async function choosePhoto(room, has) {
   inp.onchange = async () => {
     const file = inp.files[0]; if (!file) return;
     try {
-      const data = await shrinkImage(file, 512, .85);
+      const data = await shrinkImage(file, 1080, .9);          // sharp on high-density phone screens
       const blob = await (await fetch(data)).blob();
       const r = await fetch('/api/avatar', { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg', 'X-Chat-Device': me.device, Authorization: 'Bearer ' + me.token, ...(room ? { 'X-Chat-Room': room } : {}) } });
       const d = await r.json().catch(() => ({}));
@@ -3198,7 +3213,7 @@ function openStoryComposer() {
     post.disabled = true; post.textContent = 'Sharing…';
     try {
       if (sc.mode === 'photo') {
-        const blob = await (await fetch(await shrinkImage(sc.file, 1440, .85))).blob();
+        const blob = await (await fetch(await shrinkImage(sc.file, 1920, .9))).blob();
         const r = await fetch('/api/story/photo', { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg', 'X-Chat-Device': me.device, Authorization: 'Bearer ' + me.token } });
         const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Upload failed');
         body.url = j.url;
