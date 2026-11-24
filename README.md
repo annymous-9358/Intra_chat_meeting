@@ -17,8 +17,10 @@ A quick group chat app. Run it in two ways with the same code:
   **Levels** (Starter → Bronze → Silver → Gold → Platinum → Diamond, as a share of the best possible score) with progress to
   the next level, **streaks**, a **points history** (each day's counted steps, cap, step points, target bonus and tasks, with the
   time each was credited), and a **summary card** for anyone on the leaderboard (rank, points, streak, best day, average).
-  **Games** (optional, set by the creator): fun games — **Emoji Guess** and **Word Scramble** (as many as you can against the
-  clock), **Rock Paper Scissors** and **Tic-tac-toe** vs the computer (single-player versions of the chat games), **Bubble Pop**,
+  **Games** (optional, set by the creator): fun games — **Emoji Guess** (140 movies, shows, songs, food and places in clear
+  categories such as Bollywood movie, Indian TV show, Indian web series, English TV series, Hindi song; every answer has three
+  different emoji clues that rotate, and puzzles you haven't seen come first — same in the chat game) and **Word Scramble** (as
+  many as you can against the clock), **Rock Paper Scissors** and **Tic-tac-toe** vs the computer (single-player versions of the chat games), **Bubble Pop**,
   **Step Dash** (runner), **Tower Stack** — or brain games — **Quick Math**, **Reaction Time**, **Memory Path**. The creator sets
   plays per day, points per score and whether the best play or all plays count. Guesses and RPS rounds are checked on the server
   as you play, tic-tac-toe games are replayed there, brain games are scored there, and arcade scores are checked against the real
