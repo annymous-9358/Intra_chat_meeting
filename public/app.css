@@ -1663,3 +1663,4 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .mc-week > div { display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; justify-content: flex-end; }
 .mc-week i { width: 100%; max-width: 22px; border-radius: 5px 5px 2px 2px; background: var(--brand); max-height: 78%; }
 .mc-week small { font-size: 10.5px; color: var(--muted); }
+.ch-sec-head .ch-bell { margin-left: auto; color: var(--muted); } .ch-sec-head .ch-bell.on { color: var(--brand-strong); }

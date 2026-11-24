@@ -288,6 +288,7 @@ function linkIntent() {
   if (h === '#/friends') return { act: 'friends' };
   if (h === '#/stories') return { act: 'stories' };
   if (h === '#/hidden') return { act: 'hidden' };
+  { const m = h.match(/^#\/challenge\/([a-z0-9]{10})$/); if (m) return { act: 'challenge', id: m[1] }; }
   let mm;
   if ((mm = h.match(/^#\/u\/([a-f0-9]{24})$/))) return { act: 'profile', uid: mm[1] };          // a person's profile (friend request)
   if ((mm = h.match(/^#\/dm\/([a-f0-9]{24})$/))) return { act: 'dm', uid: mm[1] };              // 1:1 chat with them
@@ -324,6 +325,7 @@ function runIntent(intent) {
     setTimeout(() => { openMyStepsSheet(); toast(intent.ok ? `Google Health connected${intent.today ? ` · today ${fmtN(+intent.today)} steps` : ''}` : (intent.msg || 'Couldn’t connect Google Health')); }, 300);
     return;
   }
+  if (intent.act === 'challenge') { history.replaceState(history.state, '', location.pathname); return openChallenge(intent.id); }
   if (intent.act === 'hidden') { history.replaceState(history.state, '', location.pathname); setTab('chats'); return openHidden(); }
   if (intent.act === 'stories') { history.replaceState(history.state, '', location.pathname); setTab('chats'); return loadStories().then(() => { const p = storyFeed.people.find(x => !x.mine && !x.allSeen && !x.muted); if (p) openStories(p.uid); }); }
   if (intent.act === 'friends') { history.replaceState(history.state, '', location.pathname); return setTab('friends'); }
@@ -4364,7 +4366,7 @@ async function openChallenge(id, keepScroll) {
   if (currentTab !== 'challenges') setTab('challenges');
   const body = $('challengesBody');
   if (!keepScroll) { body.innerHTML = ''; body.append(el('p', 'muted small empty-note', 'Loading…')); }
-  try { chView.data = await api('challenge/get', { room: 'general', id, all: chView.all, today: localDay() }); }
+  try { chView.data = await api('challenge/get', { room: 'general', id, all: chView.all, today: localDay(), tz: new Date().getTimezoneOffset() }); }
   catch (e) { toast(e.message); closeLayer(chView.layer, () => { chView.id = null; loadChallenges(); }); return; }
   renderChallenge(keepScroll);
 }
@@ -4384,7 +4386,7 @@ function renderChallenge(keepScroll) {
   if (c.desc) body.append(el('p', 'ch-desc', c.desc));
   // join / manage
   const acts = el('div', 'ch-acts');
-  if (!d.joined && c.status !== 'ended') { const j = el('button', 'btn primary', 'Join challenge'); j.type = 'button'; j.onclick = async () => { try { await api('challenge/join', { room: 'general', id: c.id, today: localDay() }); toast(`You joined ${c.title}`); openChallenge(c.id); } catch (e) { toast(e.message); } }; acts.append(j); }
+  if (!d.joined && c.status !== 'ended') { const j = el('button', 'btn primary', 'Join challenge'); j.type = 'button'; j.onclick = async () => { try { await api('challenge/join', { room: 'general', id: c.id, today: localDay(), tz: new Date().getTimezoneOffset() }); toast(`You joined ${c.title}`); openChallenge(c.id); } catch (e) { toast(e.message); } }; acts.append(j); }
   if (c.mine) {
     const e1 = el('button', 'btn', 'Edit'); e1.type = 'button'; e1.onclick = () => openChallengeForm(c); acts.append(e1);
     const e2 = el('button', 'btn ghost', 'Delete'); e2.type = 'button'; e2.onclick = () => deleteChallenge(c); acts.append(e2);
@@ -4394,6 +4396,12 @@ function renderChallenge(keepScroll) {
   const me1 = d.board.me;
   const mr = el('div', 'ch-sec'); const mh = el('div', 'ch-sec-head'); mh.append(el('h3', null, 'My Ranking'));
   const rf = el('button', 'btn small', 'Refresh'); rf.type = 'button'; rf.onclick = async () => { rf.disabled = true; try { if (healthStatus?.connected) await syncHealthNow(true); chView.data = await api('challenge/refresh', { room: 'general', id: c.id, all: chView.all, today: localDay() }); renderChallenge(true); toast('Leaderboard updated'); } catch (e) { toast(e.message); rf.disabled = false; } };
+  if (d.joined) {
+    const bell = el('button', 'icon-btn ch-bell' + (d.notify ? ' on' : '')); bell.type = 'button'; bell.innerHTML = svgFor(d.notify ? 'bell' : 'bellOff');
+    bell.title = d.notify ? 'Challenge reminders on (max 2 a day)' : 'Challenge reminders off'; bell.setAttribute('aria-label', bell.title);
+    bell.onclick = async () => { try { const r = await api('challenge/notify', { room: 'general', id: c.id, on: !d.notify }); d.notify = r.notify; toast(r.notify ? 'Reminders on — at most 2 a day, 8 AM–9 PM' : 'Reminders off for this challenge'); if (r.notify && !pushActive) enableNotifications(); renderChallenge(true); } catch (e) { toast(e.message); } };
+    mh.append(bell);
+  }
   mh.append(rf); mr.append(mh);
   const tiles = el('div', 'ch-tiles');
   const tile = (cls, label, val) => { const t = el('div', 'ch-tile ' + cls); t.append(el('small', null, label), el('b', null, val)); tiles.append(t); };

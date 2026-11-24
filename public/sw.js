@@ -1,5 +1,5 @@
 /* Intra Chat service worker: offline app shell + WhatsApp-style push notifications */
-const CACHE = 'intra-chat-v43';
+const CACHE = 'intra-chat-v44';
 const SHELL = ['/', '/index.html', '/app.css', '/app.js', '/manifest.webmanifest', '/logo.svg', '/favicon.ico', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', e => {
@@ -54,7 +54,7 @@ async function showMessage(d) {
   if (watching) return;
 
   // Friend requests, story reactions, added to a group…: their own notification that opens the right screen
-  if (d.type === 'friend' || d.type === 'story' || d.type === 'group' || d.type === 'steps') {
+  if (d.type === 'friend' || d.type === 'story' || d.type === 'group' || d.type === 'steps' || d.type === 'challenge') {
     return self.registration.showNotification(d.title || 'Intra Chat', {
       body: d.body || '', tag: d.type + '-' + (d.url || ''), renotify: true,
       icon: '/icons/icon-192.png', badge: '/icons/badge-96.png', timestamp: d.ts || Date.now(),
@@ -83,7 +83,7 @@ async function showMessage(d) {
     timestamp: d.ts || Date.now(),
     vibrate: [80, 40, 80],
     // Quick actions: voice/walkie messages get Reply (hold-to-talk) and Play; other messages get Reply
-    actions: d.type === 'friend' || d.type === 'story' || d.type === 'steps' ? [] : d.audio ? [{ action: 'reply', title: 'Reply' }, { action: 'play', title: 'Play' }] : [{ action: 'reply', title: 'Reply' }],
+    actions: d.type === 'friend' || d.type === 'story' || d.type === 'steps' || d.type === 'challenge' ? [] : d.audio ? [{ action: 'reply', title: 'Reply' }, { action: 'play', title: 'Play' }] : [{ action: 'reply', title: 'Reply' }],
     data: { url: d.url || '/', room, count, lines, key: d.key, audio: !!d.audio },
   });
   await updateBadge();
