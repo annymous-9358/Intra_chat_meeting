@@ -61,6 +61,7 @@
     <nav class="nav" aria-label="Main">
       <button class="nav-btn on" data-tab="chats" aria-label="Chats"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg><span>Chats</span><b class="nav-badge hidden" id="navChatsBadge"></b></button>
       <button class="nav-btn" data-tab="friends" aria-label="Friends"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 14.6c2.6.1 4.5 1.8 5 4.4"/></svg><span>Friends</span><b class="nav-badge hidden" id="navFriendsBadge"></b></button>
+      <button class="nav-btn" data-tab="challenges" aria-label="Challenges"><svg viewBox="0 0 24 24"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.7V17c0 .6-.5 1-1 1.2-1.2.5-2 2-2 3.8M14 14.7V17c0 .6.5 1 1 1.2 1.2.5 2 2 2 3.8M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg><span>Challenges</span></button>
       <button class="nav-btn" data-tab="settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Settings</span></button>
       <button class="nav-me" id="meBtn" aria-label="Your profile"><div class="avatar" id="meAvatar" aria-hidden="true"></div></button>
     </nav>
@@ -105,6 +106,11 @@
       </section>
 
       <!-- Settings -->
+      <section class="view hidden" id="viewChallenges">
+        <header class="bar list-bar"><div class="bar-title"><strong id="chTitle">Challenges</strong><small class="muted" id="chSub">Step challenges for your team</small></div></header>
+        <div class="challenges-body" id="challengesBody"></div>
+        <button class="fab" id="newChallengeBtn" aria-label="Create a challenge" title="Create a challenge"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      </section>
       <section class="view hidden" id="viewSettings">
         <header class="bar list-bar"><div class="bar-title"><strong>Settings</strong></div></header>
         <div class="settings-body" id="settingsBody"></div>

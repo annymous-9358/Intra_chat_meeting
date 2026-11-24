@@ -46,7 +46,7 @@ class StepSyncPlugin : Plugin() {
         val token = call.getString("token")
         if (base.isNullOrBlank() || token.isNullOrBlank() || !base.startsWith("https://")) { call.reject("baseUrl (https) and token are required"); return }
         StepSyncPrefs(context).apply { baseUrl = base.trimEnd('/'); this.token = token; device = call.getString("device") }
-        val work = PeriodicWorkRequestBuilder<StepSyncWorker>(30, TimeUnit.MINUTES)
+        val work = PeriodicWorkRequestBuilder<StepSyncWorker>(15, TimeUnit.MINUTES)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.UPDATE, work)

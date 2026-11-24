@@ -27,6 +27,7 @@ const IC = {
   "info": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 11v6M12 7.5v.01\"/>",
   "message": "<path d=\"M21 12a8.5 8.5 0 0 1-12.6 7.4L3 21l1.7-5A8.5 8.5 0 1 1 21 12z\"/>",
   "eyeOff": "<path d=\"M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 8 10 8a17.8 17.8 0 0 1-3.2 4.3M6.6 6.6C3.7 8.4 2 12 2 12s3.5 8 10 8c1.8 0 3.4-.5 4.8-1.3M9.9 9.9a3 3 0 0 0 4.2 4.2M2 2l20 20\"/>",
+  "arrowLeft": "<path d=\"M19 12H5M11 18l-6-6 6-6\"/>",
   "eye": "<path d=\"M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>",
   "contrast": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 3a9 9 0 0 1 0 18z\" fill=\"currentColor\"/>",
   "sparkles": "<path d=\"M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z\"/><path d=\"M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z\"/>",
@@ -222,13 +223,16 @@ function closeLayer(id, close) {
   const top = layers[layers.length - 1];
   if (top && top.id === id && !top.dead) history.back(); else { dropLayer(id); close(); }
 }
+let autoBack = false;            // true while we step back over used-up entries ourselves
 window.addEventListener('popstate', e => {
+  const auto = autoBack; autoBack = false;
   const idx = layers.findIndex(l => l.id === e.state?.ic);
   const closing = layers.splice(idx + 1);
   let closed = 0;
   for (const l of closing.reverse()) if (!l.dead) { closed++; try { l.close(); } catch {} }
   // one Back = one visible step: skip entries whose pop-up was already closed by its own button
-  if (idx >= 0 && (layers[idx].dead || !closed)) history.back();
+  // (but never close something more on a step we took ourselves)
+  if (idx >= 0 && (layers[idx].dead || (!closed && !auto))) { autoBack = true; history.back(); }
 });
 // All <dialog>s (sheets, popups, profile card, style picker…)
 {
@@ -2292,12 +2296,14 @@ function setTab(tab) {
   $('viewChats').classList.toggle('hidden', tab !== 'chats');
   $('viewFriends').classList.toggle('hidden', tab !== 'friends');
   $('viewSettings').classList.toggle('hidden', tab !== 'settings');
+  $('viewChallenges').classList.toggle('hidden', tab !== 'challenges');
   if (!wide() && $('app').classList.contains('in-chat')) { dropLayer(chatLayer); closeChatUI(); }
   // Friends / Settings sit on top of Chats: back returns to Chats
   if (tab !== 'chats' && !layerLive(tabLayer)) tabLayer = pushLayer(() => setTab('chats'));
   if (tab === 'chats') dropLayer(tabLayer);
   if (tab === 'friends') { loadFriends(); if (finePointer) $('friendSearch').focus(); }
   if (tab === 'settings') renderSettings();
+  if (tab === 'challenges') { if (chView.id && !layerLive(chView.layer)) chView.id = null; chView.id ? openChallenge(chView.id) : loadChallenges(); }
 }
 for (const b of document.querySelectorAll('.nav-btn')) b.onclick = () => setTab(b.dataset.tab);
 function lastSeenText(ts) {
@@ -4323,6 +4329,225 @@ function togglePrivacy() {
   window.addEventListener('pagehide', () => { if (privacyOn() || hiddenOpen) document.documentElement.setAttribute('data-covered', ''); });
   applyPrivacy();
 }
+
+/* ---------------- Challenges (step challenges with points, tasks and a live leaderboard) ---------------- */
+const chView = { id: null, layer: null, all: false, data: null };
+const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
+const fmtDay = d => { const t = new Date(d + 'T12:00:00'); return `${ordinal(t.getDate())} ${t.toLocaleDateString('en-US', { month: 'short' })}`; };
+const STATUS_TXT = { live: 'Live', upcoming: 'Starts soon', ended: 'Ended', draft: 'Not published' };
+async function loadChallenges() {
+  const body = $('challengesBody'); if (!body) return;
+  $('chTitle').textContent = 'Challenges'; $('chSub').textContent = 'Step challenges for your team';
+  $('newChallengeBtn').classList.remove('hidden');
+  let list; try { list = (await api('challenge/list', { room: 'general', today: localDay() })).challenges; } catch (e) { body.replaceChildren(el('p', 'empty-note', e.message)); return; }
+  if (currentTab !== 'challenges' || chView.id) return;
+  body.innerHTML = '';
+  if (!list.length) {
+    const e = el('div', 'empty-note'); e.append(icoEl('trophy', 'big'), 'No challenges yet. Tap + to create one — set dates, a steps target, points and daily tasks, and invite your team.');
+    body.append(e); return;
+  }
+  for (const c of list) {
+    const card = el('button', 'ch-card'); card.type = 'button'; card.onclick = () => openChallenge(c.id);
+    const ban = el('div', 'ch-banner'); if (okPhoto(c.banner)) ban.style.backgroundImage = `url("${c.banner}")`; else ban.classList.add('plain');
+    ban.append(el('span', 'ch-status s-' + c.status, STATUS_TXT[c.status]));
+    const meta = el('div', 'ch-meta');
+    meta.append(el('b', null, c.title));
+    const line = el('div', 'ch-line'); line.append(icoText('calendar', `${fmtDay(c.start)} – ${fmtDay(c.end)}`), icoText('users', `${c.participants}`));
+    if (c.joined) line.append(el('span', 'chip ok', 'Joined'));
+    meta.append(line);
+    card.append(ban, meta); body.append(card);
+  }
+}
+async function openChallenge(id, keepScroll) {
+  chView.id = id;
+  if (!layerLive(chView.layer)) chView.layer = pushLayer(() => { chView.id = null; chView.all = false; loadChallenges(); });
+  if (currentTab !== 'challenges') setTab('challenges');
+  const body = $('challengesBody');
+  if (!keepScroll) { body.innerHTML = ''; body.append(el('p', 'muted small empty-note', 'Loading…')); }
+  try { chView.data = await api('challenge/get', { room: 'general', id, all: chView.all, today: localDay() }); }
+  catch (e) { toast(e.message); closeLayer(chView.layer, () => { chView.id = null; loadChallenges(); }); return; }
+  renderChallenge(keepScroll);
+}
+function renderChallenge(keepScroll) {
+  const d = chView.data, c = d.challenge, a = c.activity, body = $('challengesBody'), scroll = body.scrollTop;
+  $('chTitle').textContent = c.title; $('chSub').textContent = `${STATUS_TXT[c.status]} · by ${c.mine ? 'you' : c.createdName}`;
+  $('newChallengeBtn').classList.add('hidden');
+  body.innerHTML = '';
+  // back row
+  const back = el('button', 'ch-back'); back.type = 'button'; back.append(icoEl('arrowLeft'), 'All challenges'); back.onclick = () => closeLayer(chView.layer, () => { chView.id = null; chView.all = false; loadChallenges(); });
+  body.append(back);
+  // info card
+  const info = el('div', 'ch-info');
+  info.append(icoText('calendar', `${fmtDay(c.start)} – ${fmtDay(c.end)}`), icoText('users', `${c.participants}`), el('span', 'ch-status s-' + c.status, STATUS_TXT[c.status]));
+  body.append(info);
+  if (okPhoto(c.banner)) { const im = el('img', 'ch-hero'); im.src = c.banner; im.alt = c.title; im.onclick = () => viewPhoto(c.banner); body.append(im); }
+  if (c.desc) body.append(el('p', 'ch-desc', c.desc));
+  // join / manage
+  const acts = el('div', 'ch-acts');
+  if (!d.joined && c.status !== 'ended') { const j = el('button', 'btn primary', 'Join challenge'); j.type = 'button'; j.onclick = async () => { try { await api('challenge/join', { room: 'general', id: c.id, today: localDay() }); toast(`You joined ${c.title}`); openChallenge(c.id); } catch (e) { toast(e.message); } }; acts.append(j); }
+  if (c.mine) {
+    const e1 = el('button', 'btn', 'Edit'); e1.type = 'button'; e1.onclick = () => openChallengeForm(c); acts.append(e1);
+    const e2 = el('button', 'btn ghost', 'Delete'); e2.type = 'button'; e2.onclick = () => deleteChallenge(c); acts.append(e2);
+  } else if (d.joined) { const l = el('button', 'btn ghost', 'Leave'); l.type = 'button'; l.onclick = () => leaveChallenge(c); acts.append(l); }
+  if (acts.childElementCount) body.append(acts);
+  // my ranking
+  const me1 = d.board.me;
+  const mr = el('div', 'ch-sec'); const mh = el('div', 'ch-sec-head'); mh.append(el('h3', null, 'My Ranking'));
+  const rf = el('button', 'btn small', 'Refresh'); rf.type = 'button'; rf.onclick = async () => { rf.disabled = true; try { if (healthStatus?.connected) await syncHealthNow(true); chView.data = await api('challenge/refresh', { room: 'general', id: c.id, all: chView.all, today: localDay() }); renderChallenge(true); toast('Leaderboard updated'); } catch (e) { toast(e.message); rf.disabled = false; } };
+  mh.append(rf); mr.append(mh);
+  const tiles = el('div', 'ch-tiles');
+  const tile = (cls, label, val) => { const t = el('div', 'ch-tile ' + cls); t.append(el('small', null, label), el('b', null, val)); tiles.append(t); };
+  tile('steps', 'Steps', fmtN(me1?.steps || 0)); tile('rank', 'My Rank', me1 ? String(me1.rank) : '–'); tile('pts', 'Points', fmtN(me1?.points || 0));
+  mr.append(tiles);
+  if (d.joined && c.status === 'live' && a.target) {
+    const p = el('div', 'ch-target'); const pct = Math.min(1, d.period / a.target);
+    p.append(el('div', 'ct-label', `${a.per === 'week' ? 'This week' : 'Today'}: ${fmtN(d.period)} / ${fmtN(a.target)} steps${pct >= 1 ? ' · target reached!' : ''}`));
+    const bar = el('div', 'ct-bar'); const f = el('i'); f.style.width = pct * 100 + '%'; if (pct >= 1) f.classList.add('done'); bar.append(f); p.append(bar);
+    mr.append(p);
+  }
+  const sync = el('p', 'muted small ch-sync');
+  sync.textContent = healthStatus?.connected ? `Steps sync from Google Health every 15 minutes${healthStatus.lastSync ? ` · last ${agoText(healthStatus.lastSync)}` : ''}.` : 'Steps come from walk mode, Google Health or the Android app (every 15 minutes), or add them in Settings → My steps.';
+  mr.append(sync);
+  body.append(mr);
+  // daily tasks
+  if (c.tasks.length) {
+    const ts = el('div', 'ch-sec'); ts.append(el('h3', null, 'Daily tasks'));
+    for (const t of d.tasks) {
+      const r = el('div', 'ch-task' + (t.done ? ' done' : ''));
+      const box = el('button', 'ct-check'); box.type = 'button'; box.innerHTML = t.done ? svgFor('check') : '';
+      box.setAttribute('aria-label', t.done ? 'Done' : 'Mark done');
+      if (t.kind === 'check' && d.joined && c.status === 'live') box.onclick = async () => { try { await api('challenge/task', { room: 'general', id: c.id, task: t.id, done: !t.done, today: localDay() }); t.done = !t.done; renderChallenge(true); } catch (e) { toast(e.message); } };
+      else box.disabled = true;
+      const m = el('div', 'ct-mid'); m.append(el('b', null, t.title));
+      m.append(el('small', null, t.kind === 'steps' ? `${fmtN(t.progress)} / ${fmtN(t.target)} steps · completes automatically` : 'Tick it when you’ve done it'));
+      r.append(box, m, el('span', 'ct-pts', `+${t.points}`)); ts.append(r);
+    }
+    body.append(ts);
+  }
+  // how points work
+  const rules = el('details', 'ch-sec ch-rules'); rules.append(el('summary', null, 'How points work'));
+  const ul = el('ul');
+  ul.append(el('li', null, `${a.points} point${a.points === 1 ? '' : 's'} for every ${fmtN(a.every)} steps`));
+  if (a.target) ul.append(el('li', null, `Target: ${fmtN(a.target)} steps a ${a.per}${a.bonus ? ` · +${a.bonus} bonus points each ${a.per} you reach it` : ''}`));
+  if (a.cap) ul.append(el('li', null, `Daily step cap: only the first ${fmtN(a.cap)} steps each day count`));
+  ul.append(el('li', null, `Tie-breaker: ${{ steps: 'more steps', days: `more ${a.per === 'week' ? 'weeks' : 'days'} hitting the target`, joined: 'joined first' }[c.tiebreak]}`));
+  ul.append(el('li', null, `Publish ${fmtDay(c.publishAt)} · runs ${fmtDay(c.start)} – ${fmtDay(c.end)}`));
+  rules.append(ul); body.append(rules);
+  // leaderboard
+  const lb = el('div', 'ch-sec'); const lh = el('div', 'ch-sec-head');
+  const t = el('h3'); t.append('Leaderboard', el('small', null, ` · Updated at ${new Date(d.board.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`)); lh.append(t);
+  if (d.board.total > 10) { const sa = el('button', 'btn small', chView.all ? 'Top 10' : 'See all'); sa.type = 'button'; sa.onclick = () => { chView.all = !chView.all; openChallenge(c.id, true); }; lh.append(sa); }
+  lb.append(lh);
+  const rowEl = (r, pin) => {
+    const row = el('div', 'ch-row' + (r.uid === me.uid ? ' me' : '') + (pin ? ' pin' : ''));
+    const rk = el('div', 'cr-rank'); rk.append(el('b', null, String(r.rank)));
+    if (r.prev && r.prev !== r.rank) { const up = r.prev > r.rank; const mv = el('span', 'cr-move ' + (up ? 'up' : 'down')); mv.innerHTML = `<svg viewBox="0 0 24 24"><path d="${up ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}"/></svg>`; mv.append(String(Math.abs(r.prev - r.rank))); rk.append(mv); }
+    const av = el('div', 'avatar'); paintAvatar(av, r.name, { photo: r.photo });
+    const m = el('div', 'cr-mid'); m.append(el('b', null, r.uid === me.uid ? `${r.name} (you)` : r.name));
+    const st = el('small'); st.append(icoEl('footprints'), `${fmtN(r.steps)} steps`); m.append(st);
+    row.append(rk, av, m, el('div', 'cr-pts', `${fmtN(r.points)}\npts`));
+    return row;
+  };
+  if (!d.board.rows.length) lb.append(el('p', 'muted small empty-note', 'Nobody has joined yet.'));
+  for (const r of d.board.rows) lb.append(rowEl(r));
+  body.append(lb);
+  if (me1 && !d.board.rows.some(r => r.uid === me.uid)) body.append(rowEl(me1, true));      // keep my row in view
+  if (keepScroll) body.scrollTop = scroll;
+}
+async function leaveChallenge(c) {
+  const yes = await popup({ icon: 'logout', title: `Leave ${c.title}?`, text: 'You’ll disappear from the leaderboard. You can join again while it’s running.', ok: 'Leave', danger: true });
+  if (!yes) return;
+  try { await api('challenge/leave', { room: 'general', id: c.id }); toast('You left the challenge'); openChallenge(c.id); } catch (e) { toast(e.message); }
+}
+async function deleteChallenge(c) {
+  const yes = await popup({ icon: 'trash', title: `Delete ${c.title}?`, text: 'The challenge, its leaderboard and everyone’s progress in it are removed. Steps themselves are kept.', ok: 'Delete', danger: true });
+  if (!yes) return;
+  try { await api('challenge/delete', { room: 'general', id: c.id }); toast('Challenge deleted'); closeLayer(chView.layer, () => { chView.id = null; loadChallenges(); }); } catch (e) { toast(e.message); }
+}
+// Create / edit form
+function openChallengeForm(old) {
+  const { d, inner } = sheet('challengeSheet', old ? 'Edit challenge' : 'New challenge');
+  d.classList.add('ch-sheet');
+  const f = el('form', 'ch-form'); f.noValidate = true;
+  const field = (label, input, hint) => { const l = el('label', 'field'); l.append(el('span', null, label), input); if (hint) l.append(el('small', 'muted', hint)); f.append(l); return input; };
+  const inp = (type, value, attrs = {}) => { const i = el('input'); i.type = type; if (value !== undefined && value !== null) i.value = value; Object.assign(i, attrs); return i; };
+  // banner
+  let bannerUrl = old?.banner || null, bannerFile = null;
+  const ban = el('button', 'ch-ban-pick'); ban.type = 'button';
+  const paintBan = () => { ban.innerHTML = ''; if (bannerFile) ban.style.backgroundImage = `url("${URL.createObjectURL(bannerFile)}")`; else if (okPhoto(bannerUrl)) ban.style.backgroundImage = `url("${bannerUrl}")`; else { ban.style.backgroundImage = ''; ban.append(icoEl('image'), 'Add a banner'); } };
+  const file = el('input'); file.type = 'file'; file.accept = 'image/*'; file.hidden = true; file.onchange = () => { if (file.files[0]) { bannerFile = file.files[0]; paintBan(); } };
+  ban.onclick = () => file.click(); paintBan(); f.append(ban, file);
+  const title = field('Challenge name', inp('text', old?.title || '', { maxLength: 60, placeholder: 'e.g. Mission Moon' }));
+  const desc = el('textarea'); desc.rows = 3; desc.maxLength = 600; desc.placeholder = 'What is it about? e.g. Our goal is to reach the moon in 30 days. One team, one mission.'; desc.value = old?.desc || ''; field('Description', desc);
+  const t0 = localDay();
+  const dates = el('div', 'ch-grid3');
+  const dField = (label, v) => { const l = el('label', 'field'); const i = inp('date', v); l.append(el('span', null, label), i); dates.append(l); return i; };
+  const pub = dField('Publish', old?.publishAt || t0), st = dField('Start', old?.start || t0), en = dField('End', old?.end || (() => { const x = new Date(); x.setDate(x.getDate() + 29); return new Date(x - x.getTimezoneOffset() * 60000).toISOString().slice(0, 10); })());
+  f.append(dates, el('small', 'muted ch-hint', 'People can see and join from the publish date. Steps count from start to end.'));
+  // audience
+  const aud = el('select');
+  aud.append(Object.assign(document.createElement('option'), { value: '', textContent: 'Everyone' }));
+  for (const r of rooms.filter(r => !r.dm && r.room !== 'general' && !r.hidden)) aud.append(Object.assign(document.createElement('option'), { value: r.room, textContent: `Members of ${r.title || '#' + r.room}` }));
+  aud.value = old?.audience?.room || ''; field('Who can join', aud);
+  // steps activity
+  f.append(el('h3', 'ch-form-sec', 'Activity: steps'));
+  const a = old?.activity || { per: 'day', target: 8000, every: 1000, points: 5, cap: 20000, bonus: 10 };
+  const tgtRow = el('div', 'ch-grid2');
+  const target = inp('number', a.target, { min: 0, step: 500 }); const tl = el('label', 'field'); tl.append(el('span', null, 'Target steps'), target); tgtRow.append(tl);
+  const per = el('select'); per.append(Object.assign(document.createElement('option'), { value: 'day', textContent: 'per day' }), Object.assign(document.createElement('option'), { value: 'week', textContent: 'per week' })); per.value = a.per;
+  const pl = el('label', 'field'); pl.append(el('span', null, 'Every'), per); tgtRow.append(pl); f.append(tgtRow);
+  const ptsRow = el('div', 'ch-points'); const every = inp('number', a.every, { min: 1, step: 100 }), points = inp('number', a.points, { min: 0 });
+  ptsRow.append(el('span', null, 'Every'), every, el('span', null, 'steps ='), points, el('span', null, 'points'));
+  const pw = el('div', 'field'); pw.append(el('span', null, 'Points'), ptsRow); f.append(pw);
+  const capRow = el('div', 'ch-grid2');
+  const cap = inp('number', a.cap, { min: 0, step: 1000 }); const cl = el('label', 'field'); cl.append(el('span', null, 'Daily step cap'), cap, el('small', 'muted', '0 = no cap. Steps above it don’t count.')); capRow.append(cl);
+  const bonus = inp('number', a.bonus, { min: 0 }); const bl = el('label', 'field'); bl.append(el('span', null, 'Target bonus points'), bonus, el('small', 'muted', 'Extra points each time the target is hit.')); capRow.append(bl);
+  f.append(capRow);
+  const tb = el('select'); for (const [v, l] of [['steps', 'More steps'], ['days', 'More days hitting the target'], ['joined', 'Joined first']]) tb.append(Object.assign(document.createElement('option'), { value: v, textContent: l }));
+  tb.value = old?.tiebreak || 'steps'; field('Tie-breaker (equal points)', tb);
+  // daily tasks
+  f.append(el('h3', 'ch-form-sec', 'Daily tasks'));
+  const tasksBox = el('div', 'ch-tasks-edit'); f.append(tasksBox);
+  const tasks = (old?.tasks || [{ kind: 'steps', title: 'Walk 5,000 steps', target: 5000, points: 10 }, { kind: 'check', title: 'Take the stairs once', points: 5 }]).map(x => ({ ...x }));
+  const drawTasks = () => {
+    tasksBox.innerHTML = '';
+    tasks.forEach((t, i) => {
+      const r = el('div', 'cte-row');
+      const k = el('select'); k.append(Object.assign(document.createElement('option'), { value: 'steps', textContent: 'Steps' }), Object.assign(document.createElement('option'), { value: 'check', textContent: 'Tick off' })); k.value = t.kind; k.onchange = () => { t.kind = k.value; drawTasks(); };
+      const ti = inp('text', t.title, { maxLength: 60, placeholder: t.kind === 'steps' ? 'Walk 5,000 steps' : 'e.g. Drink 8 glasses of water' }); ti.oninput = () => { t.title = ti.value; };
+      const tg = inp('number', t.target || 5000, { min: 100, step: 500, title: 'Steps' }); tg.oninput = () => { t.target = +tg.value; }; tg.classList.toggle('hidden', t.kind !== 'steps');
+      const tp = inp('number', t.points ?? 10, { min: 0, title: 'Points' }); tp.oninput = () => { t.points = +tp.value; };
+      const rm = el('button', 'icon-btn'); rm.type = 'button'; rm.innerHTML = svgFor('x'); rm.setAttribute('aria-label', 'Remove task'); rm.onclick = () => { tasks.splice(i, 1); drawTasks(); };
+      const top = el('div', 'cte-top'); top.append(k, ti, rm);
+      const bot = el('div', 'cte-bot'); if (t.kind === 'steps') bot.append(el('span', null, 'Steps'), tg); bot.append(el('span', null, 'Points'), tp);
+      r.append(top, bot); tasksBox.append(r);
+    });
+    if (tasks.length < 12) { const add = el('button', 'link-btn', '+ Add a daily task'); add.type = 'button'; add.onclick = () => { tasks.push({ kind: 'check', title: '', points: 5 }); drawTasks(); }; tasksBox.append(add); }
+  };
+  drawTasks();
+  const err = el('p', 'error'); const save = el('button', 'btn primary block', old ? 'Save changes' : 'Create challenge'); save.type = 'submit';
+  f.append(err, save);
+  f.onsubmit = async e => {
+    e.preventDefault(); err.textContent = ''; save.disabled = true;
+    try {
+      let banner = bannerUrl;
+      if (bannerFile) {
+        const blob = await (await fetch(await shrinkImage(bannerFile, 1600, .85))).blob();
+        const r = await fetch('/api/challenge/banner', { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg', 'X-Chat-Device': me.device, Authorization: 'Bearer ' + me.token } });
+        const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Banner upload failed'); banner = j.url;
+      }
+      const payload = { room: 'general', audience: aud.value || null, id: old?.id, title: title.value, desc: desc.value, banner, publishAt: pub.value, start: st.value, end: en.value, today: localDay(),
+        activity: { per: per.value, target: +target.value, every: +every.value, points: +points.value, cap: +cap.value, bonus: +bonus.value }, tiebreak: tb.value,
+        tasks: tasks.map(t => ({ id: t.id, kind: t.kind, title: t.title, target: t.target, points: t.points })) };
+      const r = await api(old ? 'challenge/update' : 'challenge/create', payload);
+      d.close(); toast(old ? 'Challenge updated' : 'Challenge created — share it with your team!');
+      openChallenge(r.challenge.id);
+    } catch (e2) { err.textContent = e2.message; save.disabled = false; }
+  };
+  inner.append(f);
+  d.showModal();
+}
+$('newChallengeBtn').onclick = () => openChallengeForm(null);
 
 /* ---------------- App style picker ---------------- */
 function stylePreview(st) {
