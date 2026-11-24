@@ -1769,3 +1769,11 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .gs-chips .chip-btn.on { border-color: var(--brand); }
 #gamePicker .btn.block { margin-top: 16px; }
 :root[data-style="brutal"] .gs-step { border: 2px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); }
+/* game sounds picker */
+.sfx-pick { display: grid; gap: 8px; margin-top: 8px; }
+.sfx-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 500; }
+.sfx-row > span { font-size: 14px; color: var(--muted); white-space: nowrap; }
+.sfx-ctl { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; justify-content: flex-end; }
+.sfx-ctl select { min-width: 0; max-width: 220px; flex: 1; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); padding: 0 8px; font-size: 14px; }
+.sfx-test svg, .sfx-mute svg { width: 20px; height: 20px; }
+.cg-head { gap: 4px; } .cg-head b { flex: 1; }

@@ -11,6 +11,9 @@ A quick group chat app. Run it in two ways with the same code:
 - **Chat games** (Games in a chat's menu): Imposter, Mafia, Episode Recall, Emoji Guess, Would You Rather, Tic-tac-toe and
   Rock Paper Scissors. Whoever starts a game picks the **number of rounds** (or wins needed in RPS) and the **time for each
   turn** (clue time, time per puzzle, day discussion…); everyone sees the settings in the lobby.
+  **Sounds**: a wrong answer or lost round plays the wrong sound, a right answer or point plays the right sound. The starter
+  (or challenge creator) picks them: built-in sounds made in the app (Fahh meme style, buzzer, sad trombone, bruh / Crorepati
+  jackpot, ding ding, arcade coin, ta-da) or their own uploaded clip. Anyone can mute game sounds with the speaker button.
 - **Challenges** (Challenges tab): anyone can create a step challenge with a **banner**, description, **publish / start /
   end dates** and who can join (everyone or one group). Steps activity: a **target per day or per week**, **points for every
   N steps** (e.g. 5 points per 1,000), a **daily step cap** (steps above it don't count), bonus points for hitting the target,

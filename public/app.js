@@ -57,6 +57,7 @@ const IC = {
   "smile": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M8.5 14.5s1.3 2 3.5 2 3.5-2 3.5-2M9 9.5h.01M15 9.5h.01\"/>",
   "ban": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M5.6 5.6l12.8 12.8\"/>",
   "mic": "<rect x=\"9\" y=\"3\" width=\"6\" height=\"11\" rx=\"3\"/><path d=\"M5 11a7 7 0 0 0 14 0M12 18v3\"/>",
+  "volumeOff": "<path d=\"M4 9h4l5-4v14l-5-4H4z\"/><path d=\"M16 9l6 6M22 9l-6 6\"/>",
   "volume": "<path d=\"M4 9h4l5-4v14l-5-4H4z\"/><path d=\"M16.5 9a4 4 0 0 1 0 6M19.5 6a8 8 0 0 1 0 12\"/>",
   "signal": "<path d=\"M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0M12 19h.01M3 3l18 18\"/>",
   "hourglass": "<path d=\"M7 3h10M7 21h10M8 3c0 4 8 5 8 9s-8 5-8 9M16 3c0 4-8 5-8 9s8 5 8 9\"/>",
@@ -3966,6 +3967,7 @@ function setGame(g) {
   if (g) gameClockOff = g.now - Date.now();
   if (sig === gameSig) return;
   gameSig = sig; game = g;
+  try { gameSfx(g); } catch {}
   renderGameBanner();
   if ($('gameSheet')?.open) renderGame();
 }
@@ -4046,8 +4048,7 @@ async function openGamePicker() {
     const b = el('button', 'game-card'); b.type = 'button';
     b.append(icoEl(GAME_ICON[x.kind] || 'sparkles', 'gc-ic'), el('b', null, x.name), el('small', null, x.desc), el('em', null, x.min === x.max ? `${x.min} players` : `${x.min}+ players`));
     b.onclick = async () => {
-      if (x.set || x.kind === 'episode') return gameSetup(x, d, inner);
-      try { await gameApi('start', { kind: x.kind }); if (d.open) d.close(); openGame(); } catch {}
+      return gameSetup(x, d, inner);
     };
     grid.append(b);
   }
@@ -4056,7 +4057,7 @@ async function openGamePicker() {
 }
 // Before starting: the starter picks rounds (or wins needed) and the time for each turn
 function gameSetup(x, d, inner) {
-  const st = x.set || {}, val = { rounds: st.defRounds, wins: st.defWins, secs: st.defSecs };
+  const st = x.set || {}, val = { rounds: st.defRounds, wins: st.defWins, secs: st.defSecs }, sounds = { wrong: 'fahh', right: 'crore' };
   [...inner.children].slice(1).forEach(n => n.remove());
   inner.querySelector('.sheet-head h2').textContent = x.name;
   const back = el('button', 'link-btn gs-back', 'All games'); back.type = 'button'; back.prepend(icoEl('arrowLeft')); back.onclick = () => openGamePicker();
@@ -4083,13 +4084,109 @@ function gameSetup(x, d, inner) {
     for (const n of opts) { const c = el('button', 'chip-btn' + (n === val.secs ? ' on' : ''), fmt(n)); c.type = 'button'; c.onclick = () => { val.secs = n; chips.querySelectorAll('.chip-btn').forEach(z => z.classList.toggle('on', z === c)); }; chips.append(c); }
     box.append(chips); inner.append(box);
   }
+  const sb = el('div', 'gs-time'); sb.append(el('span', null, 'Sounds'), soundPicker(sounds)); inner.append(sb);
   const go = el('button', 'btn primary block', 'Start game'); go.type = 'button';
   go.onclick = async () => {
-    const extra = { ...val }; if (series) { if (!series.value.trim()) return toast('Type the show’s name'); extra.series = series.value.trim(); }
+    const extra = { ...val, sounds }; if (series) { if (!series.value.trim()) return toast('Type the show’s name'); extra.series = series.value.trim(); }
     go.disabled = true;
     try { await gameApi('start', { kind: x.kind, ...extra }); if (d.open) d.close(); openGame(); } catch { go.disabled = false; }
   };
   inner.append(go);
+}
+/* ---------------- Game sounds (made with Web Audio, or a clip the game starter uploaded) ---------------- */
+const SFX_NAMES = {
+  wrong: { fahh: 'Fahh (meme style)', buzzer: 'Game-show buzzer', trombone: 'Sad trombone', bruh: 'Bruh', off: 'No sound' },
+  right: { crore: 'Crorepati jackpot', ding: 'Ding ding', coin: 'Arcade coin', tada: 'Ta-da!', off: 'No sound' },
+};
+let sfxCtx = null; const sfxClips = {};
+const sfxMuted = () => { try { return localStorage.getItem('ic-sfx-off') === '1'; } catch { return false; } };
+function sfxSetMuted(off) { try { localStorage.setItem('ic-sfx-off', off ? '1' : '0'); } catch {} }
+function sfxAc() { const C = window.AudioContext || window.webkitAudioContext; if (!C) return null; sfxCtx ||= new C(); if (sfxCtx.state === 'suspended') sfxCtx.resume().catch(() => {}); return sfxCtx; }
+document.addEventListener('pointerdown', () => { if (sfxCtx?.state === 'suspended') sfxCtx.resume().catch(() => {}); }, { passive: true });
+function sfxNoise(c, secs) { const b = c.createBuffer(1, Math.ceil(c.sampleRate * secs), c.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; const n = c.createBufferSource(); n.buffer = b; return n; }
+function sfxEnv(c, t, a, hold, rel, peak, dest) { const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.setValueAtTime(peak, t + a + hold); g.gain.exponentialRampToValueAtTime(0.0001, t + a + hold + rel); g.connect(dest); return g; }
+function sfxTone(c, out, type, f, t, dur, peak = .3, f2) { const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur); o.connect(sfxEnv(c, t, .01, dur * .3, dur * .7, peak, out)); o.start(t); o.stop(t + dur + .05); return o; }
+function sfxVoice(c, out, t, f1, f2, dur, formants, peak) {     // a sung "aah"/"uh": sawtooth through vowel formants, with wobble
+  const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(f1, t); o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+  const vib = c.createOscillator(), vg = c.createGain(); vib.frequency.value = 5.5; vg.gain.value = f1 * .025; vib.connect(vg).connect(o.frequency);
+  const env = sfxEnv(c, t, .06, dur * .55, dur * .45, peak, out);
+  formants.forEach(([fq, gn]) => { const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = fq; bp.Q.value = 7; const g = c.createGain(); g.gain.value = gn; o.connect(bp).connect(g).connect(env); });
+  o.start(t); vib.start(t); o.stop(t + dur + .1); vib.stop(t + dur + .1);
+}
+const SFX_SYNTH = {
+  fahh(c, out, t) {        // breathy "ff…" then a long falling "AAAHH"
+    const n = sfxNoise(c, .25), hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2200; n.connect(hp).connect(sfxEnv(c, t, .05, .08, .12, .55, out)); n.start(t);
+    sfxVoice(c, out, t + .14, 290, 105, 1.25, [[800, 2.2], [1200, 1.2], [2600, .5]], .9);
+    const n2 = sfxNoise(c, 1.3), bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1100; bp.Q.value = 1; n2.connect(bp).connect(sfxEnv(c, t + .14, .1, .6, .6, .12, out)); n2.start(t + .14);
+  },
+  buzzer(c, out, t) { const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1600; lp.connect(out); for (const f of [110, 116.5]) sfxTone(c, lp, 'square', f, t, .7, .22); },
+  trombone(c, out, t) { const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1300; lp.connect(out); [[392, .32], [370, .32], [349, .32]].forEach(([f, d], i) => sfxVoice(c, lp, t + i * .36, f, f * .98, d, [[700, 1.5], [1100, .8]], .7)); sfxVoice(c, lp, t + 1.08, 330, 300, 1.1, [[700, 1.5], [1100, .8]], .7); },
+  bruh(c, out, t) { const n = sfxNoise(c, .1), lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500; n.connect(lp).connect(sfxEnv(c, t, .01, .03, .05, .4, out)); n.start(t); sfxVoice(c, out, t + .06, 125, 92, .45, [[600, 2], [1000, 1]], .9); },
+  crore(c, out, t) {       // KBC-style jackpot: boom, a rising brass swell, then sparkling chimes
+    sfxTone(c, out, 'sine', 70, t, 1.1, .5, 38);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(250, t); lp.frequency.exponentialRampToValueAtTime(3800, t + .9);
+    const sw = sfxEnv(c, t, .5, .7, .8, .22, out); lp.connect(sw);
+    for (const f of [130.8, 164.8, 196, 261.6]) { const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = (Math.random() - .5) * 14; o.connect(lp); o.start(t); o.stop(t + 2.1); }
+    [1046.5, 1318.5, 1568, 2093, 2637].forEach((f, i) => { sfxTone(c, out, 'sine', f, t + .55 + i * .11, .7, .18); sfxTone(c, out, 'triangle', f * 2, t + .55 + i * .11, .35, .05); });
+  },
+  ding(c, out, t) { for (const [f, d] of [[880, 0], [1318.5, .16]]) { sfxTone(c, out, 'sine', f, t + d, 1, .3); sfxTone(c, out, 'sine', f * 2.76, t + d, .4, .07); } },
+  coin(c, out, t) { sfxTone(c, out, 'square', 988, t, .08, .26); sfxTone(c, out, 'square', 1319, t + .08, .45, .26); },
+  tada(c, out, t) { const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400; lp.connect(out); sfxTone(c, lp, 'sawtooth', 392, t, .12, .16); sfxTone(c, lp, 'sawtooth', 523, t + .14, .12, .16); for (const f of [659, 784, 1046.5]) sfxTone(c, lp, 'sawtooth', f, t + .3, 1, .13); },
+};
+// kind: 'wrong' | 'right'; choice: a built-in name or an uploaded clip's URL
+function playSfx(kind, choice, force = false) {
+  if (!force && sfxMuted()) return;
+  choice ||= kind === 'wrong' ? 'fahh' : 'crore';
+  if (choice === 'off') return;
+  if (choice.startsWith('/api/file/')) { const a = sfxClips[choice] ||= new Audio(choice); try { a.currentTime = 0; a.volume = .9; a.play().catch(() => {}); } catch {} return; }
+  const c = sfxAc(), fn = SFX_SYNTH[choice]; if (!c || !fn) return;
+  const out = c.createGain(); out.gain.value = .9; out.connect(c.destination); fn(c, out, c.currentTime + .02);
+}
+// Picker used when starting a chat game or setting up a challenge game. val: { wrong, right }
+function soundPicker(val) {
+  const box = el('div', 'sfx-pick');
+  for (const kind of ['wrong', 'right']) {
+    const row = el('div', 'sfx-row'), sel = el('select'); sel.setAttribute('aria-label', kind === 'wrong' ? 'Wrong answer sound' : 'Right answer sound');
+    const fill = () => {
+      sel.innerHTML = '';
+      for (const [k, name] of Object.entries(SFX_NAMES[kind])) sel.append(Object.assign(document.createElement('option'), { value: k, textContent: name }));
+      if (val[kind]?.startsWith('/api/file/')) sel.append(Object.assign(document.createElement('option'), { value: val[kind], textContent: 'Your uploaded sound' }));
+      sel.append(Object.assign(document.createElement('option'), { value: '__up', textContent: 'Upload your own…' }));
+      sel.value = val[kind];
+    };
+    const file = el('input'); file.type = 'file'; file.accept = 'audio/*'; file.hidden = true;
+    file.onchange = async () => {
+      const f = file.files[0]; file.value = ''; if (!f) return fill();
+      if (f.size > 600 * 1024) { toast('Pick a short clip (under 600 KB)'); return fill(); }
+      try { toast('Uploading sound…'); val[kind] = await upload(f); fill(); playSfx(kind, val[kind], true); } catch (e) { toast(e.message); fill(); }
+    };
+    sel.onchange = () => { if (sel.value === '__up') return file.click(); val[kind] = sel.value; playSfx(kind, val[kind], true); };
+    const test = el('button', 'icon-btn sfx-test'); test.type = 'button'; test.innerHTML = svgFor('volume'); test.setAttribute('aria-label', 'Play this sound'); test.onclick = () => playSfx(kind, val[kind], true);
+    const lab = el('span', null, kind === 'wrong' ? 'Wrong answer' : 'Right answer');
+    const ctl = el('div', 'sfx-ctl'); ctl.append(sel, test); row.append(lab, ctl, file); box.append(row); fill();
+  }
+  return box;
+}
+function sfxMuteBtn() {
+  const b = el('button', 'icon-btn sfx-mute'); b.type = 'button';
+  const paint = () => { b.innerHTML = svgFor(sfxMuted() ? 'volumeOff' : 'volume'); b.setAttribute('aria-label', sfxMuted() ? 'Turn game sounds on' : 'Mute game sounds'); b.title = b.getAttribute('aria-label'); };
+  b.onclick = e => { e.stopPropagation(); sfxSetMuted(!sfxMuted()); paint(); if (!sfxMuted()) playSfx('right', 'ding'); }; paint(); return b;
+}
+// Chat games: right sound when your score goes up; wrong when a round/throw ends and someone else scored instead of you
+let sfxBase = null;
+function gameSfx(g) {
+  if (!g || !g.joined) { sfxBase = null; return; }
+  const key = `${g.id}-${g.round}-${g.data?.throwNo || 0}`, val = u => (g.scores?.[u] || 0) + (g.data?.wins?.[u] || 0);
+  const snap = () => Object.fromEntries(g.players.map(p => [p.uid, val(p.uid)]));
+  if (!sfxBase || sfxBase.key !== key) {
+    const fresh = !sfxBase || !sfxBase.key.startsWith(g.id + '-');
+    sfxBase = { key, s: fresh ? snap() : sfxBase.last || snap(), done: false };
+  }
+  sfxBase.last = snap();
+  if (sfxBase.done) return;
+  const mine = val(me.uid) - (sfxBase.s[me.uid] || 0), others = g.players.some(p => p.uid !== me.uid && val(p.uid) > (sfxBase.s[p.uid] || 0));
+  if (mine > 0) { sfxBase.done = true; playSfx('right', g.cfg?.sounds?.right); }
+  else if (others && ['reveal', 'shown', 'over'].includes(g.phase)) { sfxBase.done = true; playSfx('wrong', g.cfg?.sounds?.wrong); }
 }
 let gameWalkie = false;          // true when the game (not you) switched the walkie-talkie on
 function openGame() {
@@ -4119,6 +4216,7 @@ function renderGame() {
   const oldYt = inner.querySelector('.g-yt'); oldYt?.remove();          // keep the playing clip (re-adding it as-is doesn't restart it)
   [...inner.children].slice(1).forEach(n => n.remove());
   inner.querySelector('.sheet-head h2').textContent = game ? game.name : 'Games';
+  { const hd = inner.querySelector('.sheet-head'); if (hd && !hd.querySelector('.sfx-mute')) hd.lastElementChild.before(sfxMuteBtn()); }
   if (!game) { inner.append(el('p', 'empty-note', 'No game running.')); return; }
   const g = game, host = g.host === me.uid, canEnd = host || group?.isAdmin;
   if (g.data?.say && g.phase !== 'lobby') narrate(g.data.say);
@@ -4260,7 +4358,7 @@ function renderGame() {
           const v = (gameDraft.eg || '').trim(); if (!v) return;
           let r; try { r = await gameApi('move', { text: v }); } catch { return; }      // gameApi already shows the error
           if (r.correct) { gameDraft.eg = ''; gameDraft.egFb = null; toast('Correct!'); }
-          else { if (!r.hint) gameDraft.eg = ''; gameDraft.egFb = { msg: r.msg || 'Not quite — try again', hint: r.hint, shake: true }; if (navigator.vibrate) navigator.vibrate(60); }
+          else { playSfx('wrong', g.cfg?.sounds?.wrong); if (!r.hint) gameDraft.eg = ''; gameDraft.egFb = { msg: r.msg || 'Not quite — try again', hint: r.hint, shake: true }; if (navigator.vibrate) navigator.vibrate(60); }
           renderGame(); setTimeout(() => document.querySelector('.g-input[data-gk="eg"]')?.focus(), 0);
         };
         gi.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
@@ -4703,7 +4801,9 @@ function openChallengeForm(old) {
   const g2 = el('div', 'ch-grid2'); const gl1 = el('label', 'field'); gl1.append(el('span', null, 'Plays per day'), gPer); const gl2 = el('label', 'field'); gl2.append(el('span', null, 'Points per score'), gPts); g2.append(gl1, gl2);
   const gl3 = el('label', 'field'); gl3.append(el('span', null, 'What counts'), gMode);
   const gHint = el('small', 'muted ch-hint');
-  gBox.append(g2, gl3, gHint); f.append(gBox);
+  const gSounds = { wrong: 'fahh', right: 'crore', ...(old?.game?.sounds || {}) };
+  const gl4 = el('div', 'field'); gl4.append(el('span', null, 'Sounds'), soundPicker(gSounds));
+  gBox.append(g2, gl3, gl4, gHint); f.append(gBox);
   const paintGame = () => { gBox.classList.toggle('hidden', !gk.value); if (gk.value) gHint.textContent = `${CG_INFO[gk.value].how} e.g. ${gPts.value || 0} pts per ${CG_INFO[gk.value].unit}.`; };
   gk.onchange = () => { if (gk.value && !old?.game) gPts.value = { math: 2, reaction: 0.05, memory: 5, bubbles: 1, dash: 0.5, stack: 3, emoji: 5, scramble: 3, rps: 2, ttt: 3 }[gk.value]; paintGame(); }; gPts.oninput = paintGame; paintGame();
   const err = el('p', 'error'); const save = el('button', 'btn primary block', old ? 'Save changes' : 'Create challenge'); save.type = 'submit';
@@ -4720,7 +4820,7 @@ function openChallengeForm(old) {
       const payload = { room: 'general', audience: aud.value || null, id: old?.id, title: title.value, desc: desc.value, banner, publishAt: pub.value, start: st.value, end: en.value, today: localDay(),
         activity: { per: per.value, target: +target.value, every: +every.value, points: +points.value, cap: +cap.value, bonus: +bonus.value }, tiebreak: tb.value,
         tasks: tasks.map(t => ({ id: t.id, kind: t.kind, title: t.title, target: t.target, points: t.points })),
-        game: gk.value ? { kind: gk.value, perDay: +gPer.value, ptsPer: +gPts.value, mode: gMode.value } : null };
+        game: gk.value ? { kind: gk.value, perDay: +gPer.value, ptsPer: +gPts.value, mode: gMode.value, sounds: gSounds } : null };
       const r = await api(old ? 'challenge/update' : 'challenge/create', payload);
       d.close(); toast(old ? 'Challenge updated' : 'Challenge created — share it with your team!');
       openChallenge(r.challenge.id);
@@ -4775,16 +4875,18 @@ async function playChallengeGame(c) {
   const o = cgEl(); o.classList.remove('hidden'); o.innerHTML = '';
   cg.layer = pushLayer(() => cgClose());
   const head = el('div', 'cg-head'); const x = el('button', 'icon-btn'); x.type = 'button'; x.innerHTML = svgFor('x'); x.setAttribute('aria-label', 'Quit'); x.onclick = () => closeLayer(cg.layer, () => cgClose());
-  head.append(el('b', null, info.name), x); o.append(head);
+  head.append(el('b', null, info.name), sfxMuteBtn(), x); o.append(head);
   const stage = el('div', 'cg-stage'); o.append(stage);
   ({ math: cgMath, reaction: cgReaction, memory: cgMemory, bubbles: cgBubbles, dash: cgDash, stack: cgStack, emoji: cgGuess, scramble: cgGuess, rps: cgRps, ttt: cgTtt })[g.kind](stage, s);
 }
+const cgSfx = kind => playSfx(kind, cg.c?.game?.sounds?.[kind]);
 async function cgFinish(stage, payload) {
   if (cg.done) return; cg.done = true; clearInterval(cg.tick); clearTimeout(cg.timer);
   stage.innerHTML = ''; stage.append(el('p', 'cg-big', 'Checking…'));
   let r; try { r = await api('challenge/game/finish', { room: 'general', id: cg.c.id, sid: cg.s.sid, today: localDay(), ...payload }); } catch (e) { stage.replaceChildren(el('p', 'cg-msg', e.message)); return; }
   stage.innerHTML = '';
   const res = el('div', 'cg-result');
+  if (r.score > 0) cgSfx('right');
   res.append(icoEl('trophy', 'cg-trophy'), el('small', null, 'Your score'), el('b', 'cg-score', fmtN(r.score)), el('span', 'muted', r.detail));
   res.append(el('p', 'cg-pts', `Game points today: ${fmtN(r.points)}${r.best > r.score ? ` (best today ${fmtN(r.best)})` : ''}`));
   res.append(el('p', 'muted small', 'The leaderboard is already updated.'));
@@ -4812,11 +4914,13 @@ function cgGuess(stage, s) {
     busy = false; if (cg.done) return;
     score = r.score ?? score; cnt.textContent = score;
     if (r.tryAgain) {           // stay on this puzzle: say how close it was, shake, clear for a new try
+      cgSfx('wrong');
       fb.className = 'cg-fb ' + (r.hint ? 'close' : 'bad'); fb.textContent = r.msg || 'Not quite — try again';
       fb.classList.remove('pop'); void fb.offsetWidth; fb.classList.add('pop');
       inp.classList.remove('wrong'); void inp.offsetWidth; inp.classList.add('wrong'); if (navigator.vibrate) navigator.vibrate(60);
       if (!r.hint) inp.value = ''; inp.focus(); if (r.hint) inp.select(); return;
     }
+    if (r.correct) cgSfx('right');
     fb.className = 'cg-fb ' + (r.correct ? 'good' : ''); fb.textContent = r.correct ? `Yes! ${r.answer}` : r.answer ? `It was: ${r.answer}` : '';
     if (r.over || !r.next) return cgFinish(stage, {});
     cur = r.next; inp.value = ''; inp.classList.remove('wrong'); show(); inp.focus();
@@ -4841,6 +4945,7 @@ function cgRps(stage, s) {
       if (busy || cg.done) return; busy = true; you.textContent = art[k]; bot.textContent = '…'; bot.classList.add('shake');
       let r; try { r = await api('challenge/game/move', { room: 'general', id: cg.c.id, sid: s.sid, today: localDay(), choice: k }); } catch (e) { busy = false; res.textContent = e.message; return; }
       await new Promise(ok => setTimeout(ok, 450)); bot.classList.remove('shake'); bot.textContent = art[r.bot];
+      if (r.result !== 'draw') cgSfx(r.result === 'win' ? 'right' : 'wrong');
       res.className = 'cg-fb ' + (r.result === 'win' ? 'good' : r.result === 'lose' ? 'bad' : '');
       res.textContent = r.result === 'win' ? `${names[k]} beats ${names[r.bot].toLowerCase()} — +2` : r.result === 'lose' ? `${names[r.bot]} beats ${names[k].toLowerCase()}` : 'Draw — +1';
       score.textContent = r.score; [...dots.children].forEach((d, j) => d.classList.toggle('on', j < r.round));
@@ -4873,6 +4978,7 @@ function cgTtt(stage, s) {
   };
   const over = r => {
     games.push(moves); busy = true; if (r === 'X') w++; else if (r === 'draw') d++;
+    if (r !== 'draw') cgSfx(r === 'X' ? 'right' : 'wrong');
     msg.textContent = r === 'X' ? 'You win! +3' : r === 'draw' ? 'Draw — +1' : 'Computer wins';
     tally.textContent = `${w} won · ${d} drawn · ${games.length - w - d} lost`;
     cg.timer = setTimeout(() => games.length >= s.games ? cgFinish(stage, { games }) : newGame(), 1100);
@@ -4913,7 +5019,7 @@ function cgReaction(stage, s) {
   pad.onpointerdown = e => {
     e.preventDefault(); if (cg.done) return;
     if (state === 'idle') return round();
-    if (state === 'wait') { clearTimeout(cg.timer); state = 'idle'; paint('early', 'Too soon!', 'Tap to try this round again'); return; }
+    if (state === 'wait') { cgSfx('wrong'); clearTimeout(cg.timer); state = 'idle'; paint('early', 'Too soon!', 'Tap to try this round again'); return; }
     if (state === 'go') {
       const ms = Math.round(performance.now() - t0); times.push(Math.max(100, ms)); state = 'shown';
       paint('shown', `${ms} ms`, times.length < s.rounds ? 'Next round…' : 'Nice!');
@@ -4937,7 +5043,7 @@ function cgMemory(stage, s) {
     if (busy || cg.done) return;
     input.push(k); flash(k, 'tap', 200);
     const j = input.length - 1;
-    if (k !== s.path[j]) { levels.push(input.slice()); busy = true; tiles[k].classList.add('wrong'); msg.textContent = `Oops! You reached a path of ${n - 1}`; return void (cg.timer = setTimeout(() => cgFinish(stage, { levels }), 1100)); }
+    if (k !== s.path[j]) { cgSfx('wrong'); levels.push(input.slice()); busy = true; tiles[k].classList.add('wrong'); msg.textContent = `Oops! You reached a path of ${n - 1}`; return void (cg.timer = setTimeout(() => cgFinish(stage, { levels }), 1100)); }
     if (input.length === n) { levels.push(input.slice()); if (n >= s.path.length) return cgFinish(stage, { levels }); n++; busy = true; msg.textContent = 'Correct!'; cg.timer = setTimeout(watch, 700); }
   };
   stage.append(msg, grid); watch();
