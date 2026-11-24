@@ -8,6 +8,10 @@ A quick group chat app. Run it in two ways with the same code:
 | **Netlify** | Netlify Functions + Netlify Blobs | Anyone with the link (groups can have their own password) |
 
 ## Features
+- **App lock** (Settings → App lock): Intra Chat asks for your **fingerprint / face** (or the phone's PIN/pattern on
+  Android) or a 4–8 digit **app code** when you open it — immediately, after 1 minute or after 30 minutes away. Checked on the
+  device, like WhatsApp; "Forgot code" signs you out. **Hidden chats** can also open with fingerprint / face: each device
+  registers a passkey (browser) or an Android Keystore key, and unlocking signs a one-time challenge the server checks.
 - **Chat games** (Games in a chat's menu): Imposter, Mafia, Episode Recall, Emoji Guess, Would You Rather, Tic-tac-toe and
   Rock Paper Scissors. Whoever starts a game picks the **number of rounds** (or wins needed in RPS) and the **time for each
   turn** (clue time, time per puzzle, day discussion…); everyone sees the settings in the lobby.

@@ -17,6 +17,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(StepSyncPlugin.class);   // background Health Connect step sync
         registerPlugin(WalkiePlugin.class);     // keeps the walkie-talkie alive in the background
+        registerPlugin(BiometricPlugin.class);  // fingerprint / face lock
         super.onCreate(savedInstanceState);
         takeRoom(getIntent());
 

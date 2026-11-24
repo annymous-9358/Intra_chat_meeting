@@ -57,6 +57,7 @@ const IC = {
   "smile": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M8.5 14.5s1.3 2 3.5 2 3.5-2 3.5-2M9 9.5h.01M15 9.5h.01\"/>",
   "ban": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M5.6 5.6l12.8 12.8\"/>",
   "mic": "<rect x=\"9\" y=\"3\" width=\"6\" height=\"11\" rx=\"3\"/><path d=\"M5 11a7 7 0 0 0 14 0M12 18v3\"/>",
+  "fingerprint": "<path d=\"M12 11v3a8 8 0 0 1-1.5 4.7M8.5 13.5V11a3.5 3.5 0 0 1 7 0v1M18.8 15.5A13 13 0 0 0 19 13v-2a7 7 0 0 0-11.5-5.4M5 15v-4a7 7 0 0 1 .9-3.4M15.4 15.6a12 12 0 0 1-1.5 4.6M5.7 18.6A10.6 10.6 0 0 0 8.5 13.5\"/>",
   "volumeOff": "<path d=\"M4 9h4l5-4v14l-5-4H4z\"/><path d=\"M16 9l6 6M22 9l-6 6\"/>",
   "volume": "<path d=\"M4 9h4l5-4v14l-5-4H4z\"/><path d=\"M16.5 9a4 4 0 0 1 0 6M19.5 6a8 8 0 0 1 0 12\"/>",
   "signal": "<path d=\"M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0M12 19h.01M3 3l18 18\"/>",
@@ -166,7 +167,7 @@ function popup({ icon = '', title, text = '', input = null, ok = 'OK', cancel = 
     field.classList.toggle('hidden', !input);
     if (input) {
       inp.type = input.type || 'text'; inp.value = input.value || ''; inp.placeholder = input.placeholder || '';
-      inp.maxLength = input.maxLength || 140; inp.autocomplete = input.type === 'password' ? 'current-password' : 'off';
+      inp.maxLength = input.maxLength || 140; inp.inputMode = input.inputmode || ''; inp.autocomplete = input.type === 'password' ? 'current-password' : 'off';
       eye.classList.toggle('hidden', input.type !== 'password'); eye.textContent = 'Show';
     }
     let done = false;
@@ -412,6 +413,7 @@ function sessionExpired() {
 function enterApp() {
   expiredShown = false;
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+  if (appLockOn() && !appLockShown) showAppLock();          // app lock: ask on every start
   paintMe();
   refreshRooms().then(() => {
     const intent = linkIntent();
@@ -482,8 +484,8 @@ async function changePassword() {
     onConfirm: async v => { if (v.length < 6) return 'Use at least 6 characters'; try { await api('auth/update', { password: current, newPassword: v }); return null; } catch (e) { return e.message; } } });
   if (ok2 !== null) toast('Password changed');
 }
-async function signOut() {
-  const yes = await popup({ icon: '👋', title: 'Sign out?', text: 'You can sign in again on any device with your username and password.', ok: 'Sign out', danger: true });
+async function signOut(force = false) {
+  const yes = force || await popup({ icon: '👋', title: 'Sign out?', text: 'You can sign in again on any device with your username and password.', ok: 'Sign out', danger: true });
   if (!yes) return;
   await disableNotifications(true);
   if (nativeApp()) { await api('push/native/remove').catch(() => {}); stepSyncCall('stop').catch(() => {}); window.Capacitor.nativePromise('Walkie', 'clear').catch(() => {}); store.del('ic-wk-closed'); }
@@ -2505,7 +2507,9 @@ function renderSettings() {
   body.append(el('h3', 'sec-title', 'Privacy'));
   row(privacyOn() ? 'eye' : 'eyeOff', 'Privacy mode', privacyOn() ? 'On — messages are blurred; tap one to read it' : 'Blur messages in public so nobody can read over your shoulder', togglePrivacy);
   row('lock', 'Hidden chats', privacyState.hasPin ? `${rooms.filter(r => r.hidden).length} hidden · PIN protected` : 'Hide chats behind a PIN', openHidden);
+  if (privacyState.hasPin) row('fingerprint', 'Open hidden chats with fingerprint / face', hiddenBioOn() ? 'On for this device' : 'Off — you type your PIN', toggleHiddenBio);
   if (privacyState.hasPin) row('key', 'Change hidden-chats PIN', null, changeHiddenPin);
+  row('lock', 'App lock', appLockOn() ? `On · ${APP_LOCK_AFTER[appLock().after] || 'immediately'}${appLock().bio ? ' · fingerprint / face' : ''}` : 'Lock Intra Chat with a code or fingerprint / face', openAppLockSettings);
   body.append(el('h3', 'sec-title', 'Chats'));
   row('🌓', 'Theme', themeName, chooseTheme);
   row('sparkles', 'App style', STYLES.find(x => x.id === appStyle()).name, openStylePicker);
@@ -4417,6 +4421,8 @@ async function setNewPin() {
 }
 async function unlockHidden() {
   if (hiddenOpen) return true;
+  const bio = await hiddenBioProof('Open hidden chats');
+  if (bio) { try { await api('privacy/unlock', { room: 'general', bio }); hiddenOpen = true; return true; } catch (e) { toast(e.message); } }
   const v = await popup({ icon: 'lock', title: 'Hidden chats', text: 'Enter your PIN.', ok: 'Unlock', input: { type: 'password', placeholder: 'PIN', maxLength: 8, required: true, requiredMsg: 'Enter your PIN' },
     onConfirm: async x => { try { await api('privacy/unlock', { room: 'general', pin: x }); return null; } catch (e) { return e.message; } } });
   if (v === null) return false;
@@ -4445,9 +4451,10 @@ async function hideChat(room, on) {
     roomInfo(room).hidden = true; toast('Chat hidden — open it from the menu → Hidden chats');
     hiddenOpen = false; dropLayer(chatLayer); closeChatUI(); renderRooms();
   } else {
-    const pin = await askPin('Unhide this chat?', 'Enter your PIN to move it back to your chat list.', 'Unhide');
-    if (pin === null) return;
-    try { privacyState = await api('privacy/hide', { room, on: false, pin }); } catch (e) { return toast(e.message); }
+    const bio = await hiddenBioProof('Unhide this chat');
+    let pin = null;
+    if (!bio) { pin = await askPin('Unhide this chat?', 'Enter your PIN to move it back to your chat list.', 'Unhide'); if (pin === null) return; }
+    try { privacyState = await api('privacy/hide', bio ? { room, on: false, bio } : { room, on: false, pin }); } catch (e) { return toast(e.message); }
     roomInfo(room).hidden = false; toast('Chat is back in your list'); renderRooms();
   }
 }
@@ -4456,6 +4463,179 @@ async function changeHiddenPin() {
   const nw = await popup({ icon: 'lock', title: 'New PIN', text: '4–8 digits.', ok: 'Save', input: { type: 'password', placeholder: 'New PIN', maxLength: 8, required: true },
     onConfirm: async v => { if (!/^\d{4,8}$/.test(v)) return 'Use 4–8 digits'; try { privacyState = await api('privacy/pin', { room: 'general', pin: v, old }); return null; } catch (e) { return e.message; } } });
   if (nw !== null) toast('PIN changed');
+}
+
+/* ---------------- Fingerprint / face (passkeys in the browser, BiometricPlugin in the Android app) ---------------- */
+let bioBusy = false, lockSkip = false;
+const b64uEnc = buf => { let s = ''; for (const c of new Uint8Array(buf)) s += String.fromCharCode(c); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const b64uDec = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - s.length % 4) % 4)), c => c.charCodeAt(0));
+const bioNat = (m, a = {}) => window.Capacitor.nativePromise('Biometric', m, a);
+const bioCancelled = e => e?.code === 'CANCELLED' || e?.name === 'NotAllowedError' || e?.name === 'AbortError';
+async function bioStatus() {        // { available, strong } — strong: can be used for hidden chats
+  try {
+    if (nativeApp()) return await bioNat('status');
+    const ok = !!(window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable());
+    return { available: ok, strong: ok };
+  } catch { return { available: false, strong: false }; }
+}
+const bioKeyName = () => `ic-bio-${me.uid}`;
+const bioLocal = () => store.json(bioKeyName(), null);        // this device's key: { id, kind, spki? }
+async function bioRun(fn) { bioBusy = true; try { return await fn(); } finally { setTimeout(() => { bioBusy = false; }, 800); } }
+// Make this device's key (browser passkey or Android Keystore key). The public key goes to the server for hidden chats.
+async function bioCreate() {
+  if (nativeApp()) { const alias = `hidden-${me.uid}-${Date.now().toString(36)}`; const r = await bioNat('createKey', { alias }); return { id: alias, kind: 'android', spki: r.publicKey }; }
+  const cred = await bioRun(() => navigator.credentials.create({ publicKey: {
+    challenge: crypto.getRandomValues(new Uint8Array(32)), rp: { name: 'Intra Chat', id: location.hostname },
+    user: { id: new TextEncoder().encode(me.uid), name: me.username || me.name, displayName: me.name },
+    pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+    authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' }, timeout: 60000, attestation: 'none' } }));
+  const spki = cred.response.getPublicKey?.();
+  if (!spki) throw new Error('This browser can’t do fingerprint unlock — try Chrome or Safari');
+  return { id: cred.id, kind: 'webauthn', spki: b64uEnc(spki) };
+}
+// Sign a server challenge with this device's key after fingerprint/face → proof for privacy/unlock and privacy/hide
+async function bioProve(dev, title) {
+  const { challenge } = await api('privacy/bio/challenge', { room: 'general' });
+  if (dev.kind === 'android') { const r = await bioRun(() => bioNat('sign', { alias: dev.id, challenge, title, cancel: 'Use PIN' })); return { id: dev.id, sig: r.signature }; }
+  const a = await bioRun(() => navigator.credentials.get({ publicKey: { challenge: b64uDec(challenge), rpId: location.hostname, allowCredentials: [{ type: 'public-key', id: b64uDec(dev.id) }], userVerification: 'required', timeout: 60000 } }));
+  return { id: dev.id, authData: b64uEnc(a.response.authenticatorData), clientData: b64uEnc(a.response.clientDataJSON), sig: b64uEnc(a.response.signature) };
+}
+// Fingerprint/face just to open the app (checked on the device, like WhatsApp)
+async function bioLocalCheck(title = 'Unlock Intra Chat') {
+  if (nativeApp()) { await bioRun(() => bioNat('verify', { title })); return true; }
+  const dev = bioLocal(); if (!dev) throw new Error('Fingerprint unlock isn’t set up in this browser');
+  const a = await bioRun(() => navigator.credentials.get({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), rpId: location.hostname, allowCredentials: [{ type: 'public-key', id: b64uDec(dev.id) }], userVerification: 'required', timeout: 60000 } }));
+  return !!a && (new Uint8Array(a.response.authenticatorData)[32] & 0x04) === 0x04;
+}
+
+// Hidden chats with fingerprint / face
+const hiddenBioOn = () => { const d = bioLocal(); return !!(d && (privacyState.bio || []).some(b => b.id === d.id)); };
+async function hiddenBioProof(title) {           // null → use the PIN instead
+  if (!hiddenBioOn()) return null;
+  try { return await bioProve(bioLocal(), title); }
+  catch (e) {
+    if (e?.code === 'KEY_CHANGED' || e?.code === 'NO_KEY') { store.del(bioKeyName()); toast(e.message); }
+    else if (!bioCancelled(e)) toast(e.message || 'Fingerprint didn’t work — use your PIN');
+    return null;
+  }
+}
+async function toggleHiddenBio() {
+  if (hiddenBioOn()) {
+    const d = bioLocal();
+    try { privacyState = await api('privacy/bio/remove', { room: 'general', id: d.id }); } catch (e) { return toast(e.message); }
+    if (d.kind === 'android') bioNat('deleteKey', { alias: d.id }).catch(() => {});
+    if (!appLock().bio) store.del(bioKeyName());
+    toast('Hidden chats now open with your PIN only'); return renderSettings();
+  }
+  const st = await bioStatus();
+  if (!st.strong) return popup({ icon: 'fingerprint', title: 'Not available here', text: nativeApp() ? 'Set up a fingerprint (or a screen lock PIN) in your phone’s settings first. Face unlock works for hidden chats only on phones with secure face unlock.' : 'This browser or computer has no fingerprint, face or Windows Hello unlock.', ok: 'OK', cancel: '' });
+  const pin = await askPin('Use fingerprint / face', 'Enter your hidden-chats PIN to turn this on for this device.', 'Next');
+  if (pin === null) return;
+  try {
+    const dev = bioLocal()?.kind === (nativeApp() ? 'android' : 'webauthn') && bioLocal().spki ? bioLocal() : await bioCreate();
+    privacyState = await api('privacy/bio/add', { room: 'general', pin, ...dev, label: nativeApp() ? 'Android app' : (/(iPhone|iPad|Android|Mac|Windows)/.exec(navigator.userAgent)?.[1] || 'Browser') });
+    store.setJson(bioKeyName(), dev);
+    toast('Hidden chats open with your fingerprint / face on this device');
+  } catch (e) { if (!bioCancelled(e)) toast(e.message); }
+  renderSettings();
+}
+
+/* ---------------- App lock (code + fingerprint / face, checked on this device) ---------------- */
+const APP_LOCK_AFTER = { 0: 'immediately', 60000: 'after 1 minute', 1800000: 'after 30 minutes' };
+const appLock = () => store.json('ic-applock', {}) || {};
+const appLockOn = () => !!appLock().on && !!me?.token;
+let appLockShown = false, lockTries = { n: 0, until: 0 };
+async function hashCode(code, salt) {
+  const data = new TextEncoder().encode(salt + ':' + code);
+  if (crypto.subtle) { const k = await crypto.subtle.importKey('raw', data, 'PBKDF2', false, ['deriveBits']); return b64uEnc(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: new TextEncoder().encode(salt), iterations: 120000, hash: 'SHA-256' }, k, 256)); }
+  let h = 0x811c9dc5; for (let r = 0; r < 20000; r++) for (const b of data) { h ^= b + r; h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36);   // plain-http LAN fallback
+}
+async function newAppCode(title = 'Create an app code') {
+  const a = await popup({ icon: 'lock', title, text: '4–8 digits. You’ll use it when fingerprint / face doesn’t work.', ok: 'Next', input: { type: 'password', inputmode: 'numeric', placeholder: 'New code', maxLength: 8, required: true }, onConfirm: async v => /^\d{4,8}$/.test(v) ? null : 'Use 4–8 digits' });
+  if (a === null) return null;
+  const b = await popup({ icon: 'lock', title: 'Confirm code', ok: 'Save', input: { type: 'password', inputmode: 'numeric', placeholder: 'Type it again', maxLength: 8, required: true }, onConfirm: async v => v === a ? null : 'Codes don’t match' });
+  if (b === null) return null;
+  const salt = b64uEnc(crypto.getRandomValues(new Uint8Array(12)));
+  return { salt, hash: await hashCode(a, salt) };
+}
+const checkAppCode = async v => { const l = appLock(); return !!l.hash && await hashCode(v, l.salt) === l.hash; };
+async function confirmAppLockOwner(why) {        // fingerprint/face or the code, before changing app-lock settings
+  if (appLock().bio) { try { if (await bioLocalCheck(why)) return true; } catch (e) { if (!bioCancelled(e)) toast(e.message); } }
+  const v = await popup({ icon: 'lock', title: why, text: 'Enter your app code.', ok: 'OK', input: { type: 'password', inputmode: 'numeric', placeholder: 'App code', maxLength: 8, required: true }, onConfirm: async x => (await checkAppCode(x)) ? null : 'Wrong code' });
+  return v !== null;
+}
+async function enableAppBio() {
+  const st = await bioStatus();
+  if (!st.available) { toast(nativeApp() ? 'Set up a fingerprint or face unlock in your phone’s settings first' : 'This browser has no fingerprint / face unlock'); return false; }
+  try {
+    if (!nativeApp() && !bioLocal()) store.setJson(bioKeyName(), await bioCreate());
+    if (!(await bioLocalCheck('Confirm it’s you'))) return false;
+    return true;
+  } catch (e) { if (!bioCancelled(e)) toast(e.message); return false; }
+}
+function openAppLockSettings() {
+  const { d, inner } = sheet('appLockSheet', 'App lock');
+  const paint = async () => {
+    [...inner.children].slice(1).forEach(n => n.remove());
+    const l = appLock(), st = await bioStatus();
+    inner.append(el('p', 'muted small', 'When it’s on, Intra Chat asks for your fingerprint, face or app code each time you open it. Notifications still arrive.'));
+    const sw = (label, sub, on, fn) => { const r = el('button', 'al-row'); r.type = 'button'; const t = el('div'); t.append(el('b', null, label), sub ? el('small', null, sub) : ''); const k = el('span', 'al-switch' + (on ? ' on' : '')); r.append(t, k); r.onclick = fn; inner.append(r); };
+    sw('App lock', l.on ? 'On' : 'Off', !!l.on, async () => {
+      if (l.on) { if (!(await confirmAppLockOwner('Turn off app lock'))) return; store.setJson('ic-applock', {}); toast('App lock off'); }
+      else {
+        const c = await newAppCode(); if (!c) return;
+        const next = { on: true, ...c, after: 0, bio: false };
+        store.setJson('ic-applock', next);
+        if (st.available && await popup({ icon: 'fingerprint', title: 'Use fingerprint / face too?', text: 'Unlock with your fingerprint or face; the code is the backup.', ok: 'Use fingerprint / face', cancel: 'Code only' })) next.bio = await enableAppBio();
+        store.setJson('ic-applock', next); toast('App lock on');
+      }
+      paint(); renderSettings();
+    });
+    if (!l.on) return;
+    if (st.available) sw('Unlock with fingerprint / face', l.bio ? 'On' : 'Off', !!l.bio, async () => {
+      const nx = appLock();
+      if (nx.bio) nx.bio = false; else { if (!(await confirmAppLockOwner('Use fingerprint / face'))) return; nx.bio = await enableAppBio(); }
+      store.setJson('ic-applock', nx); paint(); renderSettings();
+    });
+    const box = el('div', 'al-after'); box.append(el('b', null, 'Lock automatically'));
+    const chips = el('div', 'gs-chips');
+    for (const [ms, name] of Object.entries(APP_LOCK_AFTER)) { const c = el('button', 'chip-btn' + (+ms === (l.after || 0) ? ' on' : ''), name[0].toUpperCase() + name.slice(1)); c.type = 'button'; c.onclick = () => { store.setJson('ic-applock', { ...appLock(), after: +ms }); paint(); renderSettings(); }; chips.append(c); }
+    box.append(chips); inner.append(box);
+    const ch = el('button', 'btn block', 'Change app code'); ch.type = 'button';
+    ch.onclick = async () => { if (!(await confirmAppLockOwner('Change app code'))) return; const c = await newAppCode('New app code'); if (c) { store.setJson('ic-applock', { ...appLock(), ...c }); toast('Code changed'); } };
+    inner.append(ch);
+  };
+  paint(); if (!d.open) d.showModal();
+}
+function showAppLock() {
+  if (appLockShown || !appLockOn()) return;
+  appLockShown = true;
+  document.querySelectorAll('dialog[open]').forEach(x => { if (x.id !== 'appLockSheet') x.close?.(); });
+  const o = el('div', 'app-lock'); o.id = 'appLock'; o.setAttribute('role', 'dialog'); o.setAttribute('aria-label', 'Intra Chat is locked');
+  const box = el('div', 'al-box');
+  box.append(icoEl('lock', 'al-ic'), el('h2', null, 'Intra Chat is locked'));
+  const msg = el('p', 'al-msg', appLock().bio ? 'Use your fingerprint or face, or enter your code' : 'Enter your app code');
+  const f = el('form', 'al-form'); const inp = el('input'); inp.type = 'password'; inp.inputMode = 'numeric'; inp.autocomplete = 'off'; inp.maxLength = 8; inp.placeholder = 'App code'; inp.setAttribute('aria-label', 'App code');
+  const go = el('button', 'btn primary', 'Unlock'); go.type = 'submit'; f.append(inp, go);
+  const unlock = () => { o.classList.add('out'); setTimeout(() => o.remove(), 200); appLockShown = false; lockTries = { n: 0, until: 0 }; leftAt = Date.now(); };
+  f.onsubmit = async e => {
+    e.preventDefault(); if (!inp.value) return;
+    if (lockTries.until > Date.now()) { msg.textContent = `Too many tries — wait ${Math.ceil((lockTries.until - Date.now()) / 1000)} s`; return; }
+    if (await checkAppCode(inp.value)) return unlock();
+    lockTries.n++; if (lockTries.n >= 5) { lockTries = { n: 0, until: Date.now() + 30_000 }; }
+    msg.textContent = 'Wrong code'; msg.classList.add('bad'); inp.value = ''; inp.classList.remove('wrong'); void inp.offsetWidth; inp.classList.add('wrong'); if (navigator.vibrate) navigator.vibrate(80);
+  };
+  box.append(msg, f);
+  if (appLock().bio) {
+    const b = el('button', 'btn block al-bio'); b.type = 'button'; b.append(icoEl('fingerprint'), 'Use fingerprint / face');
+    b.onclick = async () => { try { if (await bioLocalCheck()) unlock(); } catch (e) { if (!bioCancelled(e)) { msg.textContent = e.message || 'Didn’t work — enter your code'; msg.classList.add('bad'); } } };
+    box.append(b);
+    if (nativeApp()) setTimeout(() => b.click(), 350);          // Android: show the fingerprint prompt straight away
+  }
+  const out = el('button', 'link-btn al-forgot', 'Forgot code? Sign out'); out.type = 'button';
+  out.onclick = async () => { if (await popup({ icon: 'logout', title: 'Sign out?', text: 'App lock is turned off and you sign in again with your username and password. Your chats stay on your account.', ok: 'Sign out', danger: true })) { store.setJson('ic-applock', {}); o.remove(); appLockShown = false; signOut(true); } };
+  box.append(out); o.append(box); document.body.append(o);
+  if (!nativeApp()) setTimeout(() => inp.focus(), 100);
 }
 
 // Privacy mode: blur message text, photos and previews; tap a message to read it for a few seconds
@@ -4478,10 +4658,17 @@ function togglePrivacy() {
   // leaving the app: cover the screen (recent-apps preview) and re-lock hidden chats after a minute away
   const cover = document.createElement('div'); cover.className = 'privacy-cover'; cover.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + IC.lock + '</svg><b>Intra Chat</b>'; document.body.append(cover);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { leftAt = Date.now(); document.documentElement.toggleAttribute('data-covered', privacyOn() || hiddenOpen); }
-    else { if (hiddenOpen && Date.now() - leftAt > 60_000) lockHidden(); setTimeout(() => document.documentElement.removeAttribute('data-covered'), 150); }
+    if (document.hidden) { leftAt = Date.now(); document.documentElement.toggleAttribute('data-covered', privacyOn() || hiddenOpen || appLockOn()); }
+    else {
+      if (hiddenOpen && Date.now() - leftAt > 60_000) lockHidden();
+      if (appLockOn() && !bioBusy && !lockSkip && me?.token && Date.now() - leftAt >= (appLock().after || 0)) showAppLock();
+      lockSkip = false;
+      setTimeout(() => document.documentElement.removeAttribute('data-covered'), 150);
+    }
   });
-  window.addEventListener('pagehide', () => { if (privacyOn() || hiddenOpen) document.documentElement.setAttribute('data-covered', ''); });
+  window.addEventListener('pagehide', () => { if (privacyOn() || hiddenOpen || appLockOn()) document.documentElement.setAttribute('data-covered', ''); });
+  // picking a photo/file leaves the page for a moment: that shouldn't trigger the app lock
+  document.addEventListener('click', e => { if (e.target.closest?.('input[type=file], label[for]') || e.target.matches?.('input[type=file]')) lockSkip = true; }, true);
   applyPrivacy();
 }
 
