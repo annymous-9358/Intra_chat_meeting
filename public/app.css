@@ -1748,3 +1748,10 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .cg-ttt-cell { aspect-ratio: 1; border-radius: 16px; border: 1px solid var(--line); background: var(--surface-2); font-size: 42px; font-weight: 800; color: var(--text); touch-action: manipulation; }
 .cg-ttt-cell.x { color: var(--brand); } .cg-ttt-cell.o { color: #ef4444; }
 :root[data-style="brutal"] .cg-ttt-cell, :root[data-style="brutal"] .cg-rps-btn, :root[data-style="brutal"] .cg-letters span { border: 2px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+/* wrong-guess feedback (Emoji Guess / Word Scramble) */
+.cg-fb.close, .g-fb.close { color: #d97706; }
+.g-fb { text-align: center; margin: 6px 0 2px; font-weight: 600; } .g-fb.bad { color: #ef4444; }
+.cg-fb.pop { animation: cgPop .25s ease-out; }
+@keyframes cgPop { from { transform: scale(.85); opacity: .3; } to { transform: scale(1); opacity: 1; } }
+.cg-guess input.wrong, .g-input.wrong { border-color: #ef4444; animation: cgNo .35s; }
+@keyframes cgNo { 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }

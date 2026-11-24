@@ -4084,7 +4084,7 @@ function timerText() {
 function renderGame() {
   const d = $('gameSheet'); if (!d) return;
   const inner = d.querySelector('.sheet-inner'); if (!inner) return;
-  const keepFocus = document.activeElement?.dataset?.gk, keepVal = document.activeElement?.value;
+  const keepFocus = document.activeElement?.dataset?.gk;
   const oldYt = inner.querySelector('.g-yt'); oldYt?.remove();          // keep the playing clip (re-adding it as-is doesn't restart it)
   [...inner.children].slice(1).forEach(n => n.remove());
   inner.querySelector('.sheet-head h2').textContent = game ? game.name : 'Games';
@@ -4211,12 +4211,27 @@ function renderGame() {
       if (g.data.videoTitle) say(`It was: ${g.data.videoTitle}`, 'muted');
     }
   } else if (g.kind === 'emoji') {
+    if (gameDraft.egRound !== `${g.id}-${g.round}-${g.phase}`) { gameDraft.egRound = `${g.id}-${g.round}-${g.phase}`; gameDraft.eg = ''; gameDraft.egFb = null; }   // new puzzle → empty box
     body.append(el('div', 'g-emoji', g.data.emoji));
     say(`${g.data.cat} · ${g.data.letters} letters`, 'muted');
     if (g.phase === 'guess' && g.joined) {
       const solved = (g.data.solved || []).includes(me.uid);
       if (solved) say('You got it! Waiting for the others…', 'strong');
-      else { body.append(input('eg', 'Your guess', 60)); body.append(btn('Guess', 'primary block', async () => { const v = (gameDraft.eg || '').trim(); if (!v) return; const r = await gameApi('move', { text: v }); toast(r.correct ? 'Correct!' : 'Not quite — try again'); if (r.correct) gameDraft.eg = ''; })); }
+      else {
+        const gi = input('eg', 'Your guess', 60), fbk = gameDraft.egFb;
+        if (fbk?.shake) { gi.classList.add('wrong'); fbk.shake = false; }
+        const go = async () => {
+          const v = (gameDraft.eg || '').trim(); if (!v) return;
+          let r; try { r = await gameApi('move', { text: v }); } catch { return; }      // gameApi already shows the error
+          if (r.correct) { gameDraft.eg = ''; gameDraft.egFb = null; toast('Correct!'); }
+          else { if (!r.hint) gameDraft.eg = ''; gameDraft.egFb = { msg: r.msg || 'Not quite — try again', hint: r.hint, shake: true }; if (navigator.vibrate) navigator.vibrate(60); }
+          renderGame(); setTimeout(() => document.querySelector('.g-input[data-gk="eg"]')?.focus(), 0);
+        };
+        gi.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+        body.append(gi);
+        if (fbk) body.append(el('p', 'g-fb ' + (fbk.hint ? 'close' : 'bad'), fbk.msg));
+        body.append(btn('Guess', 'primary block', go));
+      }
     }
     if ((g.data.solved || []).length) say('Solved: ' + g.data.solved.map(pname).join(', '));
     if (g.phase === 'reveal') say(`Answer: ${g.data.answer}`, 'strong');
@@ -4245,7 +4260,7 @@ function renderGame() {
   if (g.phase === 'over') { say('Thanks for playing!', 'strong'); ctl.append(btn('New game', 'primary', async () => { await gameApi('end'); $('gameSheet').close(); openGamePicker(); })); }
   else if (canEnd) ctl.append(btn('End game', 'ghost', () => gameApi('end')));
   inner.append(ctl);
-  if (keepFocus) { const i = inner.querySelector(`[data-gk="${keepFocus}"]`); if (i) { i.focus(); if (keepVal != null) i.value = keepVal; } }
+  if (keepFocus) { const i = inner.querySelector(`[data-gk="${keepFocus}"]`); if (i) { i.focus(); i.value = gameDraft[keepFocus] ?? ''; } }   // the draft is the source of truth (cleared on a new round)
 }
 
 
@@ -4760,10 +4775,15 @@ function cgGuess(stage, s) {
     let r; try { r = await api('challenge/game/move', { room: 'general', id: cg.c.id, sid: s.sid, today: localDay(), ...extra }); } catch (e) { busy = false; fb.textContent = e.message; return; }
     busy = false; if (cg.done) return;
     score = r.score ?? score; cnt.textContent = score;
-    if (r.tryAgain) { fb.className = 'cg-fb bad'; fb.textContent = 'Not quite — try again'; inp.select(); return; }
+    if (r.tryAgain) {           // stay on this puzzle: say how close it was, shake, clear for a new try
+      fb.className = 'cg-fb ' + (r.hint ? 'close' : 'bad'); fb.textContent = r.msg || 'Not quite — try again';
+      fb.classList.remove('pop'); void fb.offsetWidth; fb.classList.add('pop');
+      inp.classList.remove('wrong'); void inp.offsetWidth; inp.classList.add('wrong'); if (navigator.vibrate) navigator.vibrate(60);
+      if (!r.hint) inp.value = ''; inp.focus(); if (r.hint) inp.select(); return;
+    }
     fb.className = 'cg-fb ' + (r.correct ? 'good' : ''); fb.textContent = r.correct ? `Yes! ${r.answer}` : r.answer ? `It was: ${r.answer}` : '';
     if (r.over || !r.next) return cgFinish(stage, {});
-    cur = r.next; inp.value = ''; show(); inp.focus();
+    cur = r.next; inp.value = ''; inp.classList.remove('wrong'); show(); inp.focus();
   };
   form.onsubmit = e => { e.preventDefault(); if (inp.value.trim()) send({ guess: inp.value }); };
   skip.onclick = () => send({ skip: true });
