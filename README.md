@@ -17,12 +17,13 @@ A quick group chat app. Run it in two ways with the same code:
   **Levels** (Starter → Bronze → Silver → Gold → Platinum → Diamond, as a share of the best possible score) with progress to
   the next level, **streaks**, a **points history** (each day's counted steps, cap, step points, target bonus and tasks, with the
   time each was credited), and a **summary card** for anyone on the leaderboard (rank, points, streak, best day, average).
-  **Games** (optional, set by the creator): fun games — **Bubble Pop**, **Step Dash** (runner), **Tower Stack** — or brain games —
-  **Quick Math**, **Reaction Time**, **Memory Path**. The creator sets plays per day, points per score and whether the best play
-  or all plays count; brain-game scores are checked on the server, fun-game scores against the real playing time; starting a game
-  uses a play. Results update the leaderboard straight away (Overall / Game switch) and show in the points history.
-  **Challenge chat**: every challenge has its own chat for its participants (added when you join); new game records are
-  announced there. The ⓘ buttons explain points and step syncing without crowding the page.
+  **Games** (optional, set by the creator): fun games — **Emoji Guess** and **Word Scramble** (as many as you can against the
+  clock), **Rock Paper Scissors** and **Tic-tac-toe** vs the computer (single-player versions of the chat games), **Bubble Pop**,
+  **Step Dash** (runner), **Tower Stack** — or brain games — **Quick Math**, **Reaction Time**, **Memory Path**. The creator sets
+  plays per day, points per score and whether the best play or all plays count. Guesses and RPS rounds are checked on the server
+  as you play, tic-tac-toe games are replayed there, brain games are scored there, and arcade scores are checked against the real
+  playing time; starting a game uses a play. Results update the leaderboard straight away (Overall / Game switch) and show in the
+  points history. The ⓘ buttons explain points and step syncing without crowding the page.
   **Reminders** (bell on each challenge): "starts tomorrow", "2 days left", "you moved up to #N" (top 10) and "you're N steps from
   today's target" (evenings) — each at most once, never more than 2 a day per person, only 8 AM–9 PM local time.
   Leaderboards recalculate every 15 minutes (scheduler) or on Refresh; steps sync every 15 minutes from Google Health and

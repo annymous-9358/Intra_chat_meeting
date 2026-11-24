@@ -4387,7 +4387,6 @@ function renderChallenge(keepScroll) {
   // join / manage
   const acts = el('div', 'ch-acts');
   if (!d.joined && c.status !== 'ended') { const j = el('button', 'btn primary', 'Join challenge'); j.type = 'button'; j.onclick = async () => { try { await api('challenge/join', { room: 'general', id: c.id, today: localDay(), tz: new Date().getTimezoneOffset() }); toast(`You joined ${c.title}`); openChallenge(c.id); } catch (e) { toast(e.message); } }; acts.append(j); }
-  if (d.chatRoom) { const cb = el('button', 'btn with-ic'); cb.type = 'button'; cb.append(icoEl('message'), 'Chat'); cb.onclick = () => openChallengeChat(d.chatRoom); acts.append(cb); }
   if (c.mine) {
     const e1 = el('button', 'btn', 'Edit'); e1.type = 'button'; e1.onclick = () => openChallengeForm(c); acts.append(e1);
     const e2 = el('button', 'btn ghost', 'Delete'); e2.type = 'button'; e2.onclick = () => deleteChallenge(c); acts.append(e2);
@@ -4562,10 +4561,6 @@ async function openMemberCard(c, uid) {
   inner.append(btns);
   d.showModal();
 }
-async function openChallengeChat(room) {
-  if (!rooms.some(r => r.room === room)) await refreshRooms();
-  setTab('chats'); openRoom(room);
-}
 async function leaveChallenge(c) {
   const yes = await popup({ icon: 'logout', title: `Leave ${c.title}?`, text: 'You’ll disappear from the leaderboard. You can join again while it’s running.', ok: 'Leave', danger: true });
   if (!yes) return;
@@ -4659,7 +4654,7 @@ function openChallengeForm(old) {
   const gHint = el('small', 'muted ch-hint');
   gBox.append(g2, gl3, gHint); f.append(gBox);
   const paintGame = () => { gBox.classList.toggle('hidden', !gk.value); if (gk.value) gHint.textContent = `${CG_INFO[gk.value].how} e.g. ${gPts.value || 0} pts per ${CG_INFO[gk.value].unit}.`; };
-  gk.onchange = () => { if (gk.value && !old?.game) gPts.value = { math: 2, reaction: 0.05, memory: 5, bubbles: 1, dash: 0.5, stack: 3 }[gk.value]; paintGame(); }; gPts.oninput = paintGame; paintGame();
+  gk.onchange = () => { if (gk.value && !old?.game) gPts.value = { math: 2, reaction: 0.05, memory: 5, bubbles: 1, dash: 0.5, stack: 3, emoji: 5, scramble: 3, rps: 2, ttt: 3 }[gk.value]; paintGame(); }; gPts.oninput = paintGame; paintGame();
   const err = el('p', 'error'); const save = el('button', 'btn primary block', old ? 'Save changes' : 'Create challenge'); save.type = 'submit';
   f.append(err, save);
   f.onsubmit = async e => {
@@ -4703,6 +4698,10 @@ const CG_INFO = {
   bubbles: { name: 'Bubble Pop', fun: true, how: 'Pop as many rising bubbles as you can in 30 seconds. Golden bubbles count 3.', unit: 'bubble' },
   dash: { name: 'Step Dash', fun: true, how: 'Tap (or press Space) to jump over the blocks. It gets faster the further you run. Score = metres.', unit: 'metre' },
   stack: { name: 'Tower Stack', fun: true, how: 'Tap to drop the sliding block on the tower — only the overlap stays. Score = blocks stacked.', unit: 'block' },
+  emoji: { name: 'Emoji Guess', fun: true, how: 'Guess the movie, song, place or phrase from the emojis — as many as you can in 90 seconds. Skip if you are stuck.', unit: 'puzzle solved' },
+  scramble: { name: 'Word Scramble', fun: true, how: 'Unscramble the letters to make a word — as many as you can in 75 seconds.', unit: 'word' },
+  rps: { name: 'Rock Paper Scissors', fun: true, how: '10 rounds against the computer. A win scores 2, a draw 1.', unit: 'score point' },
+  ttt: { name: 'Tic-tac-toe', fun: true, how: '5 games against the computer (you take turns going first). A win scores 3, a draw 1.', unit: 'score point' },
 };
 const cg = { layer: null, c: null };
 function cgEl() {
@@ -4727,7 +4726,7 @@ async function playChallengeGame(c) {
   const head = el('div', 'cg-head'); const x = el('button', 'icon-btn'); x.type = 'button'; x.innerHTML = svgFor('x'); x.setAttribute('aria-label', 'Quit'); x.onclick = () => closeLayer(cg.layer, () => cgClose());
   head.append(el('b', null, info.name), x); o.append(head);
   const stage = el('div', 'cg-stage'); o.append(stage);
-  ({ math: cgMath, reaction: cgReaction, memory: cgMemory, bubbles: cgBubbles, dash: cgDash, stack: cgStack })[g.kind](stage, s);
+  ({ math: cgMath, reaction: cgReaction, memory: cgMemory, bubbles: cgBubbles, dash: cgDash, stack: cgStack, emoji: cgGuess, scramble: cgGuess, rps: cgRps, ttt: cgTtt })[g.kind](stage, s);
 }
 async function cgFinish(stage, payload) {
   if (cg.done) return; cg.done = true; clearInterval(cg.tick); clearTimeout(cg.timer);
@@ -4743,6 +4742,91 @@ async function cgFinish(stage, payload) {
   const done = el('button', 'btn primary', 'Done'); done.type = 'button'; done.onclick = () => closeLayer(cg.layer, () => cgClose()); btns.append(done);
   res.append(btns); stage.append(res);
   if (navigator.vibrate) navigator.vibrate([30, 40, 30]);
+}
+// Emoji Guess / Word Scramble: type answers against the clock; each one is checked on the server
+function cgGuess(stage, s) {
+  const emoji = cg.c.game.kind === 'emoji'; let cur = emoji ? s.puzzle : s.word, score = 0, busy = false; const end = performance.now() + s.secs * 1000;
+  const top = el('div', 'cg-top'); const bar = el('div', 'cg-bar'); const fill = el('i'); bar.append(fill); const cnt = el('b', null, '0'); top.append(bar, cnt);
+  const cat = el('small', 'cg-cat'), big = el('div', emoji ? 'cg-emoji' : 'cg-letters'), hint = el('small', 'muted'), fb = el('p', 'cg-fb');
+  const form = el('form', 'cg-guess'); const inp = el('input'); inp.type = 'text'; inp.autocomplete = 'off'; inp.autocapitalize = 'off'; inp.spellcheck = false; inp.placeholder = 'Your answer'; inp.maxLength = 60;
+  const go = el('button', 'btn primary', 'Guess'); go.type = 'submit'; const skip = el('button', 'btn', 'Skip'); skip.type = 'button';
+  form.append(inp, go); const row = el('div', 'cg-btns'); row.append(skip);
+  const show = () => {
+    if (emoji) { cat.textContent = cur.cat; big.textContent = cur.emoji; hint.textContent = `${cur.words} word${cur.words > 1 ? 's' : ''}, ${cur.letters} letters`; }
+    else { cat.textContent = `Word ${cur.i + 1}`; big.replaceChildren(...cur.letters.toUpperCase().split('').map(ch => el('span', null, ch))); hint.textContent = `${cur.len} letters`; }
+  };
+  const send = async extra => {
+    if (busy || cg.done) return; busy = true;
+    let r; try { r = await api('challenge/game/move', { room: 'general', id: cg.c.id, sid: s.sid, today: localDay(), ...extra }); } catch (e) { busy = false; fb.textContent = e.message; return; }
+    busy = false; if (cg.done) return;
+    score = r.score ?? score; cnt.textContent = score;
+    if (r.tryAgain) { fb.className = 'cg-fb bad'; fb.textContent = 'Not quite — try again'; inp.select(); return; }
+    fb.className = 'cg-fb ' + (r.correct ? 'good' : ''); fb.textContent = r.correct ? `Yes! ${r.answer}` : r.answer ? `It was: ${r.answer}` : '';
+    if (r.over || !r.next) return cgFinish(stage, {});
+    cur = r.next; inp.value = ''; show(); inp.focus();
+  };
+  form.onsubmit = e => { e.preventDefault(); if (inp.value.trim()) send({ guess: inp.value }); };
+  skip.onclick = () => send({ skip: true });
+  stage.append(top, cat, big, hint, form, row, fb); show(); setTimeout(() => inp.focus(), 50);
+  cg.tick = setInterval(() => { const left = end - performance.now(); fill.style.width = Math.max(0, left / (s.secs * 1000) * 100) + '%'; if (left <= 0) cgFinish(stage, {}); }, 100);
+}
+// Rock Paper Scissors: 10 rounds; the computer's pick comes from the server
+function cgRps(stage, s) {
+  const names = { rock: 'Rock', paper: 'Paper', scissors: 'Scissors' }, art = { rock: '\u270A', paper: '\u270B', scissors: '\u270C\uFE0F' };
+  let busy = false;
+  const msg = el('p', 'cg-msg', `Round 1 of ${s.rounds}`), arena = el('div', 'cg-rps-arena'), you = el('div', 'cg-rps-hand', '?'), bot = el('div', 'cg-rps-hand', '?');
+  const yw = el('div', 'cg-rps-side'); yw.append(el('small', null, 'You'), you); const bw = el('div', 'cg-rps-side'); bw.append(el('small', null, 'Computer'), bot);
+  arena.append(yw, el('b', 'cg-vs', 'vs'), bw);
+  const res = el('p', 'cg-fb'), score = el('b', 'cg-score', '0'), dots = el('div', 'cg-dots'); for (let k = 0; k < s.rounds; k++) dots.append(el('i'));
+  const picks = el('div', 'cg-rps-picks');
+  for (const k of ['rock', 'paper', 'scissors']) {
+    const b = el('button', 'cg-rps-btn'); b.type = 'button'; b.append(el('span', null, art[k]), el('small', null, names[k]));
+    b.onclick = async () => {
+      if (busy || cg.done) return; busy = true; you.textContent = art[k]; bot.textContent = '…'; bot.classList.add('shake');
+      let r; try { r = await api('challenge/game/move', { room: 'general', id: cg.c.id, sid: s.sid, today: localDay(), choice: k }); } catch (e) { busy = false; res.textContent = e.message; return; }
+      await new Promise(ok => setTimeout(ok, 450)); bot.classList.remove('shake'); bot.textContent = art[r.bot];
+      res.className = 'cg-fb ' + (r.result === 'win' ? 'good' : r.result === 'lose' ? 'bad' : '');
+      res.textContent = r.result === 'win' ? `${names[k]} beats ${names[r.bot].toLowerCase()} — +2` : r.result === 'lose' ? `${names[r.bot]} beats ${names[k].toLowerCase()}` : 'Draw — +1';
+      score.textContent = r.score; [...dots.children].forEach((d, j) => d.classList.toggle('on', j < r.round));
+      if (r.over) return void (cg.timer = setTimeout(() => cgFinish(stage, {}), 1100));
+      msg.textContent = `Round ${r.round + 1} of ${s.rounds}`; busy = false;
+    };
+    picks.append(b);
+  }
+  stage.append(msg, dots, arena, res, score, picks);
+}
+// Tic-tac-toe vs the computer: same bot rules as the server, which replays every game to check the score
+const CG_TTT_LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+const cgTttWin = b => { for (const [a, c, d] of CG_TTT_LINES) if (b[a] && b[a] === b[c] && b[a] === b[d]) return b[a]; return b.every(Boolean) ? 'draw' : null; };
+function cgTttBot(b) {
+  const free = i => !b[i];
+  for (const who of ['O', 'X']) for (const line of CG_TTT_LINES) { const mine = line.filter(i => b[i] === who).length, empty = line.filter(free); if (mine === 2 && empty.length === 1) return empty[0]; }
+  if (free(4)) return 4;
+  for (const i of [0, 2, 6, 8, 1, 3, 5, 7]) if (free(i)) return i;
+  return -1;
+}
+function cgTtt(stage, s) {
+  const games = []; let b, moves, busy = false, w = 0, d = 0;
+  const msg = el('p', 'cg-msg'), grid = el('div', 'cg-ttt'), tally = el('p', 'muted small'), cells = [];
+  for (let k = 0; k < 9; k++) { const c = el('button', 'cg-ttt-cell'); c.type = 'button'; c.setAttribute('aria-label', `Square ${k + 1}`); c.onclick = () => tap(k); cells.push(c); grid.append(c); }
+  const paint = () => cells.forEach((c, k) => { c.textContent = b[k] || ''; c.className = 'cg-ttt-cell' + (b[k] ? ' ' + b[k].toLowerCase() : ''); });
+  const newGame = () => {
+    b = Array(9).fill(null); moves = []; busy = false;
+    const youFirst = games.length % 2 === 0; if (!youFirst) b[cgTttBot(b)] = 'O';
+    msg.textContent = `Game ${games.length + 1} of ${s.games} · you are X${youFirst ? '' : ' (computer went first)'}`; paint();
+  };
+  const over = r => {
+    games.push(moves); busy = true; if (r === 'X') w++; else if (r === 'draw') d++;
+    msg.textContent = r === 'X' ? 'You win! +3' : r === 'draw' ? 'Draw — +1' : 'Computer wins';
+    tally.textContent = `${w} won · ${d} drawn · ${games.length - w - d} lost`;
+    cg.timer = setTimeout(() => games.length >= s.games ? cgFinish(stage, { games }) : newGame(), 1100);
+  };
+  const tap = k => {
+    if (busy || cg.done || b[k]) return;
+    b[k] = 'X'; moves.push(k); paint(); let r = cgTttWin(b); if (r) return over(r);
+    busy = true; cg.timer = setTimeout(() => { b[cgTttBot(b)] = 'O'; paint(); busy = false; const r2 = cgTttWin(b); if (r2) over(r2); }, 320);
+  };
+  stage.append(msg, grid, tally); newGame();
 }
 // Quick Math: 60 s of sums with an on-screen keypad (also works with a keyboard)
 function cgMath(stage, s) {
