@@ -26,6 +26,7 @@ const IC = {
   "users": "<circle cx=\"9\" cy=\"8\" r=\"3.5\"/><path d=\"M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5\"/><circle cx=\"17\" cy=\"9\" r=\"2.6\"/><path d=\"M16.5 14.6c2.6.1 4.5 1.8 5 4.4\"/>",
   "info": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 11v6M12 7.5v.01\"/>",
   "message": "<path d=\"M21 12a8.5 8.5 0 0 1-12.6 7.4L3 21l1.7-5A8.5 8.5 0 1 1 21 12z\"/>",
+  "eyeOff": "<path d=\"M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 8 10 8a17.8 17.8 0 0 1-3.2 4.3M6.6 6.6C3.7 8.4 2 12 2 12s3.5 8 10 8c1.8 0 3.4-.5 4.8-1.3M9.9 9.9a3 3 0 0 0 4.2 4.2M2 2l20 20\"/>",
   "eye": "<path d=\"M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>",
   "contrast": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 3a9 9 0 0 1 0 18z\" fill=\"currentColor\"/>",
   "sparkles": "<path d=\"M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z\"/><path d=\"M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z\"/>",
@@ -282,6 +283,7 @@ function linkIntent() {
   if (h === '#/new') return { act: 'new' };
   if (h === '#/friends') return { act: 'friends' };
   if (h === '#/stories') return { act: 'stories' };
+  if (h === '#/hidden') return { act: 'hidden' };
   let mm;
   if ((mm = h.match(/^#\/u\/([a-f0-9]{24})$/))) return { act: 'profile', uid: mm[1] };          // a person's profile (friend request)
   if ((mm = h.match(/^#\/dm\/([a-f0-9]{24})$/))) return { act: 'dm', uid: mm[1] };              // 1:1 chat with them
@@ -318,6 +320,7 @@ function runIntent(intent) {
     setTimeout(() => { openMyStepsSheet(); toast(intent.ok ? `Google Health connected${intent.today ? ` · today ${fmtN(+intent.today)} steps` : ''}` : (intent.msg || 'Couldn’t connect Google Health')); }, 300);
     return;
   }
+  if (intent.act === 'hidden') { history.replaceState(history.state, '', location.pathname); setTab('chats'); return openHidden(); }
   if (intent.act === 'stories') { history.replaceState(history.state, '', location.pathname); setTab('chats'); return loadStories().then(() => { const p = storyFeed.people.find(x => !x.mine && !x.allSeen && !x.muted); if (p) openStories(p.uid); }); }
   if (intent.act === 'friends') { history.replaceState(history.state, '', location.pathname); return setTab('friends'); }
   if (intent.code && intent.room) inviteCodes[intent.room] = intent.code;    // private invite link: join on open
@@ -413,7 +416,7 @@ function enterApp() {
   clearInterval(roomsTimer);
   roomsTimer = setInterval(() => { if (document.hidden) return; if (!current) refreshRooms(); loadFriends(); if (Date.now() - storiesAt > 60000) loadStories(); }, 15000);
   loadStories();
-  setupServiceWorker(); updateNotifBanner(); loadFriends(); renderSettings();
+  setupServiceWorker(); updateNotifBanner(); loadFriends(); renderSettings(); loadPrivacy();
   if (nativeApp()) { setupNativePush(); configureStepSync(); configureNativeWalkie(); }
 }
 // Which messages we've read per chat → the server answers with unread counts for the list
@@ -488,8 +491,16 @@ let roomFilter = 'all';
 function renderRooms() {
   const q = $('roomSearch').value.trim().toLowerCase();
   const list = $('roomList'); list.innerHTML = '';
-  const shown = rooms.filter(r => (!q || r.room.includes(q) || (r.title || '').toLowerCase().includes(q) || (r.peer?.username || '').includes(q))
-    && (roomFilter === 'all' || (roomFilter === 'unread' && unreadCount(r)) || (roomFilter === 'dm' && r.dm) || (roomFilter === 'groups' && !r.dm)));
+  const inHidden = roomFilter === 'hidden' && hiddenOpen;
+  document.querySelectorAll('#filterChips .chip-btn').forEach(x => x.classList.toggle('on', x.dataset.filter === roomFilter));
+  const shown = rooms.filter(r => (inHidden ? r.hidden : !r.hidden) && (!q || r.room.includes(q) || (r.title || '').toLowerCase().includes(q) || (r.peer?.username || '').includes(q))
+    && (inHidden || roomFilter === 'all' || (roomFilter === 'unread' && unreadCount(r)) || (roomFilter === 'dm' && r.dm) || (roomFilter === 'groups' && !r.dm)));
+  if (inHidden) {
+    const li = document.createElement('li'); li.className = 'hidden-head';
+    const t = el('div', 'hh-text'); t.append(icoText('lock', 'Hidden chats'), el('small', null, 'Only you can see this folder. It locks again when you leave the app.'));
+    const b = el('button', 'btn small', 'Lock'); b.type = 'button'; b.onclick = lockHidden;
+    li.append(t, b); list.append(li);
+  }
   for (const r of shown) {
     const n = unreadCount(r);
     const li = document.createElement('li');
@@ -518,10 +529,10 @@ function renderRooms() {
   }
   if (!shown.length) {
     const li = document.createElement('li'); li.className = 'room-empty';
-    li.textContent = q ? `No chats match “${q}”.` : roomFilter === 'unread' ? 'No unread chats' : roomFilter === 'dm' ? 'No friend chats yet — add a friend in the Friends tab.' : 'No chats yet — tap ＋ to start one.';
+    li.textContent = inHidden ? 'No hidden chats. Open a chat → ⋮ → Hide chat.' : q ? `No chats match “${q}”.` : roomFilter === 'unread' ? 'No unread chats' : roomFilter === 'dm' ? 'No friend chats yet — add a friend in the Friends tab.' : 'No chats yet — tap ＋ to start one.';
     list.append(li);
   }
-  const unreadChats = rooms.filter(r => unreadCount(r)).length;
+  const unreadChats = rooms.filter(r => !r.hidden && unreadCount(r)).length;     // hidden chats never show in counts
   document.title = unreadChats ? `(${unreadChats}) Intra Chat` : 'Intra Chat';
   $('navChatsBadge').textContent = unreadChats; $('navChatsBadge').classList.toggle('hidden', !unreadChats);
   try { if (navigator.setAppBadge) unreadChats ? navigator.setAppBadge(unreadChats) : navigator.clearAppBadge(); } catch {}
@@ -551,6 +562,7 @@ const isUnread = r => !!unreadCount(r);
 async function openRoom(room, force) {
   if (!force && current === room && $('app').classList.contains('in-chat')) return;
   const info = roomInfo(room);
+  if (info.hidden && !hiddenOpen && !(await unlockHidden())) { if (linkedRoom() === room) history.replaceState(history.state, '', location.pathname); return; }
   // Private group we haven't joined yet: ask for its password first
   if (info.locked && info.access === false) { if (!(await askPassword(room))) { if (linkedRoom() === room) history.replaceState(history.state, '', location.pathname); return; } }
   leaveRoom();
@@ -832,7 +844,7 @@ function jumpTo(key) {
 const previewText = m => m.text || (m.audio ? `${m.audio.walkie ? 'Walkie-talkie' : 'Voice message'} (${fmtDur(m.audio.dur)})` : m.gif ? 'GIF' : '');
 
 function notify(m) {
-  if (isMine(m) || !document.hidden || pushActive) return;   // push notifications take over when enabled
+  if (isMine(m) || !document.hidden || pushActive || roomInfo(m.room)?.hidden) return;   // push notifications take over when enabled
   const title = isMine(m.replyTo) ? `${m.name} replied to you` : `${m.name} · ${roomTitle(m.room)}`;
   if ('Notification' in window && Notification.permission === 'granted') {
     const n = new Notification(title, { body: previewText(m), tag: m.room });
@@ -2318,6 +2330,8 @@ $('listMenuBtn').onclick = e => simpleMenu(e.currentTarget, [
   { icon: '➕', label: 'Add a friend', onClick: () => setTab('friends') },
   { icon: '✨', label: 'App style', onClick: openStylePicker },
   { icon: '🎨', label: 'Chat wallpaper', onClick: () => openWallpaper(null) },
+  { icon: 'lock', label: 'Hidden chats', onClick: openHidden },
+  { icon: privacyOn() ? 'eye' : 'eyeOff', label: privacyOn() ? 'Turn off privacy mode' : 'Privacy mode', onClick: togglePrivacy },
   { icon: '⚙️', label: 'Settings', onClick: () => setTab('settings') },
 ]);
 function openChatMenu(anchor) {
@@ -2331,6 +2345,7 @@ function openChatMenu(anchor) {
   items.push({ icon: '🎨', label: 'Wallpaper', onClick: () => openWallpaper(current) });
   items.push({ icon: isMuted(current) ? '🔔' : '🔕', label: isMuted(current) ? 'Unmute notifications' : 'Mute notifications', onClick: () => pushActive || isMuted(current) ? muteGroup() : enableNotifications() });
   items.push({ icon: '📻', label: walkie.on ? 'Close walkie-talkie' : 'Walkie-talkie', onClick: () => $('walkieBtn').click() });
+  items.push(roomInfo(current)?.hidden ? { icon: 'unlock', label: 'Unhide chat', onClick: () => hideChat(current, false) } : { icon: 'lock', label: 'Hide chat', onClick: () => hideChat(current, true) });
   if (group?.isOwner && !group.dm && current !== 'general') items.push({ icon: 'trash', label: 'Delete group', danger: true, onClick: deleteGroup });
   simpleMenu(anchor, items);
 }
@@ -2478,6 +2493,10 @@ function renderSettings() {
   row(svgFor(st?.emoji) ? st.emoji : 'message', 'Status', st ? `${st.text || ''}${st.until ? ' · until ' + fmtUntil(st.until) : ''}`.trim() : 'Let people know what you’re up to', editStatus);
   row('👁️', 'View my profile', 'See what others see', () => showProfile(me.uid));
   const themeName = { system: 'System default', light: 'Light', dark: 'Dark' }[store.get('ic-theme') || 'system'];
+  body.append(el('h3', 'sec-title', 'Privacy'));
+  row(privacyOn() ? 'eye' : 'eyeOff', 'Privacy mode', privacyOn() ? 'On — messages are blurred; tap one to read it' : 'Blur messages in public so nobody can read over your shoulder', togglePrivacy);
+  row('lock', 'Hidden chats', privacyState.hasPin ? `${rooms.filter(r => r.hidden).length} hidden · PIN protected` : 'Hide chats behind a PIN', openHidden);
+  if (privacyState.hasPin) row('key', 'Change hidden-chats PIN', null, changeHiddenPin);
   body.append(el('h3', 'sec-title', 'Chats'));
   row('🌓', 'Theme', themeName, chooseTheme);
   row('sparkles', 'App style', STYLES.find(x => x.id === appStyle()).name, openStylePicker);
@@ -4219,6 +4238,90 @@ function renderGame() {
   else if (canEnd) ctl.append(btn('End game', 'ghost', () => gameApi('end')));
   inner.append(ctl);
   if (keepFocus) { const i = inner.querySelector(`[data-gk="${keepFocus}"]`); if (i) { i.focus(); if (keepVal != null) i.value = keepVal; } }
+}
+
+
+/* ---------------- Hidden chats & privacy mode ---------------- */
+let privacyState = { hasPin: false }, hiddenOpen = false, leftAt = 0;
+async function loadPrivacy() { try { privacyState = await api('privacy/hidden', { room: 'general' }); } catch {} }
+const askPin = (title, text, ok = 'Unlock') => popup({ icon: 'lock', title, text, ok, input: { type: 'password', placeholder: 'PIN', maxLength: 8, required: true, requiredMsg: 'Enter your PIN' } });
+async function setNewPin() {
+  const a = await popup({ icon: 'lock', title: 'Create a PIN', text: 'Choose 4–8 digits. You’ll need it to open your hidden chats on any device.', ok: 'Next',
+    input: { type: 'password', placeholder: 'New PIN', maxLength: 8, required: true }, onConfirm: async v => /^\d{4,8}$/.test(v) ? null : 'Use 4–8 digits' });
+  if (a === null) return false;
+  const b = await popup({ icon: 'lock', title: 'Confirm PIN', ok: 'Save PIN', input: { type: 'password', placeholder: 'Type it again', maxLength: 8, required: true },
+    onConfirm: async v => { if (v !== a) return 'PINs don’t match'; try { privacyState = await api('privacy/pin', { room: 'general', pin: v }); return null; } catch (e) { return e.message; } } });
+  if (b === null) return false;
+  toast('PIN saved'); return true;
+}
+async function unlockHidden() {
+  if (hiddenOpen) return true;
+  const v = await popup({ icon: 'lock', title: 'Hidden chats', text: 'Enter your PIN.', ok: 'Unlock', input: { type: 'password', placeholder: 'PIN', maxLength: 8, required: true, requiredMsg: 'Enter your PIN' },
+    onConfirm: async x => { try { await api('privacy/unlock', { room: 'general', pin: x }); return null; } catch (e) { return e.message; } } });
+  if (v === null) return false;
+  hiddenOpen = true; return true;
+}
+async function openHidden() {
+  if (!privacyState.hasPin) {
+    const go = await popup({ icon: 'lock', title: 'Hidden chats', text: 'Hide chats you want to keep private. They disappear from your chat list, counts and search, notifications say only “New message”, and they open only with your PIN.', ok: 'Set a PIN' });
+    if (!go || !(await setNewPin())) return;
+  }
+  if (!(await unlockHidden())) return;
+  roomFilter = 'hidden';
+  document.querySelectorAll('#filterChips .chip-btn').forEach(x => x.classList.remove('on'));
+  setTab('chats'); renderRooms();
+}
+function lockHidden() {
+  hiddenOpen = false;
+  if (roomFilter === 'hidden') { roomFilter = 'all'; document.querySelectorAll('#filterChips .chip-btn').forEach(x => x.classList.toggle('on', x.dataset.filter === 'all')); }
+  if (current && roomInfo(current)?.hidden) { dropLayer(chatLayer); closeChatUI(); }
+  renderRooms();
+}
+async function hideChat(room, on) {
+  if (on) {
+    if (!privacyState.hasPin && !(await setNewPin())) return;
+    try { privacyState = await api('privacy/hide', { room, on: true }); } catch (e) { return toast(e.message); }
+    roomInfo(room).hidden = true; toast('Chat hidden — open it from the menu → Hidden chats');
+    hiddenOpen = false; dropLayer(chatLayer); closeChatUI(); renderRooms();
+  } else {
+    const pin = await askPin('Unhide this chat?', 'Enter your PIN to move it back to your chat list.', 'Unhide');
+    if (pin === null) return;
+    try { privacyState = await api('privacy/hide', { room, on: false, pin }); } catch (e) { return toast(e.message); }
+    roomInfo(room).hidden = false; toast('Chat is back in your list'); renderRooms();
+  }
+}
+async function changeHiddenPin() {
+  const old = await askPin('Change PIN', 'Enter your current PIN.', 'Next'); if (old === null) return;
+  const nw = await popup({ icon: 'lock', title: 'New PIN', text: '4–8 digits.', ok: 'Save', input: { type: 'password', placeholder: 'New PIN', maxLength: 8, required: true },
+    onConfirm: async v => { if (!/^\d{4,8}$/.test(v)) return 'Use 4–8 digits'; try { privacyState = await api('privacy/pin', { room: 'general', pin: v, old }); return null; } catch (e) { return e.message; } } });
+  if (nw !== null) toast('PIN changed');
+}
+
+// Privacy mode: blur message text, photos and previews; tap a message to read it for a few seconds
+const privacyOn = () => store.get('ic-privacy') === '1';
+function applyPrivacy() { document.documentElement.toggleAttribute('data-privacy', privacyOn()); const b = $('privacyBtn'); if (b) { b.innerHTML = svgFor(privacyOn() ? 'eyeOff' : 'eye'); b.classList.toggle('on', privacyOn()); b.title = privacyOn() ? 'Privacy mode is on (tap to turn off)' : 'Privacy mode'; } }
+function togglePrivacy() {
+  store.set('ic-privacy', privacyOn() ? '0' : '1'); applyPrivacy(); renderSettings();
+  toast(privacyOn() ? 'Privacy mode on — tap a message to read it' : 'Privacy mode off');
+}
+{
+  // eye button in the chat header
+  const b = document.createElement('button'); b.className = 'icon-btn'; b.id = 'privacyBtn'; b.type = 'button'; b.setAttribute('aria-label', 'Privacy mode');
+  b.onclick = togglePrivacy; $('walkieBtn').before(b);
+  // tap to peek at one message (re-blurs after 5 s)
+  $('messages').addEventListener('click', e => {
+    if (!privacyOn()) return;
+    const m = e.target.closest('.msg, .sys-msg'); if (!m || e.target.closest('button, a, .voice')) return;
+    m.classList.add('peek'); clearTimeout(m._peekT); m._peekT = setTimeout(() => m.classList.remove('peek'), 5000);
+  });
+  // leaving the app: cover the screen (recent-apps preview) and re-lock hidden chats after a minute away
+  const cover = document.createElement('div'); cover.className = 'privacy-cover'; cover.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + IC.lock + '</svg><b>Intra Chat</b>'; document.body.append(cover);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { leftAt = Date.now(); document.documentElement.toggleAttribute('data-covered', privacyOn() || hiddenOpen); }
+    else { if (hiddenOpen && Date.now() - leftAt > 60_000) lockHidden(); setTimeout(() => document.documentElement.removeAttribute('data-covered'), 150); }
+  });
+  window.addEventListener('pagehide', () => { if (privacyOn() || hiddenOpen) document.documentElement.setAttribute('data-covered', ''); });
+  applyPrivacy();
 }
 
 /* ---------------- App style picker ---------------- */

@@ -1478,3 +1478,25 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .btn.g-ptt.on { background: var(--danger); border-color: var(--danger); transform: scale(1.03); }
 .btn.g-ptt svg { width: 24px; height: 24px; }
 .g-say.warn { color: var(--warn); font-weight: 600; background: var(--warn-soft); border-radius: 10px; padding: 8px 12px; }
+
+/* ---------------- Privacy mode & hidden chats ---------------- */
+:root[data-privacy] .msg .body, :root[data-privacy] .msg .quote, :root[data-privacy] .msg .gif, :root[data-privacy] .msg .who,
+:root[data-privacy] .msg .voice .wave, :root[data-privacy] .room-bottom small, :root[data-privacy] .pin-text span,
+:root[data-privacy] .sys-msg span, :root[data-privacy] .reply-bar .quote, :root[data-privacy] .seenby, :root[data-privacy] .reacts,
+:root[data-privacy] .avatar.has-photo, :root[data-privacy] .sv-content, :root[data-privacy] .story-ring .avatar.has-photo {
+  filter: blur(7px); transition: filter .2s ease; }
+:root[data-privacy] .msg .gif { filter: blur(16px); }
+:root[data-privacy] .msg.peek .body, :root[data-privacy] .msg.peek .quote, :root[data-privacy] .msg.peek .gif, :root[data-privacy] .msg.peek .who,
+:root[data-privacy] .msg.peek .voice .wave, :root[data-privacy] .msg.peek .reacts, :root[data-privacy] .msg.peek .seenby, :root[data-privacy] .sys-msg.peek span { filter: none; }
+:root[data-privacy] .msg:not(.peek) { cursor: zoom-in; }
+:root[data-privacy] .messages::before { content: "Privacy mode · tap a message to read it"; position: sticky; top: 0; align-self: center; z-index: 2; font-size: 12px; font-weight: 600;
+  color: var(--muted); background: var(--surface); padding: 4px 12px; border-radius: 999px; box-shadow: var(--shadow); margin: 2px 0 4px; }
+#privacyBtn.on { background: rgba(255, 255, 255, .22); }
+.privacy-cover { display: none; position: fixed; inset: 0; z-index: 100; background: var(--bg, #111); color: var(--muted); flex-direction: column; align-items: center; justify-content: center; gap: 12px; font-size: 18px; }
+.privacy-cover svg { width: 44px; height: 44px; }
+:root[data-covered] .privacy-cover { display: flex; }
+.room-list li.hidden-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin: 0 10px 6px; border-radius: 14px; background: var(--surface-2); }
+.hh-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hh-text .ic-line { font-weight: 700; }
+.hh-text small { color: var(--muted); font-size: 12px; }
+.room-list li.hidden-head button { width: auto; min-height: 32px; padding: 5px 16px; flex: none; border: 1px solid var(--line); background: var(--surface); }

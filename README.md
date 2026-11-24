@@ -8,6 +8,12 @@ A quick group chat app. Run it in two ways with the same code:
 | **Netlify** | Netlify Functions + Netlify Blobs | Anyone with the link (groups can have their own password) |
 
 ## Features
+- **Hidden chats** (chat ⋮ → Hide chat; list ⋮ → Hidden chats): move chats into a PIN-protected folder (4–8 digits,
+  synced across your devices). They vanish from the list, counts and search; their notifications say only "New message";
+  the folder re-locks when you leave the app for a minute. Wrong PINs are rate-limited.
+- **Privacy mode** (eye button in the chat header, or Settings → Privacy): blurs messages, photos, GIFs, voice waveforms
+  and chat previews so people nearby can't read over your shoulder — tap a message to read it for 5 seconds. When you
+  switch away, the screen is covered so the recent-apps preview doesn't show your chats.
 - **Step challenge** (group ⋮ → Step challenge, or Settings → My steps): a daily goal ring, 7-day chart, streaks and
   8 badges. **Walk mode** counts steps with the phone's motion sensor while the app is open (screen kept on); or add
   today's total from your phone's Health / Google Fit app (web apps can't read those directly). Group admins start a
