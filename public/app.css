@@ -1580,3 +1580,37 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .ch-grid3, .ch-grid2 { grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr)); } .ch-grid3 { --n: 3; }
 .ch-form input, .ch-form select, .ch-form textarea { min-width: 0; width: 100%; box-sizing: border-box; }
 .ch-points input { width: 90px; } .cte-bot input { width: 90px; } .cte-top select { width: auto; }
+
+/* Challenge form: every control looks the same, in every app style */
+.ch-sheet .ch-form .ch-ctl.ch-ctl { width: 100%; min-width: 0; box-sizing: border-box; min-height: 46px; padding: 10px 12px; margin: 0;
+  border: 1.5px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 15px;
+  box-shadow: none; outline: none; -webkit-appearance: none; appearance: none; }
+.ch-sheet .ch-form select.ch-ctl.ch-ctl { padding-right: 34px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 16px; }
+.ch-sheet .ch-form textarea.ch-ctl.ch-ctl { min-height: 84px; resize: vertical; line-height: 1.4; }
+.ch-sheet .ch-form .ch-ctl.ch-ctl:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.ch-sheet .ch-form input[type=date].ch-ctl { font-size: 14px; }
+:root[data-style="brutal"] .ch-sheet .ch-form .ch-ctl.ch-ctl { border: 2px solid var(--ink); border-radius: 8px; box-shadow: 3px 3px 0 var(--ink); background-color: var(--surface); }
+:root[data-style="brutal"] .ch-sheet .ch-form .ch-ctl.ch-ctl:focus { box-shadow: 3px 3px 0 var(--ink), 0 0 0 3px var(--brand); }
+:root[data-style="neon"] .ch-sheet .ch-form .ch-ctl.ch-ctl:focus { box-shadow: 0 0 12px rgba(0, 240, 255, .4); }
+:root[data-style="clay"] .ch-sheet .ch-form .ch-ctl.ch-ctl { border: 0; box-shadow: var(--clay-in); border-radius: 16px; background-color: var(--surface); }
+.ch-sheet .ch-form .field { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.ch-sheet .ch-form .field > span { margin: 0; }
+.ch-sheet .ch-form .field > small { font-size: 12px; line-height: 1.35; }
+.ch-dates { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 12px; }
+.ch-dates .field.full { grid-column: 1 / -1; }
+.ch-sheet .ch-grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 12px; align-items: start; }
+.ch-sheet .ch-grid2 .field { margin-top: 12px; }
+.ch-sheet .ch-hint { display: block; margin: 6px 0 0; font-size: 12px; }
+.ch-sheet .ch-form-sec { margin: 22px 0 0; font-size: 16px; }
+.ch-sheet .ch-ban-pick { margin: 6px 0 4px; }
+.ch-sheet .cte-row { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; background: var(--surface-2); }
+:root[data-style="brutal"] .ch-sheet .cte-row { border: 2px solid var(--ink); background: var(--bg); }
+.ch-sheet .cte-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.ch-sheet .cte-top .icon-btn { width: 40px; height: 40px; }
+.ch-sheet .cte-bot { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ch-sheet .cte-bot.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ch-sheet .cte-f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ch-sheet .cte-f small { font-size: 12px; font-weight: 600; color: var(--muted); }
+.ch-sheet .ch-tasks-edit .link-btn { align-self: center; margin-top: 4px; }
+.ch-sheet .ch-form .btn.primary { margin-top: 18px; }

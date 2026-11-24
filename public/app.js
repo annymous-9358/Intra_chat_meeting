@@ -4480,9 +4480,9 @@ function openChallengeForm(old) {
   const title = field('Challenge name', inp('text', old?.title || '', { maxLength: 60, placeholder: 'e.g. Mission Moon' }));
   const desc = el('textarea'); desc.rows = 3; desc.maxLength = 600; desc.placeholder = 'What is it about? e.g. Our goal is to reach the moon in 30 days. One team, one mission.'; desc.value = old?.desc || ''; field('Description', desc);
   const t0 = localDay();
-  const dates = el('div', 'ch-grid3');
-  const dField = (label, v) => { const l = el('label', 'field'); const i = inp('date', v); l.append(el('span', null, label), i); dates.append(l); return i; };
-  const pub = dField('Publish', old?.publishAt || t0), st = dField('Start', old?.start || t0), en = dField('End', old?.end || (() => { const x = new Date(); x.setDate(x.getDate() + 29); return new Date(x - x.getTimezoneOffset() * 60000).toISOString().slice(0, 10); })());
+  const dates = el('div', 'ch-dates');
+  const dField = (label, v, cls = '') => { const l = el('label', 'field ' + cls); const i = inp('date', v); l.append(el('span', null, label), i); dates.append(l); return i; };
+  const pub = dField('Publish (visible & open to join)', old?.publishAt || t0, 'full'), st = dField('Start', old?.start || t0), en = dField('End', old?.end || (() => { const x = new Date(); x.setDate(x.getDate() + 29); return new Date(x - x.getTimezoneOffset() * 60000).toISOString().slice(0, 10); })());
   f.append(dates, el('small', 'muted ch-hint', 'People can see and join from the publish date. Steps count from start to end.'));
   // audience
   const aud = el('select');
@@ -4496,9 +4496,12 @@ function openChallengeForm(old) {
   const target = inp('number', a.target, { min: 0, step: 500 }); const tl = el('label', 'field'); tl.append(el('span', null, 'Target steps'), target); tgtRow.append(tl);
   const per = el('select'); per.append(Object.assign(document.createElement('option'), { value: 'day', textContent: 'per day' }), Object.assign(document.createElement('option'), { value: 'week', textContent: 'per week' })); per.value = a.per;
   const pl = el('label', 'field'); pl.append(el('span', null, 'Every'), per); tgtRow.append(pl); f.append(tgtRow);
-  const ptsRow = el('div', 'ch-points'); const every = inp('number', a.every, { min: 1, step: 100 }), points = inp('number', a.points, { min: 0 });
-  ptsRow.append(el('span', null, 'Every'), every, el('span', null, 'steps ='), points, el('span', null, 'points'));
-  const pw = el('div', 'field'); pw.append(el('span', null, 'Points'), ptsRow); f.append(pw);
+  const ptsRow = el('div', 'ch-grid2'); const every = inp('number', a.every, { min: 1, step: 100 }), points = inp('number', a.points, { min: 0 });
+  const el1 = el('label', 'field'); el1.append(el('span', null, 'For every (steps)'), every);
+  const el2 = el('label', 'field'); el2.append(el('span', null, 'Give (points)'), points);
+  ptsRow.append(el1, el2); f.append(ptsRow);
+  const ptsHint = el('small', 'muted ch-hint'); const paintPts = () => { ptsHint.textContent = `${+points.value || 0} points for every ${(+every.value || 0).toLocaleString()} steps`; };
+  every.oninput = points.oninput = paintPts; paintPts(); f.append(ptsHint);
   const capRow = el('div', 'ch-grid2');
   const cap = inp('number', a.cap, { min: 0, step: 1000 }); const cl = el('label', 'field'); cl.append(el('span', null, 'Daily step cap'), cap, el('small', 'muted', '0 = no cap. Steps above it don’t count.')); capRow.append(cl);
   const bonus = inp('number', a.bonus, { min: 0 }); const bl = el('label', 'field'); bl.append(el('span', null, 'Target bonus points'), bonus, el('small', 'muted', 'Extra points each time the target is hit.')); capRow.append(bl);
@@ -4518,10 +4521,13 @@ function openChallengeForm(old) {
       const tg = inp('number', t.target || 5000, { min: 100, step: 500, title: 'Steps' }); tg.oninput = () => { t.target = +tg.value; }; tg.classList.toggle('hidden', t.kind !== 'steps');
       const tp = inp('number', t.points ?? 10, { min: 0, title: 'Points' }); tp.oninput = () => { t.points = +tp.value; };
       const rm = el('button', 'icon-btn'); rm.type = 'button'; rm.innerHTML = svgFor('x'); rm.setAttribute('aria-label', 'Remove task'); rm.onclick = () => { tasks.splice(i, 1); drawTasks(); };
-      const top = el('div', 'cte-top'); top.append(k, ti, rm);
-      const bot = el('div', 'cte-bot'); if (t.kind === 'steps') bot.append(el('span', null, 'Steps'), tg); bot.append(el('span', null, 'Points'), tp);
+      const top = el('div', 'cte-top'); top.append(ti, rm);
+      const lab = (txt, ctl) => { const l = el('label', 'cte-f'); l.append(el('small', null, txt), ctl); return l; };
+      const bot = el('div', 'cte-bot' + (t.kind === 'steps' ? '' : ' two'));
+      bot.append(lab('Type', k)); if (t.kind === 'steps') bot.append(lab('Steps', tg)); bot.append(lab('Points', tp));
       r.append(top, bot); tasksBox.append(r);
     });
+    tasksBox.querySelectorAll('input, select').forEach(x => x.classList.add('ch-ctl'));
     if (tasks.length < 12) { const add = el('button', 'link-btn', '+ Add a daily task'); add.type = 'button'; add.onclick = () => { tasks.push({ kind: 'check', title: '', points: 5 }); drawTasks(); }; tasksBox.append(add); }
   };
   drawTasks();
@@ -4544,6 +4550,7 @@ function openChallengeForm(old) {
       openChallenge(r.challenge.id);
     } catch (e2) { err.textContent = e2.message; save.disabled = false; }
   };
+  f.querySelectorAll('input:not([type=file]), select, textarea').forEach(x => x.classList.add('ch-ctl'));
   inner.append(f);
   d.showModal();
 }
