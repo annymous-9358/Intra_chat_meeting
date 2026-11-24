@@ -1755,3 +1755,17 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 @keyframes cgPop { from { transform: scale(.85); opacity: .3; } to { transform: scale(1); opacity: 1; } }
 .cg-guess input.wrong, .g-input.wrong { border-color: #ef4444; animation: cgNo .35s; }
 @keyframes cgNo { 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
+/* game setup (rounds + time) */
+.gs-back { display: inline-flex; align-items: center; gap: 4px; margin: 2px 0 4px -4px; }
+.gs-back svg { width: 18px; height: 18px; }
+.gs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-weight: 600; }
+.gs-ctl { display: flex; align-items: center; gap: 10px; }
+.gs-num { min-width: 92px; text-align: center; font-size: 16px; }
+.gs-step { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font-size: 22px; line-height: 1; touch-action: manipulation; }
+.gs-step:disabled { opacity: .35; }
+.gs-time { padding: 12px 0 6px; font-weight: 600; }
+.gs-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.gs-chips .chip-btn { border: 1px solid var(--line); }
+.gs-chips .chip-btn.on { border-color: var(--brand); }
+#gamePicker .btn.block { margin-top: 16px; }
+:root[data-style="brutal"] .gs-step { border: 2px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); }

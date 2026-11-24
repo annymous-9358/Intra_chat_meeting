@@ -4046,19 +4046,50 @@ async function openGamePicker() {
     const b = el('button', 'game-card'); b.type = 'button';
     b.append(icoEl(GAME_ICON[x.kind] || 'sparkles', 'gc-ic'), el('b', null, x.name), el('small', null, x.desc), el('em', null, x.min === x.max ? `${x.min} players` : `${x.min}+ players`));
     b.onclick = async () => {
-      let extra = {};
-      if (x.kind === 'episode') {
-        d.close();
-        const series = await popup({ icon: 'play', title: 'Which show?', text: 'Each turn, a player picks an episode number of this show. Everyone watches a 15–20 s clip from it, the player tells the storyline out loud, and the rest vote if they got it right.', ok: 'Start', input: { value: 'Taarak Mehta Ka Ooltah Chashmah', maxLength: 60, required: true } });
-        if (series === null) return;
-        extra = { series };
-      }
-      try { await gameApi('start', { kind: x.kind, ...extra }); if (d.open) d.close(); openGame(); } catch {}
+      if (x.set || x.kind === 'episode') return gameSetup(x, d, inner);
+      try { await gameApi('start', { kind: x.kind }); if (d.open) d.close(); openGame(); } catch {}
     };
     grid.append(b);
   }
   inner.append(grid);
   d.showModal();
+}
+// Before starting: the starter picks rounds (or wins needed) and the time for each turn
+function gameSetup(x, d, inner) {
+  const st = x.set || {}, val = { rounds: st.defRounds, wins: st.defWins, secs: st.defSecs };
+  [...inner.children].slice(1).forEach(n => n.remove());
+  inner.querySelector('.sheet-head h2').textContent = x.name;
+  const back = el('button', 'link-btn gs-back', 'All games'); back.type = 'button'; back.prepend(icoEl('arrowLeft')); back.onclick = () => openGamePicker();
+  inner.append(back, el('p', 'muted small', x.desc));
+  let series = null;
+  if (x.kind === 'episode') {
+    const f = el('label', 'field'); series = el('input'); series.maxLength = 60; series.value = 'Taarak Mehta Ka Ooltah Chashmah';
+    f.append(el('span', null, 'Which show?'), series); inner.append(f);
+  }
+  const stepper = (label, key, [lo, hi], unit) => {
+    const row = el('div', 'gs-row'), num = el('b', 'gs-num'), minus = el('button', 'gs-step', '−'), plus = el('button', 'gs-step', '+');
+    minus.type = plus.type = 'button'; minus.setAttribute('aria-label', 'Fewer'); plus.setAttribute('aria-label', 'More');
+    const paint = () => { num.textContent = `${val[key]} ${unit(val[key])}`; minus.disabled = val[key] <= lo; plus.disabled = val[key] >= hi; };
+    minus.onclick = () => { val[key] = Math.max(lo, val[key] - 1); paint(); }; plus.onclick = () => { val[key] = Math.min(hi, val[key] + 1); paint(); };
+    const ctl = el('div', 'gs-ctl'); ctl.append(minus, num, plus); row.append(el('span', null, label), ctl); paint(); return row;
+  };
+  if (st.rounds) inner.append(stepper('Rounds', 'rounds', st.rounds, n => n === 1 ? 'round' : 'rounds'));
+  if (st.wins) inner.append(stepper('First to win', 'wins', st.wins, n => n === 1 ? 'throw' : 'throws'));
+  if (st.secs) {
+    const fmt = n => n >= 60 && n % 60 === 0 ? `${n / 60} min` : n > 60 ? `${Math.floor(n / 60)}m ${n % 60}s` : `${n} s`;
+    const opts = [...new Set([10, 15, 20, 25, 30, 40, 45, 60, 75, 90, 120, 150, 180, 240, 300, st.defSecs])].filter(n => n >= st.secs[0] && n <= st.secs[1]).sort((a, b) => a - b);
+    const box = el('div', 'gs-time'); box.append(el('span', null, st.timeLabel || 'Time per turn'));
+    const chips = el('div', 'gs-chips');
+    for (const n of opts) { const c = el('button', 'chip-btn' + (n === val.secs ? ' on' : ''), fmt(n)); c.type = 'button'; c.onclick = () => { val.secs = n; chips.querySelectorAll('.chip-btn').forEach(z => z.classList.toggle('on', z === c)); }; chips.append(c); }
+    box.append(chips); inner.append(box);
+  }
+  const go = el('button', 'btn primary block', 'Start game'); go.type = 'button';
+  go.onclick = async () => {
+    const extra = { ...val }; if (series) { if (!series.value.trim()) return toast('Type the show’s name'); extra.series = series.value.trim(); }
+    go.disabled = true;
+    try { await gameApi('start', { kind: x.kind, ...extra }); if (d.open) d.close(); openGame(); } catch { go.disabled = false; }
+  };
+  inner.append(go);
 }
 let gameWalkie = false;          // true when the game (not you) switched the walkie-talkie on
 function openGame() {
@@ -4112,6 +4143,11 @@ function renderGame() {
   if (g.phase === 'over' && !g.round) {
     say('The game was ended before it started.', 'strong');
   } else if (g.phase === 'lobby') {
+    const cf = g.cfg || {}, bits = [];
+    if (g.rounds) bits.push(`${g.rounds} round${g.rounds === 1 ? '' : 's'}`);
+    if (cf.wins) bits.push(`first to ${cf.wins}`);
+    if (cf.secs) bits.push(`${cf.timeLabel ? cf.timeLabel.toLowerCase() : 'time per turn'}: ${cf.secs >= 60 && cf.secs % 60 === 0 ? cf.secs / 60 + ' min' : cf.secs + ' s'}`);
+    if (bits.length) say(bits.join(' · '), 'muted');
     say(`${g.players.length} player${g.players.length === 1 ? '' : 's'}: ${g.players.map(p => pname(p.uid)).join(', ')}`);
     if (!g.joined) body.append(btn('Join game', 'primary block', () => gameApi('join')));
     else if (!host) body.append(btn('Leave', 'ghost block', () => gameApi('leave')));
@@ -4248,7 +4284,7 @@ function renderGame() {
     body.append(grid);
     say(g.phase === 'play' ? (g.data.turn === me.uid ? `Your turn (${g.data.x === me.uid ? 'X' : 'O'})` : `${pname(g.data.turn)}’s turn`) : g.data.draw ? 'Draw!' : `${pname(g.data.winner)} wins!`, 'strong');
   } else if (g.kind === 'rps') {
-    const w = g.data.wins || {}; say(g.players.map(p => `${pname(p.uid)} ${w[p.uid] || 0}`).join(' — ') + ' · first to 3', 'strong');
+    const w = g.data.wins || {}; say(g.players.map(p => `${pname(p.uid)} ${w[p.uid] || 0}`).join(' — ') + ` · first to ${g.cfg?.wins || 3}`, 'strong');
     if (g.data.last && Object.values(g.data.last).some(Boolean)) say('Last throw: ' + Object.entries(g.data.last).map(([u, h]) => `${pname(u)} ${({ rock: '✊', paper: '✋', scissors: '✌️' })[h] || '—'}`).join('  vs  '));
     if (g.phase === 'throw' && g.joined) { const r = el('div', 'g-pick'); for (const [h, e] of [['rock', '✊'], ['paper', '✋'], ['scissors', '✌️']]) r.append(btn(e, 'g-rps', () => gameApi('move', { hand: h }).then(() => toast('Thrown — waiting…')))); body.append(r); }
     if (g.data.champ) say(`${pname(g.data.champ)} wins the match!`, 'strong');
