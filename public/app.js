@@ -4062,10 +4062,14 @@ function gameSetup(x, d, inner) {
   inner.querySelector('.sheet-head h2').textContent = x.name;
   const back = el('button', 'link-btn gs-back', 'All games'); back.type = 'button'; back.prepend(icoEl('arrowLeft')); back.onclick = () => openGamePicker();
   inner.append(back, el('p', 'muted small', x.desc));
-  let series = null;
+  let series = null, epCount = null;
   if (x.kind === 'episode') {
     const f = el('label', 'field'); series = el('input'); series.maxLength = 60; series.value = 'Taarak Mehta Ka Ooltah Chashmah';
     f.append(el('span', null, 'Which show?'), series); inner.append(f);
+    const f2 = el('label', 'field'); epCount = el('input'); epCount.type = 'number'; epCount.min = 1; epCount.max = 20000; epCount.inputMode = 'numeric'; epCount.value = 4000;
+    f2.append(el('span', null, 'Episodes in this show'), epCount, el('small', 'muted', 'Random only picks from 1 to this number, and players can’t pick higher.')); inner.append(f2);
+    let touched = false; epCount.oninput = () => { touched = true; };
+    series.oninput = () => { if (!touched) epCount.value = /taarak|tarak|tmkoc/i.test(series.value) ? 4000 : ''; if (!touched) epCount.placeholder = 'e.g. 120'; };
   }
   const stepper = (label, key, [lo, hi], unit) => {
     const row = el('div', 'gs-row'), num = el('b', 'gs-num'), minus = el('button', 'gs-step', '−'), plus = el('button', 'gs-step', '+');
@@ -4087,7 +4091,7 @@ function gameSetup(x, d, inner) {
   const sb = el('div', 'gs-time'); sb.append(el('span', null, 'Sounds'), soundPicker(sounds)); inner.append(sb);
   const go = el('button', 'btn primary block', 'Start game'); go.type = 'button';
   go.onclick = async () => {
-    const extra = { ...val, sounds }; if (series) { if (!series.value.trim()) return toast('Type the show’s name'); extra.series = series.value.trim(); }
+    const extra = { ...val, sounds }; if (series) { if (!series.value.trim()) return toast('Type the show’s name'); extra.series = series.value.trim(); const n = Math.round(Number(epCount.value)); if (!(n >= 1 && n <= 20000)) { epCount.focus(); return toast('How many episodes does the show have? (1–20000)'); } extra.maxEp = n; }
     go.disabled = true;
     try { await gameApi('start', { kind: x.kind, ...extra }); if (d.open) d.close(); openGame(); } catch { go.disabled = false; }
   };
@@ -4305,7 +4309,7 @@ function renderGame() {
       if (g.you.teller) {
         if (g.data.notice) say(g.data.notice, 'warn');
         say('Your turn! Pick an episode number — you’ll get a random 15–20 s clip from it, then tell its storyline out loud.', 'strong');
-        body.append(input('ep', 'Episode number', 6));
+        body.append(input('ep', `Episode number (1–${g.data.maxEp || 4000})`, 6));
         const r = el('div', 'g-pick');
         r.append(btn('Play episode', 'primary', async () => { const n = parseInt(gameDraft.ep, 10); if (!n) return toast('Type an episode number'); await gameApi('move', { episode: n }).catch(e => { if (e.code === 'no_search') gameDraft.needLink = true; renderGame(); }); }));
         r.append(btn('🎲 Random', '', () => gameApi('move', { random: true }).catch(e => { if (e.code === 'no_search') { gameDraft.needLink = true; renderGame(); } })));
