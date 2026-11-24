@@ -14,6 +14,9 @@ A quick group chat app. Run it in two ways with the same code:
   and a **tie-breaker** (more steps / more target days / joined first). **Daily tasks** — step tasks that complete
   automatically or tick-off tasks — each add points. The challenge page shows My Ranking (steps, rank, points), today's
   target progress, the tasks, how points work, and the **leaderboard** with ▲/▼ rank changes and *Updated at* time.
+  **Levels** (Starter → Bronze → Silver → Gold → Platinum → Diamond, as a share of the best possible score) with progress to
+  the next level, **streaks**, a **points history** (each day's counted steps, cap, step points, target bonus and tasks, with the
+  time each was credited), and a **summary card** for anyone on the leaderboard (rank, points, streak, best day, average).
   Leaderboards recalculate every 15 minutes (scheduler) or on Refresh; steps sync every 15 minutes from Google Health and
   the Android app (Health Connect).
 - **Hidden chats** (chat ⋮ → Hide chat; list ⋮ → Hidden chats): move chats into a PIN-protected folder (4–8 digits,

@@ -4399,6 +4399,22 @@ function renderChallenge(keepScroll) {
   const tile = (cls, label, val) => { const t = el('div', 'ch-tile ' + cls); t.append(el('small', null, label), el('b', null, val)); tiles.append(t); };
   tile('steps', 'Steps', fmtN(me1?.steps || 0)); tile('rank', 'My Rank', me1 ? String(me1.rank) : '–'); tile('pts', 'Points', fmtN(me1?.points || 0));
   mr.append(tiles);
+  if (d.mine) {
+    const lv = d.mine.level, lc = el('button', 'ch-level lv-' + lv.idx); lc.type = 'button'; lc.onclick = () => openPointsHistory(c);
+    const badge = el('div', 'lv-badge'); badge.innerHTML = svgFor('trophy');
+    const mid = el('div', 'lv-mid');
+    const top = el('div', 'lv-top'); top.append(el('b', null, `${lv.name} level`));
+    if (d.mine.streak) { const f = el('span', 'lv-streak'); f.append(icoEl('flame'), `${d.mine.streak}-day streak`); top.append(f); }
+    mid.append(top);
+    if (lv.next) {
+      const span = Math.max(1, lv.next.min - lv.min), pct = Math.min(1, ((me1?.points || 0) - lv.min) / span);
+      const bar = el('div', 'lv-bar'); const f = el('i'); f.style.width = pct * 100 + '%'; bar.append(f);
+      mid.append(bar, el('small', null, `${fmtN(Math.max(0, lv.next.min - (me1?.points || 0)))} points to ${lv.next.name}`));
+    } else mid.append(el('small', null, 'Top level reached!'));
+    const hb = el('span', 'lv-hist'); hb.append(icoEl('clock'), 'Points history');
+    lc.append(badge, mid, hb); mr.append(lc);
+    if (d.mine.todayPts) mr.append(el('p', 'muted small ch-today-pts', `+${fmtN(d.mine.todayPts)} points so far today`));
+  }
   if (d.joined && c.status === 'live' && a.target) {
     const p = el('div', 'ch-target'); const pct = Math.min(1, d.period / a.target);
     p.append(el('div', 'ct-label', `${a.per === 'week' ? 'This week' : 'Today'}: ${fmtN(d.period)} / ${fmtN(a.target)} steps${pct >= 1 ? ' · target reached!' : ''}`));
@@ -4416,7 +4432,7 @@ function renderChallenge(keepScroll) {
       const r = el('div', 'ch-task' + (t.done ? ' done' : ''));
       const box = el('button', 'ct-check'); box.type = 'button'; box.innerHTML = t.done ? svgFor('check') : '';
       box.setAttribute('aria-label', t.done ? 'Done' : 'Mark done');
-      if (t.kind === 'check' && d.joined && c.status === 'live') box.onclick = async () => { try { await api('challenge/task', { room: 'general', id: c.id, task: t.id, done: !t.done, today: localDay() }); t.done = !t.done; renderChallenge(true); } catch (e) { toast(e.message); } };
+      if (t.kind === 'check' && d.joined && c.status === 'live') box.onclick = async () => { try { await api('challenge/task', { room: 'general', id: c.id, task: t.id, done: !t.done, today: localDay() }); if (!t.done) toast(`+${t.points} points`); openChallenge(c.id, true); } catch (e) { toast(e.message); } };
       else box.disabled = true;
       const m = el('div', 'ct-mid'); m.append(el('b', null, t.title));
       m.append(el('small', null, t.kind === 'steps' ? `${fmtN(t.progress)} / ${fmtN(t.target)} steps · completes automatically` : 'Tick it when you’ve done it'));
@@ -4444,7 +4460,11 @@ function renderChallenge(keepScroll) {
     if (r.prev && r.prev !== r.rank) { const up = r.prev > r.rank; const mv = el('span', 'cr-move ' + (up ? 'up' : 'down')); mv.innerHTML = `<svg viewBox="0 0 24 24"><path d="${up ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}"/></svg>`; mv.append(String(Math.abs(r.prev - r.rank))); rk.append(mv); }
     const av = el('div', 'avatar'); paintAvatar(av, r.name, { photo: r.photo });
     const m = el('div', 'cr-mid'); m.append(el('b', null, r.uid === me.uid ? `${r.name} (you)` : r.name));
-    const st = el('small'); st.append(icoEl('footprints'), `${fmtN(r.steps)} steps`); m.append(st);
+    const st = el('small'); st.append(icoEl('footprints'), `${fmtN(r.steps)} steps`);
+    if (r.level) st.append(el('span', 'cr-lv lv-' + r.level, (d.levels || [])[r.level] || ''));
+    if (r.streak > 1) { const f = el('span', 'cr-streak'); f.append(icoEl('flame'), String(r.streak)); st.append(f); }
+    m.append(st);
+    row.tabIndex = 0; row.setAttribute('role', 'button'); row.onclick = () => r.uid === me.uid ? openPointsHistory(c) : openMemberCard(c, r.uid);
     row.append(rk, av, m, el('div', 'cr-pts', `${fmtN(r.points)}\npts`));
     return row;
   };
@@ -4453,6 +4473,63 @@ function renderChallenge(keepScroll) {
   body.append(lb);
   if (me1 && !d.board.rows.some(r => r.uid === me.uid)) body.append(rowEl(me1, true));      // keep my row in view
   if (keepScroll) body.scrollTop = scroll;
+}
+const LV_COLORS = ['#94a3b8', '#b45309', '#64748b', '#d97706', '#0891b2', '#7c3aed'];
+const dayName = d => d === localDay() ? 'Today' : d === (() => { const x = new Date(); x.setDate(x.getDate() - 1); return new Date(x - x.getTimezoneOffset() * 60000).toISOString().slice(0, 10); })() ? 'Yesterday' : new Date(d + 'T12:00').toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+const atTime = t => t ? new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+// Your points statement: what earned each point, and when it was credited
+async function openPointsHistory(c) {
+  let h; try { h = await api('challenge/history', { room: 'general', id: c.id, today: localDay() }); } catch (e) { return toast(e.message); }
+  const { d, inner } = sheet('pointsSheet', 'Points history'); d.classList.add('ph-sheet');
+  const sum = el('div', 'ph-sum');
+  const lv = el('div', 'ph-lv lv-' + h.level.idx); lv.append(icoEl('trophy'), el('b', null, h.level.name));
+  const tot = el('div', 'ph-total'); tot.append(el('b', null, fmtN(h.points)), el('small', null, 'points'));
+  sum.append(lv, tot);
+  const split = el('div', 'ph-split');
+  for (const [k, label] of [['stepPts', 'From steps'], ['bonus', 'Target bonus'], ['taskPts', 'Daily tasks']]) { const x = el('div'); x.append(el('b', null, fmtN(h.totals[k])), el('small', null, label)); split.append(x); }
+  const facts = el('div', 'ph-facts');
+  facts.append(icoText('footprints', `${fmtN(h.steps)} steps counted`), icoText('flame', `Streak ${h.streak} · best ${h.bestStreak}`), icoText('flag', `Target hit ${h.targetDays}×`));
+  if (h.bestDay) facts.append(icoText('trophy', `Best day ${fmtN(h.bestDay.steps)} (${dayName(h.bestDay.date)})`));
+  inner.append(sum, split, facts);
+  inner.append(el('p', 'muted small', `Points are credited when your steps sync (Google Health / Android every 15 minutes, walk mode, or added by hand) and when you tick a task. ${c.activity.cap ? `Only the first ${fmtN(c.activity.cap)} steps a day count.` : ''}`));
+  for (const w of h.weekBonus || []) {
+    const card = el('div', 'ph-day'); const hd = el('div', 'ph-head'); hd.append(el('b', null, `Week ${w.week} target reached`), el('span', 'ph-plus', `+${w.bonus}`)); card.append(hd);
+    card.append(el('small', 'muted', `${fmtN(w.steps)} steps (${dayName(w.start)} – ${dayName(w.end)})${w.at ? ' · credited ' + atTime(w.at) : ''}`)); inner.append(card);
+  }
+  if (!h.days.length) inner.append(el('p', 'empty-note', 'The challenge hasn’t started yet.'));
+  for (const x of h.days) {
+    const card = el('div', 'ph-day' + (x.total ? '' : ' zero'));
+    const hd = el('div', 'ph-head'); hd.append(el('b', null, dayName(x.date)), el('span', 'ph-plus', x.total ? `+${fmtN(x.total)}` : '0')); card.append(hd);
+    const line = (ic, text, pts, when) => { const r = el('div', 'ph-line'); r.append(icoEl(ic), el('span', 'ph-what', text), el('span', 'ph-pts', pts ? `+${fmtN(pts)}` : '0')); if (when) r.append(el('small', 'ph-when', when)); card.append(r); };
+    if (!x.raw) line('footprints', 'No steps synced', 0, null);
+    else line('footprints', `${fmtN(x.counted)} steps${x.capped ? ` (walked ${fmtN(x.raw)}, capped)` : ''} → ${fmtN(Math.floor(x.counted / c.activity.every))} × ${c.activity.points} pts`, x.stepPts, x.at ? `credited ${atTime(x.at)}` : null);
+    if (x.bonus) line('flag', `Daily target of ${fmtN(c.activity.target)} reached`, x.bonus, x.at ? `credited ${atTime(x.at)}` : null);
+    for (const t of x.tasks) line(t.kind === 'steps' ? 'footprints' : 'check', `Task: ${t.title}`, t.points, t.at ? `${t.kind === 'steps' ? 'credited' : 'ticked'} ${atTime(t.at)}` : null);
+    inner.append(card);
+  }
+  d.showModal();
+}
+// Someone else's summary card
+async function openMemberCard(c, uid) {
+  let m; try { m = await api('challenge/member', { room: 'general', id: c.id, uid, today: localDay() }); } catch (e) { return toast(e.message); }
+  const { d, inner } = sheet('memberSheet', ''); d.classList.add('mc-sheet');
+  const hero = el('div', 'mc-hero'); const av = el('div', 'avatar'); paintAvatar(av, m.name, { photo: m.photo });
+  const lv = el('span', 'ph-lv lv-' + m.level.idx); lv.append(icoEl('trophy'), el('b', null, m.level.name));
+  hero.append(av, el('h2', null, m.name), lv); inner.append(hero);
+  const grid = el('div', 'mc-grid');
+  const stat = (v, l) => { const x = el('div'); x.append(el('b', null, v), el('small', null, l)); grid.append(x); };
+  stat(m.rank ? '#' + m.rank : '–', 'Rank'); stat(fmtN(m.points), 'Points'); stat(fmtN(m.steps), 'Steps'); stat(String(m.streak), 'Day streak'); stat(fmtN(m.avg), 'Avg / day'); stat(String(m.targetDays), 'Targets hit');
+  inner.append(grid);
+  if (m.bestDay) inner.append(el('p', 'muted small', `Best day: ${fmtN(m.bestDay.steps)} steps on ${dayName(m.bestDay.date)} · longest streak ${m.bestStreak} days`));
+  if (m.week.length) {
+    const wk = el('div', 'mc-week'); const max = Math.max(1, ...m.week.map(x => x.steps));
+    for (const x of m.week) { const col = el('div'); const b = el('i'); b.style.height = Math.max(4, x.steps / max * 100) + '%'; b.title = `${fmtN(x.steps)} steps`; col.append(b, el('small', null, new Date(x.date + 'T12:00').toLocaleDateString([], { weekday: 'narrow' }))); wk.append(col); }
+    inner.append(wk);
+  }
+  const btns = el('div', 'btn-row');
+  const prof = el('button', 'btn', 'View profile'); prof.type = 'button'; prof.onclick = () => { d.close(); showProfile(uid); }; btns.append(prof);
+  inner.append(btns);
+  d.showModal();
 }
 async function leaveChallenge(c) {
   const yes = await popup({ icon: 'logout', title: `Leave ${c.title}?`, text: 'You’ll disappear from the leaderboard. You can join again while it’s running.', ok: 'Leave', danger: true });
