@@ -4387,6 +4387,7 @@ function renderChallenge(keepScroll) {
   // join / manage
   const acts = el('div', 'ch-acts');
   if (!d.joined && c.status !== 'ended') { const j = el('button', 'btn primary', 'Join challenge'); j.type = 'button'; j.onclick = async () => { try { await api('challenge/join', { room: 'general', id: c.id, today: localDay(), tz: new Date().getTimezoneOffset() }); toast(`You joined ${c.title}`); openChallenge(c.id); } catch (e) { toast(e.message); } }; acts.append(j); }
+  if (d.chatRoom) { const cb = el('button', 'btn with-ic'); cb.type = 'button'; cb.append(icoEl('message'), 'Chat'); cb.onclick = () => openChallengeChat(d.chatRoom); acts.append(cb); }
   if (c.mine) {
     const e1 = el('button', 'btn', 'Edit'); e1.type = 'button'; e1.onclick = () => openChallengeForm(c); acts.append(e1);
     const e2 = el('button', 'btn ghost', 'Delete'); e2.type = 'button'; e2.onclick = () => deleteChallenge(c); acts.append(e2);
@@ -4429,11 +4430,22 @@ function renderChallenge(keepScroll) {
     const bar = el('div', 'ct-bar'); const f = el('i'); f.style.width = pct * 100 + '%'; if (pct >= 1) f.classList.add('done'); bar.append(f); p.append(bar);
     mr.append(p);
   }
-  const sync = el('p', 'muted small ch-sync');
-  sync.textContent = healthStatus?.connected ? `Steps sync from Google Health every 15 minutes${healthStatus.lastSync ? ` · last ${agoText(healthStatus.lastSync)}` : ''}.` : 'Steps come from walk mode, Google Health or the Android app (every 15 minutes), or add them in Settings → My steps.';
-  mr.append(sync);
+  const syncText = healthStatus?.connected ? `Steps sync from Google Health every 15 minutes${healthStatus.lastSync ? ` · last ${agoText(healthStatus.lastSync)}` : ''}.` : 'Steps come from walk mode, Google Health or the Android app (every 15 minutes), or add them in Settings → My steps.';
+  mh.querySelector('h3').append(infoTip(syncText, 'Where steps come from'));
   body.append(mr);
   // daily tasks
+  if (c.game && d.gameToday) {
+    const gt = d.gameToday, info = CG_INFO[c.game.kind];
+    const gs = el('div', 'ch-sec'); const gh = el('h3'); gh.append('Today’s game', infoTip(`${info.how} ${c.game.ptsPer} point${c.game.ptsPer === 1 ? '' : 's'} per ${info.unit}; ${c.game.mode === 'sum' ? 'all plays add up' : 'your best play of the day counts'}. ${c.game.perDay} play${c.game.perDay > 1 ? 's' : ''} a day — leaving a game uses up the play.`, 'How the game works')); gs.append(gh);
+    const card = el('div', 'cg-card'); card.append(icoEl('sparkles', 'cg-ic'));
+    const mid = el('div', 'cg-mid'); mid.append(el('b', null, info.name), el('small', null, gt.best !== null ? `Best today ${fmtN(gt.best)} · ${gt.playsLeft} play${gt.playsLeft === 1 ? '' : 's'} left` : `${gt.playsLeft} play${gt.playsLeft === 1 ? '' : 's'} left today`));
+    if (c.gameRecord) mid.append(el('small', 'cg-rec', `Record: ${c.gameRecord.uid === me.uid ? 'you' : c.gameRecord.name} · ${fmtN(c.gameRecord.score)}`));
+    card.append(mid);
+    const pb = el('button', 'btn primary small', gt.playsLeft ? 'Play' : 'Done'); pb.type = 'button'; pb.disabled = !gt.playsLeft || !d.joined || c.status !== 'live';
+    pb.onclick = () => playChallengeGame(c); card.append(pb); gs.append(card);
+    if (!d.joined) gs.append(el('small', 'muted', 'Join the challenge to play.'));
+    body.append(gs);
+  }
   if (c.tasks.length) {
     const ts = el('div', 'ch-sec'); ts.append(el('h3', null, 'Daily tasks'));
     for (const t of d.tasks) {
@@ -4454,12 +4466,18 @@ function renderChallenge(keepScroll) {
   ul.append(el('li', null, `${a.points} point${a.points === 1 ? '' : 's'} for every ${fmtN(a.every)} steps`));
   if (a.target) ul.append(el('li', null, `Target: ${fmtN(a.target)} steps a ${a.per}${a.bonus ? ` · +${a.bonus} bonus points each ${a.per} you reach it` : ''}`));
   if (a.cap) ul.append(el('li', null, `Daily step cap: only the first ${fmtN(a.cap)} steps each day count`));
+  if (c.game) ul.append(el('li', null, `Game: ${CG_INFO[c.game.kind].name} — ${c.game.ptsPer} pts per ${CG_INFO[c.game.kind].unit}, ${c.game.mode === 'sum' ? 'all plays add up' : 'best play of the day'}, ${c.game.perDay} a day`));
   ul.append(el('li', null, `Tie-breaker: ${{ steps: 'more steps', days: `more ${a.per === 'week' ? 'weeks' : 'days'} hitting the target`, joined: 'joined first' }[c.tiebreak]}`));
   ul.append(el('li', null, `Publish ${fmtDay(c.publishAt)} · runs ${fmtDay(c.start)} – ${fmtDay(c.end)}`));
   rules.append(ul); body.append(rules);
   // leaderboard
   const lb = el('div', 'ch-sec'); const lh = el('div', 'ch-sec-head');
   const t = el('h3'); t.append('Leaderboard', el('small', null, ` · Updated at ${new Date(d.board.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`)); lh.append(t);
+  if (c.game) {
+    const sg = el('div', 'seg small ch-lbmode');
+    for (const [v, t2] of [['all', 'Overall'], ['game', 'Game']]) { const b = el('button', (chView.mode || 'all') === v ? 'on' : '', t2); b.type = 'button'; b.onclick = () => { chView.mode = v; renderChallenge(true); }; sg.append(b); }
+    lb.append(sg);
+  }
   if (d.board.total > 10) { const sa = el('button', 'btn small', chView.all ? 'Top 10' : 'See all'); sa.type = 'button'; sa.onclick = () => { chView.all = !chView.all; openChallenge(c.id, true); }; lh.append(sa); }
   lb.append(lh);
   const rowEl = (r, pin) => {
@@ -4473,11 +4491,14 @@ function renderChallenge(keepScroll) {
     if (r.streak > 1) { const f = el('span', 'cr-streak'); f.append(icoEl('flame'), String(r.streak)); st.append(f); }
     m.append(st);
     row.tabIndex = 0; row.setAttribute('role', 'button'); row.onclick = () => r.uid === me.uid ? openPointsHistory(c) : openMemberCard(c, r.uid);
-    row.append(rk, av, m, el('div', 'cr-pts', `${fmtN(r.points)}\npts`));
+    row.append(rk, av, m, el('div', 'cr-pts', r._game ? `${fmtN(r.gameBest)}\nbest` : `${fmtN(r.points)}\npts`));
     return row;
   };
   if (!d.board.rows.length) lb.append(el('p', 'muted small empty-note', 'Nobody has joined yet.'));
-  for (const r of d.board.rows) lb.append(rowEl(r));
+  const gameMode = c.game && chView.mode === 'game';
+  const rows = gameMode ? d.board.rows.filter(r => r.gameBest).slice().sort((x, y) => y.gameBest - x.gameBest).map((r, i) => ({ ...r, rank: i + 1, prev: null, _game: true })) : d.board.rows;
+  if (gameMode && !rows.length) lb.append(el('p', 'muted small empty-note', 'Nobody has played yet. Be the first!'));
+  for (const r of rows) lb.append(rowEl(r));
   body.append(lb);
   if (me1 && !d.board.rows.some(r => r.uid === me.uid)) body.append(rowEl(me1, true));      // keep my row in view
   if (keepScroll) body.scrollTop = scroll;
@@ -4494,12 +4515,13 @@ async function openPointsHistory(c) {
   const tot = el('div', 'ph-total'); tot.append(el('b', null, fmtN(h.points)), el('small', null, 'points'));
   sum.append(lv, tot);
   const split = el('div', 'ph-split');
-  for (const [k, label] of [['stepPts', 'From steps'], ['bonus', 'Target bonus'], ['taskPts', 'Daily tasks']]) { const x = el('div'); x.append(el('b', null, fmtN(h.totals[k])), el('small', null, label)); split.append(x); }
+  for (const [k, label] of [['stepPts', 'From steps'], ['bonus', 'Target bonus'], ['taskPts', 'Daily tasks'], ...(c.game ? [['gamePts', 'Game']] : [])]) { const x = el('div'); x.append(el('b', null, fmtN(h.totals[k])), el('small', null, label)); split.append(x); }
   const facts = el('div', 'ph-facts');
   facts.append(icoText('footprints', `${fmtN(h.steps)} steps counted`), icoText('flame', `Streak ${h.streak} · best ${h.bestStreak}`), icoText('flag', `Target hit ${h.targetDays}×`));
   if (h.bestDay) facts.append(icoText('trophy', `Best day ${fmtN(h.bestDay.steps)} (${dayName(h.bestDay.date)})`));
+  if (c.game) split.classList.add('four');
+  facts.append(infoTip(`Points are credited when your steps sync (Google Health / Android every 15 minutes, walk mode, or added by hand), when you tick a task${c.game ? ' and when you finish a game' : ''}.${c.activity.cap ? ` Only the first ${fmtN(c.activity.cap)} steps a day count.` : ''}`, 'How points are credited'));
   inner.append(sum, split, facts);
-  inner.append(el('p', 'muted small', `Points are credited when your steps sync (Google Health / Android every 15 minutes, walk mode, or added by hand) and when you tick a task. ${c.activity.cap ? `Only the first ${fmtN(c.activity.cap)} steps a day count.` : ''}`));
   for (const w of h.weekBonus || []) {
     const card = el('div', 'ph-day'); const hd = el('div', 'ph-head'); hd.append(el('b', null, `Week ${w.week} target reached`), el('span', 'ph-plus', `+${w.bonus}`)); card.append(hd);
     card.append(el('small', 'muted', `${fmtN(w.steps)} steps (${dayName(w.start)} – ${dayName(w.end)})${w.at ? ' · credited ' + atTime(w.at) : ''}`)); inner.append(card);
@@ -4512,6 +4534,7 @@ async function openPointsHistory(c) {
     if (!x.raw) line('footprints', 'No steps synced', 0, null);
     else line('footprints', `${fmtN(x.counted)} steps${x.capped ? ` (walked ${fmtN(x.raw)}, capped)` : ''} → ${fmtN(Math.floor(x.counted / c.activity.every))} × ${c.activity.points} pts`, x.stepPts, x.at ? `credited ${atTime(x.at)}` : null);
     if (x.bonus) line('flag', `Daily target of ${fmtN(c.activity.target)} reached`, x.bonus, x.at ? `credited ${atTime(x.at)}` : null);
+    if (x.game) line('sparkles', `Game: ${CG_INFO[x.game.kind].name} — ${c.game.mode === 'sum' ? 'total' : 'best'} score ${fmtN(x.game.score)} × ${c.game.ptsPer} (${x.game.plays.length} play${x.game.plays.length > 1 ? 's' : ''})`, x.game.points, x.game.plays.length ? `last played ${atTime(x.game.plays[x.game.plays.length - 1].at)}` : null);
     for (const t of x.tasks) line(t.kind === 'steps' ? 'footprints' : 'check', `Task: ${t.title}`, t.points, t.at ? `${t.kind === 'steps' ? 'credited' : 'ticked'} ${atTime(t.at)}` : null);
     inner.append(card);
   }
@@ -4538,6 +4561,10 @@ async function openMemberCard(c, uid) {
   const prof = el('button', 'btn', 'View profile'); prof.type = 'button'; prof.onclick = () => { d.close(); showProfile(uid); }; btns.append(prof);
   inner.append(btns);
   d.showModal();
+}
+async function openChallengeChat(room) {
+  if (!rooms.some(r => r.room === room)) await refreshRooms();
+  setTab('chats'); openRoom(room);
 }
 async function leaveChallenge(c) {
   const yes = await popup({ icon: 'logout', title: `Leave ${c.title}?`, text: 'You’ll disappear from the leaderboard. You can join again while it’s running.', ok: 'Leave', danger: true });
@@ -4616,6 +4643,23 @@ function openChallengeForm(old) {
     if (tasks.length < 12) { const add = el('button', 'link-btn', '+ Add a daily task'); add.type = 'button'; add.onclick = () => { tasks.push({ kind: 'check', title: '', points: 5 }); drawTasks(); }; tasksBox.append(add); }
   };
   drawTasks();
+  f.append(el('h3', 'ch-form-sec', 'Game (optional)'));
+  const gk = el('select'); gk.append(Object.assign(document.createElement('option'), { value: '', textContent: 'No game' }));
+  for (const [label, fun] of [['Fun games', true], ['Brain games', false]]) {
+    const og = document.createElement('optgroup'); og.label = label;
+    for (const [k2, v2] of Object.entries(CG_INFO)) if (!!v2.fun === fun) og.append(Object.assign(document.createElement('option'), { value: k2, textContent: v2.name }));
+    gk.append(og);
+  }
+  gk.value = old?.game?.kind || ''; field('Daily mini-game', gk);
+  const gBox = el('div', 'ch-game-opts');
+  const gPer = inp('number', old?.game?.perDay ?? 3, { min: 1, max: 10 }), gPts = inp('number', old?.game?.ptsPer ?? 2, { min: 0.01, step: 0.01 });
+  const gMode = el('select'); gMode.append(Object.assign(document.createElement('option'), { value: 'best', textContent: 'Best play of the day' }), Object.assign(document.createElement('option'), { value: 'sum', textContent: 'All plays add up' })); gMode.value = old?.game?.mode || 'best';
+  const g2 = el('div', 'ch-grid2'); const gl1 = el('label', 'field'); gl1.append(el('span', null, 'Plays per day'), gPer); const gl2 = el('label', 'field'); gl2.append(el('span', null, 'Points per score'), gPts); g2.append(gl1, gl2);
+  const gl3 = el('label', 'field'); gl3.append(el('span', null, 'What counts'), gMode);
+  const gHint = el('small', 'muted ch-hint');
+  gBox.append(g2, gl3, gHint); f.append(gBox);
+  const paintGame = () => { gBox.classList.toggle('hidden', !gk.value); if (gk.value) gHint.textContent = `${CG_INFO[gk.value].how} e.g. ${gPts.value || 0} pts per ${CG_INFO[gk.value].unit}.`; };
+  gk.onchange = () => { if (gk.value && !old?.game) gPts.value = { math: 2, reaction: 0.05, memory: 5, bubbles: 1, dash: 0.5, stack: 3 }[gk.value]; paintGame(); }; gPts.oninput = paintGame; paintGame();
   const err = el('p', 'error'); const save = el('button', 'btn primary block', old ? 'Save changes' : 'Create challenge'); save.type = 'submit';
   f.append(err, save);
   f.onsubmit = async e => {
@@ -4629,7 +4673,8 @@ function openChallengeForm(old) {
       }
       const payload = { room: 'general', audience: aud.value || null, id: old?.id, title: title.value, desc: desc.value, banner, publishAt: pub.value, start: st.value, end: en.value, today: localDay(),
         activity: { per: per.value, target: +target.value, every: +every.value, points: +points.value, cap: +cap.value, bonus: +bonus.value }, tiebreak: tb.value,
-        tasks: tasks.map(t => ({ id: t.id, kind: t.kind, title: t.title, target: t.target, points: t.points })) };
+        tasks: tasks.map(t => ({ id: t.id, kind: t.kind, title: t.title, target: t.target, points: t.points })),
+        game: gk.value ? { kind: gk.value, perDay: +gPer.value, ptsPer: +gPts.value, mode: gMode.value } : null };
       const r = await api(old ? 'challenge/update' : 'challenge/create', payload);
       d.close(); toast(old ? 'Challenge updated' : 'Challenge created — share it with your team!');
       openChallenge(r.challenge.id);
@@ -4640,6 +4685,219 @@ function openChallengeForm(old) {
   d.showModal();
 }
 $('newChallengeBtn').onclick = () => openChallengeForm(null);
+
+/* ---------------- Small info tooltip (ⓘ) ---------------- */
+function infoTip(text, label = 'More info') {
+  const w = el('span', 'itip'); const b = el('button', 'itip-btn'); b.type = 'button'; b.innerHTML = svgFor('info'); b.setAttribute('aria-label', label); b.setAttribute('aria-expanded', 'false');
+  const bub = el('span', 'itip-bubble', text); bub.setAttribute('role', 'tooltip');
+  b.onclick = e => { e.stopPropagation(); const open = !w.classList.contains('open'); document.querySelectorAll('.itip.open').forEach(x => x.classList.remove('open')); w.classList.toggle('open', open); b.setAttribute('aria-expanded', String(open)); };
+  w.append(b, bub); return w;
+}
+document.addEventListener('click', () => document.querySelectorAll('.itip.open').forEach(x => x.classList.remove('open')));
+
+/* ---------------- Challenge games (single player) ---------------- */
+const CG_INFO = {
+  math: { name: 'Quick Math', how: 'Solve as many sums as you can in 60 seconds. Score = correct answers.', unit: 'correct answer' },
+  reaction: { name: 'Reaction Time', how: 'Tap the moment the screen turns green — 5 rounds. Score = 1000 − your average time in ms.', unit: 'score point' },
+  memory: { name: 'Memory Path', how: 'Watch the tiles light up, then tap the same path. Each level adds one tile. Score = longest path.', unit: 'tile' },
+  bubbles: { name: 'Bubble Pop', fun: true, how: 'Pop as many rising bubbles as you can in 30 seconds. Golden bubbles count 3.', unit: 'bubble' },
+  dash: { name: 'Step Dash', fun: true, how: 'Tap (or press Space) to jump over the blocks. It gets faster the further you run. Score = metres.', unit: 'metre' },
+  stack: { name: 'Tower Stack', fun: true, how: 'Tap to drop the sliding block on the tower — only the overlap stays. Score = blocks stacked.', unit: 'block' },
+};
+const cg = { layer: null, c: null };
+function cgEl() {
+  let o = $('cgPlay'); if (o) return o;
+  o = el('div', 'cg-play hidden'); o.id = 'cgPlay'; o.setAttribute('role', 'dialog');
+  document.body.append(o); return o;
+}
+function cgClose(refresh = true) {
+  const o = $('cgPlay'); if (o) { o.classList.add('hidden'); o.innerHTML = ''; }
+  clearInterval(cg.tick); clearTimeout(cg.timer); cg.done = true;
+  if (refresh && cg.c) openChallenge(cg.c.id, true);
+}
+async function playChallengeGame(c) {
+  const g = c.game, info = CG_INFO[g.kind];
+  const yes = await popup({ icon: 'sparkles', title: info.name, text: `${info.how}\n\n${g.ptsPer} point${g.ptsPer === 1 ? '' : 's'} per ${info.unit}, ${g.mode === 'sum' ? 'all plays add up' : 'your best play of the day counts'}. Leaving a game uses up the play.`, ok: 'Start' });
+  if (!yes) return;
+  let s; try { s = await api('challenge/game/start', { room: 'general', id: c.id, today: localDay() }); } catch (e) { return toast(e.message); }
+  cg.c = c; cg.s = s; cg.done = false;
+  document.activeElement?.blur?.();        // keys go to the game, not the button behind it
+  const o = cgEl(); o.classList.remove('hidden'); o.innerHTML = '';
+  cg.layer = pushLayer(() => cgClose());
+  const head = el('div', 'cg-head'); const x = el('button', 'icon-btn'); x.type = 'button'; x.innerHTML = svgFor('x'); x.setAttribute('aria-label', 'Quit'); x.onclick = () => closeLayer(cg.layer, () => cgClose());
+  head.append(el('b', null, info.name), x); o.append(head);
+  const stage = el('div', 'cg-stage'); o.append(stage);
+  ({ math: cgMath, reaction: cgReaction, memory: cgMemory, bubbles: cgBubbles, dash: cgDash, stack: cgStack })[g.kind](stage, s);
+}
+async function cgFinish(stage, payload) {
+  if (cg.done) return; cg.done = true; clearInterval(cg.tick); clearTimeout(cg.timer);
+  stage.innerHTML = ''; stage.append(el('p', 'cg-big', 'Checking…'));
+  let r; try { r = await api('challenge/game/finish', { room: 'general', id: cg.c.id, sid: cg.s.sid, today: localDay(), ...payload }); } catch (e) { stage.replaceChildren(el('p', 'cg-msg', e.message)); return; }
+  stage.innerHTML = '';
+  const res = el('div', 'cg-result');
+  res.append(icoEl('trophy', 'cg-trophy'), el('small', null, 'Your score'), el('b', 'cg-score', fmtN(r.score)), el('span', 'muted', r.detail));
+  res.append(el('p', 'cg-pts', `Game points today: ${fmtN(r.points)}${r.best > r.score ? ` (best today ${fmtN(r.best)})` : ''}`));
+  res.append(el('p', 'muted small', 'The leaderboard is already updated.'));
+  const btns = el('div', 'cg-btns');
+  if (r.playsLeft > 0) { const again = el('button', 'btn', `Play again (${r.playsLeft} left)`); again.type = 'button'; again.onclick = () => { const c = cg.c; closeLayer(cg.layer, () => cgClose(false)); setTimeout(() => playChallengeGame(c), 250); }; btns.append(again); }
+  const done = el('button', 'btn primary', 'Done'); done.type = 'button'; done.onclick = () => closeLayer(cg.layer, () => cgClose()); btns.append(done);
+  res.append(btns); stage.append(res);
+  if (navigator.vibrate) navigator.vibrate([30, 40, 30]);
+}
+// Quick Math: 60 s of sums with an on-screen keypad (also works with a keyboard)
+function cgMath(stage, s) {
+  const answers = []; let i = 0, typed = '', right = 0; const end = performance.now() + s.secs * 1000;
+  const top = el('div', 'cg-top'); const bar = el('div', 'cg-bar'); const fill = el('i'); bar.append(fill); const cnt = el('b', null, '0'); top.append(bar, cnt);
+  const q = el('div', 'cg-q'), ans = el('div', 'cg-ans'), pad = el('div', 'cg-pad');
+  const show = () => { const p = s.problems[i]; q.textContent = p ? `${p.a} ${p.op} ${p.b} =` : 'Done!'; ans.textContent = typed || ' '; };
+  const submit = () => {
+    if (!typed || cg.done) return;
+    const p = s.problems[i], v = Number(typed), ok = v === (p.op === '+' ? p.a + p.b : p.op === '-' ? p.a - p.b : p.a * p.b);
+    answers[i] = v; if (ok) right++; cnt.textContent = right; ans.classList.remove('good', 'bad'); void ans.offsetWidth; ans.classList.add(ok ? 'good' : 'bad');
+    typed = ''; i++; if (i >= s.problems.length) return cgFinish(stage, { answers }); show();
+  };
+  const key = k => { if (cg.done) return; if (k === 'del') typed = typed.slice(0, -1); else if (k === 'ok') return submit(); else if (typed.length < 5) typed += k; show(); };
+  for (const k of ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok']) { const b = el('button', 'cg-key' + (k === 'ok' ? ' ok' : k === 'del' ? ' del' : '')); b.type = 'button'; if (k === 'del') b.innerHTML = '&#9003;'; else if (k === 'ok') b.innerHTML = svgFor('check'); else b.textContent = k; b.onpointerdown = e => { e.preventDefault(); key(k); }; pad.append(b); }
+  const onKey = e => { if ($('cgPlay').classList.contains('hidden') || cg.done) return document.removeEventListener('keydown', onKey); if (/^\d$/.test(e.key)) { e.preventDefault(); key(e.key); } else if (e.key === 'Backspace') { e.preventDefault(); key('del'); } else if (e.key === 'Enter') { e.preventDefault(); key('ok'); } };
+  document.addEventListener('keydown', onKey);
+  stage.append(top, q, ans, pad); show();
+  cg.tick = setInterval(() => { const left = end - performance.now(); fill.style.width = Math.max(0, left / (s.secs * 1000) * 100) + '%'; if (left <= 0) cgFinish(stage, { answers }); }, 100);
+}
+// Reaction Time: 5 rounds — wait for green, then tap
+function cgReaction(stage, s) {
+  const times = []; let state = 'idle', t0 = 0;
+  const pad = el('button', 'cg-react'); pad.type = 'button'; const msg = el('b'), sub = el('small'); pad.append(msg, sub);
+  const dots = el('div', 'cg-dots'); for (let k = 0; k < s.rounds; k++) dots.append(el('i'));
+  const paint = (cls, a, b) => { pad.className = 'cg-react ' + cls; msg.textContent = a; sub.textContent = b || ''; [...dots.children].forEach((d, k) => d.classList.toggle('on', k < times.length)); };
+  const round = () => { state = 'wait'; paint('wait', 'Wait for green…', `Round ${times.length + 1} of ${s.rounds}`); cg.timer = setTimeout(() => { state = 'go'; t0 = performance.now(); paint('go', 'TAP!'); }, 1200 + Math.random() * 2200); };
+  pad.onpointerdown = e => {
+    e.preventDefault(); if (cg.done) return;
+    if (state === 'idle') return round();
+    if (state === 'wait') { clearTimeout(cg.timer); state = 'idle'; paint('early', 'Too soon!', 'Tap to try this round again'); return; }
+    if (state === 'go') {
+      const ms = Math.round(performance.now() - t0); times.push(Math.max(100, ms)); state = 'shown';
+      paint('shown', `${ms} ms`, times.length < s.rounds ? 'Next round…' : 'Nice!');
+      cg.timer = setTimeout(() => times.length >= s.rounds ? cgFinish(stage, { times }) : round(), 900);
+    }
+  };
+  stage.append(dots, pad); paint('idle', 'Tap to start', 'Then wait for green and tap as fast as you can');
+}
+// Memory Path: watch, then repeat — one more tile each level
+function cgMemory(stage, s) {
+  const levels = []; let n = 1, input = [], busy = true;
+  const msg = el('p', 'cg-msg'), grid = el('div', 'cg-grid'), tiles = [];
+  for (let k = 0; k < 9; k++) { const t = el('button', 'cg-tile'); t.type = 'button'; t.setAttribute('aria-label', `Tile ${k + 1}`); t.onpointerdown = e => { e.preventDefault(); tap(k); }; tiles.push(t); grid.append(t); }
+  const flash = (k, cls = 'lit', ms = 420) => { tiles[k].classList.add(cls); setTimeout(() => tiles[k].classList.remove(cls), ms); };
+  const watch = () => {
+    busy = true; input = []; msg.textContent = `Level ${n} · watch`;
+    s.path.slice(0, n).forEach((k, j) => { cg.timer = setTimeout(() => flash(k), 500 + j * 620); });
+    cg.timer = setTimeout(() => { busy = false; msg.textContent = `Level ${n} · your turn`; }, 500 + n * 620);
+  };
+  const tap = k => {
+    if (busy || cg.done) return;
+    input.push(k); flash(k, 'tap', 200);
+    const j = input.length - 1;
+    if (k !== s.path[j]) { levels.push(input.slice()); busy = true; tiles[k].classList.add('wrong'); msg.textContent = `Oops! You reached a path of ${n - 1}`; return void (cg.timer = setTimeout(() => cgFinish(stage, { levels }), 1100)); }
+    if (input.length === n) { levels.push(input.slice()); if (n >= s.path.length) return cgFinish(stage, { levels }); n++; busy = true; msg.textContent = 'Correct!'; cg.timer = setTimeout(watch, 700); }
+  };
+  stage.append(msg, grid); watch();
+}
+
+// ---- Fun arcade games ----
+// Bubble Pop: 30 s, tap the rising bubbles (golden ones are worth 3)
+function cgBubbles(stage, s) {
+  let score = 0, spawnEvery = 520, last = 0; const end = performance.now() + s.secs * 1000;
+  const top = el('div', 'cg-top'); const bar = el('div', 'cg-bar'); const fill = el('i'); bar.append(fill); const cnt = el('b', null, '0'); top.append(bar, cnt);
+  const field = el('div', 'cg-field'); stage.append(top, field);
+  const spawn = () => {
+    const gold = Math.random() < .1, size = gold ? 54 : 48 + Math.random() * 34, b = el('button', 'cg-bubble' + (gold ? ' gold' : ''));
+    b.type = 'button'; b.setAttribute('aria-label', gold ? 'Golden bubble' : 'Bubble');
+    b.style.width = b.style.height = size + 'px'; b.style.left = `calc(${Math.random() * 100}% - ${size / 2}px)`;
+    const dur = 2600 + Math.random() * 2200; b.style.animationDuration = dur + 'ms';
+    b.onpointerdown = e => { e.preventDefault(); if (cg.done || b.classList.contains('popped')) return; b.style.transform = getComputedStyle(b).transform; b.classList.add('popped'); score += gold ? 3 : 1; cnt.textContent = score; if (navigator.vibrate) navigator.vibrate(8); setTimeout(() => b.remove(), 180); };
+    b.addEventListener('animationend', () => b.remove());
+    field.append(b);
+  };
+  cg.tick = setInterval(() => {
+    const now = performance.now(), left = end - now;
+    fill.style.width = Math.max(0, left / (s.secs * 1000) * 100) + '%';
+    if (now - last > spawnEvery) { last = now; spawn(); spawnEvery = Math.max(260, spawnEvery - 6); }
+    if (left <= 0) { field.querySelectorAll('.cg-bubble').forEach(x => x.remove()); cgFinish(stage, { score }); }
+  }, 50);
+}
+// Canvas helper (sharp on high-DPI screens)
+function cgCanvas(stage, h) {
+  const c = el('canvas', 'cg-canvas'); stage.append(c);
+  const w = Math.min(stage.clientWidth || 360, 440), dpr = Math.min(2, window.devicePixelRatio || 1);
+  c.width = w * dpr; c.height = h * dpr; c.style.width = w + 'px'; c.style.height = h + 'px';
+  const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#888';
+  return { c, ctx, w, h, css };
+}
+// Step Dash: tap / Space to jump over the blocks; it speeds up
+function cgDash(stage, s) {
+  const msg = el('p', 'cg-msg', 'Tap to jump — start running!'); stage.append(msg);
+  const { c, ctx, w, h, css } = cgCanvas(stage, 300);
+  const ground = h - 46, P = { x: 56, y: ground - 34, w: 30, h: 34, vy: 0 };
+  let obs = [], speed = 260, dist = 0, next = 260, t0 = 0, last = 0, running = false, dead = false;
+  const brand = css('--brand'), text = css('--text'), muted = css('--muted');
+  const jump = () => { if (cg.done || dead) return; if (!running) { running = true; t0 = last = performance.now(); msg.textContent = 'Jump the blocks!'; requestAnimationFrame(loop); } if (P.y >= ground - P.h - 1) P.vy = -820; };
+  c.onpointerdown = e => { e.preventDefault(); jump(); };
+  const onKey = e => { if ($('cgPlay').classList.contains('hidden') || cg.done) return document.removeEventListener('keydown', onKey); if (e.code === 'Space' || e.key === 'ArrowUp') { e.preventDefault(); jump(); } };
+  document.addEventListener('keydown', onKey);
+  const draw = () => {
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = muted; ctx.globalAlpha = .25; ctx.fillRect(0, ground, w, 3); ctx.globalAlpha = 1;
+    for (let k = 0; k < 6; k++) { ctx.fillStyle = muted; ctx.globalAlpha = .15; ctx.fillRect(((k * 97 - dist * .5) % (w + 40) + w + 40) % (w + 40) - 20, ground + 14 + (k % 3) * 8, 18, 3); ctx.globalAlpha = 1; }
+    ctx.fillStyle = '#f97316'; for (const o of obs) { ctx.beginPath(); ctx.roundRect(o.x, ground - o.h, o.w, o.h, 5); ctx.fill(); }
+    ctx.fillStyle = brand; ctx.beginPath(); ctx.roundRect(P.x, P.y, P.w, P.h, 8); ctx.fill();
+    const leg = running && P.y >= ground - P.h - 1 ? Math.sin(dist / 14) * 5 : 0;
+    ctx.fillRect(P.x + 6 + leg, P.y + P.h - 2, 6, 6); ctx.fillRect(P.x + P.w - 12 - leg, P.y + P.h - 2, 6, 6);
+    ctx.fillStyle = '#fff'; ctx.fillRect(P.x + P.w - 11, P.y + 8, 6, 6);
+    ctx.fillStyle = text; ctx.font = '700 20px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillText(`${Math.floor(dist / 40)} m`, w - 12, 30);
+  };
+  const loop = now => {
+    if (cg.done || dead) return;
+    const dt = Math.min(.05, (now - last) / 1000); last = now;
+    speed = Math.min(520, 260 + (now - t0) / 1000 * 12);
+    dist += speed * dt; P.vy += 2200 * dt; P.y = Math.min(ground - P.h, P.y + P.vy * dt); if (P.y >= ground - P.h) P.vy = 0;
+    for (const o of obs) o.x -= speed * dt;
+    obs = obs.filter(o => o.x + o.w > -10);
+    next -= speed * dt; if (next <= 0) { const big = Math.random() < .35; obs.push({ x: w + 10, w: big ? 30 : 18 + Math.random() * 10, h: big ? 44 : 24 + Math.random() * 16 }); next = 230 + Math.random() * 260 + speed * .35; }
+    if (obs.some(o => P.x + P.w - 5 > o.x && P.x + 5 < o.x + o.w && P.y + P.h - 3 > ground - o.h)) { dead = true; draw(); msg.textContent = 'Bonk! Game over'; if (navigator.vibrate) navigator.vibrate(120); setTimeout(() => cgFinish(stage, { score: Math.floor(dist / 40) }), 700); return; }
+    draw(); requestAnimationFrame(loop);
+  };
+  draw();
+}
+// Tower Stack: tap to drop the sliding block; only the overlapping part stays
+function cgStack(stage, s) {
+  const msg = el('p', 'cg-msg', 'Tap to drop the block'); stage.append(msg);
+  const { c, ctx, w, h, css } = cgCanvas(stage, 380);
+  const BH = 26, base = { x: w / 2 - 80, w: 160 }; let stack = [base], cur = null, dir = 1, v = 150, score = 0, lastDrop = 0, over = false, last = performance.now();
+  const colors = ['#00a884', '#0ea5e9', '#7c3aed', '#f97316', '#e11d48', '#16a34a', '#ca8a04'];
+  const newBlock = () => { const top = stack[stack.length - 1]; cur = { x: dir > 0 ? 0 : w - top.w, w: top.w }; v = Math.min(420, 150 + score * 12); };   // starts at the visible edge
+  const draw = () => {
+    ctx.clearRect(0, 0, w, h);
+    const shown = stack.slice(-12), y0 = h - 20;
+    shown.forEach((b, k) => { ctx.fillStyle = colors[(stack.length - shown.length + k) % colors.length]; ctx.beginPath(); ctx.roundRect(b.x, y0 - (k + 1) * BH, b.w, BH - 2, 5); ctx.fill(); });
+    if (cur && !over) { ctx.fillStyle = colors[stack.length % colors.length]; ctx.globalAlpha = .9; ctx.beginPath(); ctx.roundRect(cur.x, y0 - (shown.length + 1) * BH - 8, cur.w, BH - 2, 5); ctx.fill(); ctx.globalAlpha = 1; }
+    ctx.fillStyle = css('--text'); ctx.font = '700 22px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillText(String(score), w - 12, 30);
+  };
+  const drop = () => {
+    const now = performance.now(); if (cg.done || over || now - lastDrop < 350) return; lastDrop = now;
+    const top = stack[stack.length - 1], l = Math.max(cur.x, top.x), r = Math.min(cur.x + cur.w, top.x + top.w);
+    if (r - l <= 0) { over = true; msg.textContent = 'Missed! Game over'; draw(); if (navigator.vibrate) navigator.vibrate(120); return void setTimeout(() => cgFinish(stage, { score }), 700); }
+    const perfect = Math.abs(cur.x - top.x) < 5;
+    stack.push(perfect ? { x: top.x, w: top.w } : { x: l, w: r - l }); score++;
+    msg.textContent = perfect ? 'Perfect!' : score % 5 === 0 ? `${score} high!` : 'Nice'; if (navigator.vibrate) navigator.vibrate(perfect ? 30 : 10);
+    dir = -dir; newBlock();
+  };
+  c.onpointerdown = e => { e.preventDefault(); drop(); };
+  const onKey = e => { if ($('cgPlay').classList.contains('hidden') || cg.done) return document.removeEventListener('keydown', onKey); if (e.code === 'Space' || e.key === 'Enter') { e.preventDefault(); drop(); } };
+  document.addEventListener('keydown', onKey);
+  const loop = now => { if (cg.done || over) return; const dt = Math.min(.05, (now - last) / 1000); last = now; cur.x += dir * v * dt; if (cur.x > w - cur.w) { cur.x = w - cur.w; dir = -1; } if (cur.x < 0) { cur.x = 0; dir = 1; } draw(); requestAnimationFrame(loop); };
+  newBlock(); requestAnimationFrame(loop);
+}
 
 /* ---------------- App style picker ---------------- */
 function stylePreview(st) {
