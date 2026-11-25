@@ -1,0 +1,27 @@
+import { ok } from '../helpers.mjs';
+import { handle, runScheduler } from '../../lib/chat.mjs';
+const m = new Map(); const sent = []; const files = new Map();
+const store = { list: async p => [...m.keys()].filter(k => k.startsWith(p)), get: async k => structuredClone(m.get(k) ?? null), set: async (k, v) => { m.set(k, structuredClone(v)); }, del: async k => { m.delete(k); }, setFile: async (k, d) => { files.set(k, d); }, getFile: async () => null, delFile: async k => { files.delete(k); } };
+const opts = { pushSender: async (sub, payload) => sent.push({ to: sub.endpoint.split('/').pop(), ...JSON.parse(payload) }) };
+const hdr = (u, extra = {}) => ({ authorization: 'Bearer ' + u.token, 'x-chat-device': (u.uid + 'a'.repeat(40)).slice(0, 32).replace(/[^a-f0-9]/g, 'b'), ...extra });
+const call = async (route, body = {}, u) => { const r = await handle(new Request('https://x/api/' + route, { method: 'POST', headers: u ? hdr(u) : {}, body: JSON.stringify(body) }), store, opts); return [r.status, await r.json()]; };
+const signup = async (un, name) => { const [, d] = await call('auth/signup', { username: un, name, password: 'secret1' }); return { token: d.token, uid: d.user.uid }; };
+const K = await signup('kunik', 'Kunik'), H = await signup('himanshu', 'Himanshu'), C = await signup('chin', 'Chin');
+for (const [u, n] of [[K, 'k'], [H, 'h'], [C, 'c']]) await call('push/subscribe', { subscription: { endpoint: 'https://push.example/' + n, keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) } } }, u);
+// profile
+let s, d;
+await call('friends/request', { username: 'himanshu' }, K); await call('friends/respond', { uid: K.uid, accept: true }, H);
+const dm = (await call('friends/dm', { uid: K.uid }, H))[1].room;
+[s, d] = await call('privacy/hide', { room: dm, on: true }, K); ok(s === 400 && d.code === 'no_pin', 'hiding needs a PIN first');
+[s] = await call('privacy/pin', { pin: '12' }, K); ok(s === 400, 'PIN must be 4–8 digits');
+[s, d] = await call('privacy/pin', { pin: '2468' }, K); ok(s === 200 && d.hasPin, 'PIN set');
+[s, d] = await call('privacy/hide', { room: dm, on: true }, K); ok(s === 200 && d.rooms.includes(dm), 'chat hidden');
+[, d] = await call('rooms', {}, K); ok(d.rooms.find(r => r.room === dm)?.hidden === true, 'chat list marks it hidden (for Kunik)');
+[, d] = await call('rooms', {}, H); ok(!d.rooms.find(r => r.room === dm)?.hidden, '…but not for Himanshu');
+[, d] = await call('poll', { room: 'general' }, K); ok(d.rooms.find(r => r.room === dm)?.hidden === true, 'live updates keep the flag');
+sent.length = 0; await call('send', { room: dm, text: 'secret plans' }, H);
+const n = sent.find(x => x.to === 'k'); ok(n && n.title === 'Intra Chat' && n.body === 'New message' && !JSON.stringify(n).includes('secret') && !JSON.stringify(n).includes('Himanshu'), 'notification hides name and text: ' + JSON.stringify({ title: n?.title, body: n?.body }));
+[s] = await call('privacy/unlock', { pin: '0000' }, K); ok(s === 401, 'wrong PIN refused');
+[s] = await call('privacy/unlock', { pin: '2468' }, K); ok(s === 200, 'right PIN unlocks');
+for (let i = 0; i < 5; i++) await call('privacy/unlock', { pin: '1111' }, K);
+[s] = await call('privacy/unlock', { pin: '2468' }, K); ok(s === 429, 'too many wrong tries → short lockout');

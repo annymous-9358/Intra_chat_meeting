@@ -3,3 +3,4 @@ data/
 .netlify/
 .wrangler/
 worker/assets.gen.mjs
+test/e2e/.out/

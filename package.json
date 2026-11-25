@@ -1,22 +1,27 @@
 {
   "name": "intra-chat",
   "version": "2.0.0",
-  "description": "Quick chat app: runs on your LAN with Node.js or on Netlify (Functions + Blobs)",
+  "description": "Team chat app: runs on Cloudflare Workers (D1 + R2), on your LAN with Node.js, or on Netlify",
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/unit/*.test.mjs",
+    "test:e2e": "node test/e2e/run.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "@netlify/blobs": "^11.1.9",
-    "netlify-cli": "^27.20.1",
     "web-push": "^3.6.7"
   },
-  "license": "MIT",
   "devDependencies": {
+    "netlify-cli": "^27.20.1",
+    "playwright": "1.63.0",
     "wrangler": "^4.168.0"
-  }
+  },
+  "license": "MIT"
 }

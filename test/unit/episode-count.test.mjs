@@ -1,0 +1,20 @@
+import { ok } from '../helpers.mjs';
+import { gameRoute } from '../../lib/games.mjs';
+const m = new Map(); const store = { get: async k => structuredClone(m.get(k) ?? null), set: async (k, v) => { m.set(k, structuredClone(v)); }, del: async k => { m.delete(k); }, list: async p => [...m.keys()].filter(k => k.startsWith(p)) };
+const searched = [];
+globalThis.fetch = async url => { const u = new URL(url); const reply = o => new Response(JSON.stringify(o), { status: 200 });
+  if (u.pathname.endsWith('/search')) { const q = u.searchParams.get('q'); searched.push(q); const n = +q.match(/Episode (\d+)/)[1];
+    return reply({ items: n <= 40 ? [{ id: { videoId: 'v' + String(n).padStart(10, '0') }, snippet: { title: `Panchayat Episode ${n}` } }, { id: { videoId: 'x' + String(n).padStart(10, '0') }, snippet: { title: `Mirzapur Episode ${n}` } }] : [] }); }
+  const ids = u.searchParams.get('id').split(','); return reply({ items: ids.map(id => ({ id, snippet: { title: id.startsWith('v') ? 'Panchayat Episode' : 'Mirzapur Episode' }, status: { embeddable: true, privacyStatus: 'public' }, contentDetails: { duration: 'PT25M' } })) }); };
+const A = { uid: 'u1', name: 'A' }, B = { uid: 'u2', name: 'B' };
+const ctx = u => ({ store, room: 'r', user: u, group: {}, youtubeKey: 'k', announce: async () => {} });
+const R = async (a, b, u) => (await gameRoute(a, b, ctx(u))).json();
+let d = await R('start', { kind: 'episode', series: 'Panchayat', maxEp: 40 }, A); await R('join', {}, B); d = await R('begin', {}, A);
+ok(d.game.data.maxEp === 40, 'the game knows the show has 40 episodes');
+const teller = d.game.data.teller === 'u1' ? A : B;
+d = await R('move', { episode: 55 }, teller); ok(/1 to 40/.test(d.error || ''), 'picking 55 is refused: ' + d.error);
+d = await R('move', { episode: 12 }, teller); ok(d.game?.data?.clip?.id === 'v0000000012', 'episode 12 → the Panchayat upload, not Mirzapur');
+await R('end', {}, A); await R('end', {}, A);
+d = await R('start', { kind: 'episode', series: 'Panchayat', maxEp: 40 }, A); await R('join', {}, B); d = await R('begin', {}, A);
+searched.length = 0; const t2 = d.game.data.teller === 'u1' ? A : B;
+d = await R('move', { random: true }, t2); ok(d.game?.data?.clip && searched.every(q => +q.match(/(\d+)$/)[1] <= 40), 'Random only searches episodes 1–40: ' + searched.join(', '));

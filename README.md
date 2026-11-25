@@ -150,7 +150,7 @@ The server syncs connected accounts every 30 minutes (scheduled function) and on
 
 ## Deploy on Cloudflare (main)
 `wrangler.toml` describes it: one Worker (`worker/index.mjs`) serves the web app (public/ is packed in at build time by
-`worker/build-assets.mjs`) and the `/api` server; data lives in D1 (`lib/d1store.mjs`: a `kv` table of JSON records),
+`worker/build-assets.mjs`) and the `/api` server; data lives in D1 (`lib/stores/d1.mjs`: a `kv` table of JSON records),
 uploaded photos, voice notes and sounds in the R2 bucket `intra-chat-files` (the D1 `files` table is only a fallback); a
 Cron Trigger runs the background job every minute. The Worker is pinned next to the database (D1 primary: Hong Kong).
 
@@ -189,7 +189,7 @@ Uploaded files can be opened by anyone who has their (random, unguessable) link,
 Keep an eye on your Netlify usage if many people keep it open all day.
 
 ## Run on your LAN
-Requires Node.js 18+.
+Requires Node.js 20+.
 ```bash
 npm install                 # once
 node server.js
@@ -197,18 +197,57 @@ node server.js
 It prints addresses like `http://192.168.1.20:3000`; share that with colleagues.
 Allow inbound TCP 3000 in the server's firewall
 (Windows: `netsh advfirewall firewall add rule name="Intra Chat" dir=in action=allow protocol=TCP localport=3000`).
-Data is stored in `data/store.json` and uploads in `data/files/`.
+Data is stored in `data/store.json` and uploads in `data/files/` (set `DATA_DIR` to use another folder).
 
 **Voice messages and location groups need HTTPS** (browsers only allow the microphone and location on secure pages).
 On Netlify this just works. On a LAN install over plain `http://192.168…` those two features are unavailable
 unless you put the server behind HTTPS (e.g. a reverse proxy with a certificate).
 
-## Layout
-- `public/index.html`, `public/app.css`, `public/app.js`: the web app
-- `lib/chat.mjs`: chat API (shared by both modes)
-- `netlify/functions/api.mjs`: Netlify Function that serves `/api/*`
-- `netlify/functions/scheduler.mjs`: runs every minute to deliver scheduled messages and reminders (the LAN server does this itself)
-- `server.js`: LAN server
+## Stack and layout
+Plain JavaScript end to end, no framework and no client build step: the web app is static files, and the server is
+one request handler (`handle(req, store, opts)` in `lib/chat.mjs`, standard `Request` → `Response`) that runs unchanged on
+Cloudflare Workers, Netlify Functions and Node. Storage is a small key/value interface with one adapter per host.
+
+```
+public/                 the web app (PWA): index.html, app.js, app.css, sw.js (offline cache), icons, vendor libs
+lib/                    the server, one module per feature
+  chat.mjs              router for /api/* + chat core (send, long-poll, rooms, uploads, reactions)
+  core.mjs              shared limits and helpers (JSON responses, input cleaning, media sniffing)
+  accounts.mjs          users, passwords (scrypt), sessions
+  groups.mjs            group access, owner/admins, membership, group settings
+  location.mjs          location groups (geofence)
+  messages.mjs          posting messages (mentions, replies, push), 1:1 chat helpers
+  friends.mjs  stories.mjs  privacy.mjs (hidden chats, fingerprint)  walkie.mjs
+  steps.mjs  health.mjs (Google Health)  challenges.mjs  games.mjs  emoji-puzzles.mjs
+  push.mjs              web push + Firebase (Android) notifications
+  scheduler.mjs         the every-minute background job
+  stores/d1.mjs         Cloudflare D1 (+ R2 for files)
+  stores/blobs.mjs      Netlify Blobs
+  stores/file.mjs       JSON file on disk (LAN server)
+worker/                 Cloudflare Worker entry (index.mjs) + build step that packs public/ into it
+netlify/functions/      Netlify entry points (api.mjs, scheduler.mjs)
+server.js               LAN server (Node http)
+mobile/                 Android app (Capacitor) that opens the live site, plus native plugins
+                        (step sync, walkie-talkie in the background, fingerprint / face)
+netlify-redirect/       the old Netlify address, forwarding to Cloudflare
+test/unit/              server tests (Node's test runner, in-memory store)
+test/e2e/               browser tests (Playwright, phone-sized Chrome)
+```
+
+## Development
+```sh
+npm install
+npm start                    # LAN server on http://localhost:3000
+npm run dev                  # the Cloudflare Worker locally (local D1 + R2)
+npm test                     # server tests (~360 checks, a few seconds)
+npm run test:e2e             # browser tests against a fresh LAN server
+E2E_URL=http://localhost:8787 npm run test:e2e    # …or against any running copy (e.g. npm run dev)
+npm run deploy               # deploy to Cloudflare
+```
+The browser tests need Playwright's Chromium once: `npx playwright install chromium`. GitHub Actions runs the server
+tests, a Worker build check and the browser tests on every push (`.github/workflows/test.yml`); the Android APK is built by
+`.github/workflows/android.yml` when `mobile/` changes. After changing files in `public/`, bump `CACHE` in `public/sw.js`
+so installed apps pick up the new version.
 
 ## Location groups: how it works and limits
 - Each member's browser shares its position with the server while the group is open (a quick approximate fix first,

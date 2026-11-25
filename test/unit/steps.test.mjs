@@ -1,0 +1,47 @@
+import { ok } from '../helpers.mjs';
+import { handle, runScheduler } from '../../lib/chat.mjs';
+const m = new Map(); const sent = []; const files = new Map();
+const store = { list: async p => [...m.keys()].filter(k => k.startsWith(p)), get: async k => structuredClone(m.get(k) ?? null), set: async (k, v) => { m.set(k, structuredClone(v)); }, del: async k => { m.delete(k); }, setFile: async (k, d) => { files.set(k, d); }, getFile: async () => null, delFile: async k => { files.delete(k); } };
+const opts = { pushSender: async (sub, payload) => sent.push({ to: sub.endpoint.split('/').pop(), ...JSON.parse(payload) }) };
+const hdr = (u, extra = {}) => ({ authorization: 'Bearer ' + u.token, 'x-chat-device': (u.uid + 'a'.repeat(40)).slice(0, 32).replace(/[^a-f0-9]/g, 'b'), ...extra });
+const call = async (route, body = {}, u) => { const r = await handle(new Request('https://x/api/' + route, { method: 'POST', headers: u ? hdr(u) : {}, body: JSON.stringify(body) }), store, opts); return [r.status, await r.json()]; };
+const signup = async (un, name) => { const [, d] = await call('auth/signup', { username: un, name, password: 'secret1' }); return { token: d.token, uid: d.user.uid }; };
+const K = await signup('kunik', 'Kunik'), H = await signup('himanshu', 'Himanshu'), C = await signup('chin', 'Chin');
+for (const [u, n] of [[K, 'k'], [H, 'h'], [C, 'c']]) await call('push/subscribe', { subscription: { endpoint: 'https://push.example/' + n, keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) } } }, u);
+// profile
+let s, d;
+const today = new Date().toISOString().slice(0, 10), ymd = n => { const t = new Date(); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+await call('group/create', { room: 'walkers', title: 'Walkers', type: 'open' }, K);
+await call('poll', { room: 'walkers' }, H); await call('poll', { room: 'walkers' }, C);
+[s] = await call('steps/challenge', { room: 'walkers', goal: 5000, days: 7, teamKm: 50 }, H); ok(s === 403, 'only admins start challenges');
+[s, d] = await call('steps/challenge', { room: 'walkers', goal: 5000, days: 7, teamKm: 50, title: 'Summer stride', today }, K); ok(s === 200 && d.challenge.end === ymd(6), 'admin starts a 7-day challenge');
+[, d] = await call('poll', { room: 'walkers' }, H); ok(d.messages.some(m => m.sys && m.text.includes('Summer stride')), 'challenge announced in chat');
+[s] = await call('steps/log', { room: 'walkers', steps: 200000, today }, H); ok(s === 400, 'silly numbers rejected');
+[s] = await call('steps/log', { room: 'walkers', steps: 100, date: ymd(-30), today }, H); ok(s === 400, 'only the last week can be filled in');
+// history so streaks work: Himanshu hit 5000+ for the last 2 days
+await call('steps/goal', { room: 'walkers', goal: 5000 }, H);
+await call('steps/log', { room: 'walkers', steps: 6000, date: ymd(-1), today }, H); await call('steps/log', { room: 'walkers', steps: 5500, date: ymd(-2), today }, H);
+sent.length = 0;
+[s, d] = await call('steps/log', { room: 'walkers', steps: 3000, today }, H); ok(s === 200 && !d.celebrated, 'below goal: no celebration');
+[s, d] = await call('steps/log', { room: 'walkers', steps: 2500, mode: 'add', today }, H); ok(d.steps === 5500 && d.celebrated, 'walk adds steps; crossing the goal celebrates');
+[, d] = await call('poll', { room: 'walkers' }, K); const note = d.messages.find(m => m.sys && m.text.startsWith('Himanshu hit')); ok(note && note.text.includes('3-day streak'), 'celebration note: ' + note?.text);
+ok(!sent.some(x => x.body?.includes('hit the')), 'celebration notes don’t send push notifications');
+[, d] = await call('steps/log', { room: 'walkers', steps: 7000, today }, H); ok(!d.celebrated, 'celebrates once a day');
+await call('steps/log', { room: 'walkers', steps: 9000, today }, C);
+[, d] = await call('steps/board', { room: 'walkers', today }, K);
+ok(d.rows[0].name === 'Chin' && d.rows[0].rank === 1 && d.rows[1].name === 'Himanshu' && d.rows[1].streak === 3 && d.rows[2].rank === null, 'leaderboard today: ' + d.rows.map(r => `${r.rank}.${r.name} ${r.steps}`).join(', '));
+ok(d.challenge.active && d.challenge.km > 0 && d.challenge.pct > 0 && d.canManage, `team journey ${d.challenge.km} km of ${d.challenge.teamKm}`);
+[, d] = await call('steps/board', { room: 'walkers', range: 'week', today }, K); ok(d.rows[0].name === 'Himanshu' && d.rows[0].steps === 18500, 'weekly board sums days');
+[, d] = await call('steps/me', { room: 'walkers', today }, H); ok(d.streak === 3 && d.badges.find(b => b.id === 'streak3').got && !d.badges.find(b => b.id === 'km42').got && d.week.length === 7, 'personal stats + badges');
+sent.length = 0; [s] = await call('steps/cheer', { room: 'walkers', uid: H.uid, today }, K); ok(s === 200 && sent.some(x => x.to === 'h' && x.title.includes('cheering')), 'cheer sends a push');
+[s] = await call('steps/cheer', { room: 'walkers', uid: H.uid, today }, K); ok(s === 429, 'one cheer per person per day');
+[, d] = await call('steps/board', { room: 'walkers', today }, K); ok(d.rows.find(r => r.uid === H.uid).cheered, 'board shows you cheered');
+[s] = await call('steps/challenge', { room: 'walkers', end: true }, K); [, d] = await call('steps/board', { room: 'walkers', today }, K); ok(s === 200 && !d.challenge, 'admin ends challenge');
+// 1:1 step duel between friends
+await call('friends/request', { username: 'himanshu' }, K); await call('friends/respond', { uid: K.uid, accept: true }, H);
+const dm = (await call('friends/dm', { uid: H.uid }, K))[1].room;
+[s, d] = await call('steps/challenge', { room: dm, goal: 6000, days: 3, teamKm: 0, today }, H); ok(s === 200 && d.challenge.title === 'Step duel', 'either friend can start a duel (no admin needed)');
+[, d] = await call('poll', { room: dm }, K); ok(d.group.steps?.goal === 6000 && d.messages.some(m => m.sys && m.text.includes('started a step duel')), 'duel shows in the 1:1 chat');
+[, d] = await call('steps/board', { room: dm, today }, K); ok(d.dm && d.canManage && d.rows.length === 2, 'duel board: two people');
+[s] = await call('steps/board', { room: dm, today }, C); ok(s === 403, 'others can’t see the duel');
+[s] = await call('steps/challenge', { room: dm, end: true }, K); ok(s === 200, 'either friend can end it');

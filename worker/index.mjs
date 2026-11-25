@@ -1,7 +1,7 @@
 // Cloudflare Workers entry: the web app (files from public/, packed in) and the /api server on one address,
 // data in D1, uploaded files in R2, and the background job (reminders, scheduled messages, step sync, leaderboards) on a Cron Trigger.
 import { handle, runScheduler } from '../lib/chat.mjs';
-import { d1Adapter } from '../lib/d1store.mjs';
+import { d1Adapter } from '../lib/stores/d1.mjs';
 import ASSETS from './assets.gen.mjs';
 
 // The web app's files (packed from public/ at build time)
