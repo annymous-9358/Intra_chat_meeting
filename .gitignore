@@ -1,3 +1,5 @@
 node_modules/
 data/
 .netlify/
+.wrangler/
+worker/assets.gen.mjs

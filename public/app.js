@@ -631,7 +631,7 @@ async function poll(mySession) {
   polling = true;
   ctrl = new AbortController();
   const myCtrl = ctrl;
-  const wait = version && !pollNow ? 7000 : 0;    // first request returns at once; after that, wait for changes
+  const wait = version && !pollNow ? 25000 : 0;   // first request returns at once; after that, wait for changes (the server caps it: 7 s on Netlify)
   pollNow = false;
   const pollStart = Date.now();
   const watchdog = setTimeout(() => myCtrl.abort(), wait + 15000);

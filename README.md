@@ -1,11 +1,12 @@
 # Intra Chat
 
-A quick group chat app. Run it in two ways with the same code:
+A quick group chat app. Run it three ways with the same code. **Live: https://app.intrachat.workers.dev** (Cloudflare).
 
 | Mode | Where it runs | Who can reach it |
 |------|---------------|------------------|
+| **Cloudflare** (main) | Workers + D1, free plan | Anyone with the link (groups can have their own password) |
 | **LAN** | `node server.js` on one office computer | Anyone on your network |
-| **Netlify** | Netlify Functions + Netlify Blobs | Anyone with the link (groups can have their own password) |
+| **Netlify** (old) | Netlify Functions + Netlify Blobs | Anyone with the link |
 
 ## Features
 - **App lock** (Settings → App lock): Intra Chat asks for your **fingerprint / face** (or the phone's PIN/pattern on
@@ -146,6 +147,23 @@ Steps can sync automatically from the **Google Health API** (phone steps via Hea
 While the Google app is in *Testing*, only test users can connect and each connection lasts 7 days (then tap Reconnect).
 For everyone / no weekly reconnect, publish the app and complete Google's verification for the restricted Health scope.
 The server syncs connected accounts every 30 minutes (scheduled function) and on "Sync now"; it never lowers a day's count.
+
+## Deploy on Cloudflare (main)
+`wrangler.toml` describes it: one Worker (`worker/index.mjs`) serves the web app (public/ is packed in at build time by
+`worker/build-assets.mjs`) and the `/api` server; data lives in D1 (`lib/d1store.mjs`: a `kv` table of JSON records and a
+`files` table of uploads split into parts); a Cron Trigger runs the background job every minute. Smart Placement runs the
+Worker next to the database (Asia-Pacific).
+
+```sh
+npm install
+export CLOUDFLARE_ACCOUNT_ID=…  CLOUDFLARE_API_TOKEN=…     # token: Workers Scripts + D1 edit
+npx wrangler deploy                                          # build + upload
+npx wrangler secret put VAPID_PUBLIC_KEY                     # and VAPID_PRIVATE_KEY, VAPID_SUBJECT, GIPHY_API_KEY,
+                                                             # YOUTUBE_API_KEY, GOOGLE_HEALTH_CLIENT_ID/SECRET, LIVEKIT_*
+npx wrangler dev                                             # run it locally with a local D1
+```
+Free-plan fit: polls wait up to 25 s and check D1 twice a second; a poll reads only the new messages. Google Health needs
+`https://app.intrachat.workers.dev/api/health/callback` as an authorised redirect URI.
 
 ## Deploy on Netlify
 1. Push this repo to GitHub, then in Netlify choose **Add new site → Import an existing project** and pick the repo.

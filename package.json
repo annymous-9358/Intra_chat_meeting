@@ -15,5 +15,8 @@
     "netlify-cli": "^27.20.1",
     "web-push": "^3.6.7"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^4.168.0"
+  }
 }

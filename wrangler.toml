@@ -1,0 +1,26 @@
+# Cloudflare Workers deployment (free plan): https://app.intrachat.workers.dev
+name = "app"
+main = "worker/index.mjs"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# The web app (public/) is packed into the Worker at build time and served by it
+[build]
+command = "node worker/build-assets.mjs"
+watch_dir = "public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "intra-chat"
+database_id = "c668e1b4-debf-4a7b-8662-040dc8e6976f"
+
+# Run the Worker next to the database (D1 is in Asia-Pacific): far fewer slow round trips
+[placement]
+mode = "smart"
+
+[triggers]
+crons = ["* * * * *"]
+
+[observability]
+enabled = true

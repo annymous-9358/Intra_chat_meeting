@@ -56,6 +56,7 @@ http.createServer(async (req, res) => {
     // GIF search on a LAN install needs GIPHY_API_KEY in the environment (and internet access)
     const response = await handle(request, store, {
       giphyKey: process.env.GIPHY_API_KEY,
+      maxWaitMs: 25_000,                      // a plain server can hold a poll open longer than Netlify
       vapid: { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY, subject: process.env.VAPID_SUBJECT },
       waitUntil: p => p.catch(() => {}),     // send pushes in the background
       health: healthEnv,                      // Google Health step sync (optional)
