@@ -16,6 +16,11 @@ database_name = "intra-chat"
 database_id = "c668e1b4-debf-4a7b-8662-040dc8e6976f"
 
 # Run the Worker next to the database (D1's primary is in Hong Kong): each query takes a few ms instead of 50–200
+# Photos, voice notes and uploaded sounds
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "intra-chat-files"
+
 [placement]
 region = "gcp:asia-east2"
 

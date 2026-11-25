@@ -4,7 +4,7 @@ A quick group chat app. Run it three ways with the same code. **Live: https://ap
 
 | Mode | Where it runs | Who can reach it |
 |------|---------------|------------------|
-| **Cloudflare** (main) | Workers + D1, free plan | Anyone with the link (groups can have their own password) |
+| **Cloudflare** (main) | Workers + D1 + R2, free tiers | Anyone with the link (groups can have their own password) |
 | **LAN** | `node server.js` on one office computer | Anyone on your network |
 | **Netlify** (old) | Netlify Functions + Netlify Blobs | Anyone with the link |
 
@@ -150,9 +150,9 @@ The server syncs connected accounts every 30 minutes (scheduled function) and on
 
 ## Deploy on Cloudflare (main)
 `wrangler.toml` describes it: one Worker (`worker/index.mjs`) serves the web app (public/ is packed in at build time by
-`worker/build-assets.mjs`) and the `/api` server; data lives in D1 (`lib/d1store.mjs`: a `kv` table of JSON records and a
-`files` table of uploads split into parts); a Cron Trigger runs the background job every minute. Smart Placement runs the
-Worker next to the database (Asia-Pacific).
+`worker/build-assets.mjs`) and the `/api` server; data lives in D1 (`lib/d1store.mjs`: a `kv` table of JSON records),
+uploaded photos, voice notes and sounds in the R2 bucket `intra-chat-files` (the D1 `files` table is only a fallback); a
+Cron Trigger runs the background job every minute. The Worker is pinned next to the database (D1 primary: Hong Kong).
 
 ```sh
 npm install

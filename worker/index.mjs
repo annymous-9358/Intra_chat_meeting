@@ -1,5 +1,5 @@
 // Cloudflare Workers entry: the web app (files from public/, packed in) and the /api server on one address,
-// data in D1, and the background job (reminders, scheduled messages, step sync, leaderboards) on a Cron Trigger.
+// data in D1, uploaded files in R2, and the background job (reminders, scheduled messages, step sync, leaderboards) on a Cron Trigger.
 import { handle, runScheduler } from '../lib/chat.mjs';
 import { d1Adapter } from '../lib/d1store.mjs';
 import ASSETS from './assets.gen.mjs';
@@ -29,7 +29,7 @@ export default {
     const t0 = Date.now(), qs = [];                                  // time each D1 query (reported in Server-Timing)
     const timed = { prepare: sql => { const st = env.DB.prepare(sql), wrap = st2 => new Proxy(st2, { get: (o, k) => k === 'bind' ? (...a) => wrap(o.bind(...a)) : ['first', 'all', 'run'].includes(k) ? async (...a) => { const t = Date.now(); try { return await o[k](...a); } finally { qs.push(Date.now() - t); } } : typeof o[k] === 'function' ? o[k].bind(o) : o[k] }); return wrap(st); },
       batch: async b => { const t = Date.now(); try { return await env.DB.batch(b); } finally { qs.push(Date.now() - t); } } };
-    const res = await handle(req, d1Adapter(timed), {
+    const res = await handle(req, d1Adapter(timed, env.FILES), {
       giphyKey: env.GIPHY_API_KEY,
       vapid: vapid(env),
       waitUntil: p => ctx.waitUntil(p),
@@ -45,6 +45,6 @@ export default {
     return out;
   },
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runScheduler(d1Adapter(env.DB), { vapidEnv: vapid(env), origin: env.VAPID_SUBJECT || '', health: health(env) }));
+    ctx.waitUntil(runScheduler(d1Adapter(env.DB, env.FILES), { vapidEnv: vapid(env), origin: env.VAPID_SUBJECT || '', health: health(env) }));
   },
 };
