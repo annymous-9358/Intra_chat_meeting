@@ -26,7 +26,10 @@ export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return serveAsset(req, url);
-    return handle(req, d1Adapter(env.DB), {
+    const t0 = Date.now(), qs = [];                                  // time each D1 query (reported in Server-Timing)
+    const timed = { prepare: sql => { const st = env.DB.prepare(sql), wrap = st2 => new Proxy(st2, { get: (o, k) => k === 'bind' ? (...a) => wrap(o.bind(...a)) : ['first', 'all', 'run'].includes(k) ? async (...a) => { const t = Date.now(); try { return await o[k](...a); } finally { qs.push(Date.now() - t); } } : typeof o[k] === 'function' ? o[k].bind(o) : o[k] }); return wrap(st); },
+      batch: async b => { const t = Date.now(); try { return await env.DB.batch(b); } finally { qs.push(Date.now() - t); } } };
+    const res = await handle(req, d1Adapter(timed), {
       giphyKey: env.GIPHY_API_KEY,
       vapid: vapid(env),
       waitUntil: p => ctx.waitUntil(p),
@@ -37,6 +40,9 @@ export default {
       maxWaitMs: 25_000,       // waiting costs no CPU on Workers, so hold polls open longer…
       checkMs: 500,            // …and check D1 twice a second (about 2 reads per second per open app: well inside the free plan)
     });
+    const out = new Response(res.body, res);                       // how long the server spent (handy for checking speed)
+    out.headers.set('server-timing', `app;dur=${Date.now() - t0}, db;dur=${qs.reduce((x, y) => x + y, 0)};desc="${qs.length} queries"`);
+    return out;
   },
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runScheduler(d1Adapter(env.DB), { vapidEnv: vapid(env), origin: env.VAPID_SUBJECT || '', health: health(env) }));
