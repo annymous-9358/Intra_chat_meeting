@@ -1,0 +1,2 @@
+# Intra Chat moved to Cloudflare. Everything except sw.js (served as a file below) goes to the new address.
+/*  https://app.intrachat.workers.dev/:splat  301
