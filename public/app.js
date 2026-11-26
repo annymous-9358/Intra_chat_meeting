@@ -776,7 +776,7 @@ function render(m, isPending) {
     const s = document.createElement('button'); s.className = 'sys-msg'; s.type = 'button'; s.dataset.key = m.key; s._msg = m;
     const tx = document.createElement('span'), tm = document.createElement('small'); tx.textContent = m.text; tm.textContent = timeLabel(m.ts);
     s.append(icoEl(m.sys === 'steps' ? 'footprints' : m.sys === 'game' ? 'sparkles' : m.sys === 'fun' ? 'pencil' : m.sys === 'call' ? 'phone' : 'info'), tx, tm);
-    s.onclick = () => m.sys === 'game' ? openGame() : m.sys === 'fun' ? (m.ref ? funReplay(m.ref) : openFun()) : m.sys === 'call' ? (callS.info ? callJoin(callS.info) : toast('This call has ended')) : openSteps();
+    s.onclick = () => m.sys === 'game' ? openGame() : m.sys === 'fun' ? (m.ref?.startsWith('/api/file/') ? funPreview(m.ref) : m.ref ? funReplay(m.ref) : openFun()) : m.sys === 'call' ? (callS.info ? callJoin(callS.info) : toast('This call has ended')) : openSteps();
     box.append(s); lastRendered = { who: null, ts: m.ts, day };
     return s;
   }
@@ -4571,12 +4571,15 @@ async function openFun() {
     dood.onclick = () => { d.close(); funPad(room, st.people); };
     const cam = el('button', 'btn', 'Camera'); cam.type = 'button'; cam.prepend(icoEl('camera'));
     cam.onclick = () => pickImage(img => funQuickPhoto(room, st.people, img), 'environment');     // snap → on their screen right away
-    const photo = el('button', 'btn', 'Photo'); photo.type = 'button'; photo.prepend(icoEl('image'));
-    photo.onclick = () => pickImage(img => { d.close(); funPad(room, st.people, img, true); });
-    const vid = el('button', 'btn', 'Video'); vid.type = 'button'; vid.prepend(icoEl('play'));
-    vid.onclick = () => funVideo(room, st.people);
-    row.append(dood, cam, photo, vid); theirs.append(row);
-    if (!st.people.some(p => p.live)) theirs.append(el('p', 'muted small', 'Videos only play for people who turned on the live wallpaper.'));
+    const rec = el('button', 'btn', 'Record'); rec.type = 'button'; rec.prepend(icoEl('video'));
+    rec.onclick = () => funVideo(room, st.people, 'environment');                               // record a video now
+    const gal = el('button', 'btn', 'Gallery'); gal.type = 'button'; gal.prepend(icoEl('image'));
+    gal.onclick = () => funGallery(file => {                                                     // a photo (to frame) or a video
+      if (file.type.startsWith('video/')) return funVideoSend(room, st.people, file);
+      const img = new Image(); img.onload = () => { d.close(); funPad(room, st.people, img, true); }; img.src = URL.createObjectURL(file);
+    });
+    row.append(dood, cam, rec, gal); theirs.append(row);
+    if (!st.people.some(p => p.live)) theirs.append(el('p', 'muted small', 'Videos play on screens with the live wallpaper turned on; other phones show a still from the video.'));
   }
   inner.append(theirs);
   if (!d.open) d.showModal();
@@ -4592,7 +4595,7 @@ const nativeAsk = (plugin, method, args = {}, ms = 2000) => Promise.race([window
 // tell the phone what you allow here (and how its live wallpaper can fetch doodles)
 const funNative = m => nativeAsk('Fun', 'setAllowed', { lock: m.lock, home: m.home, baseUrl: location.origin, token: me.token, device: me.device });
 const funBestTarget = people => people.some(p => p.lock) ? 'lock' : 'home';
-const funSentToast = (r, what) => toast(r.sent.length ? `${what} is on ${r.sent.join(', ')}’s screen now` : r.skipped.length ? `Couldn’t reach ${r.skipped.join(', ')}’s phone${what === 'Your video' ? ' — videos need their live wallpaper' : ' — they need to open the latest Intra Chat Android app once'}` : 'Nobody here allows that screen right now');
+const funSentToast = (r, what) => toast(r.sent.length ? `${what} is on ${r.sent.join(', ')}’s screen now` : r.skipped.length ? `Couldn’t reach ${r.skipped.join(', ')}’s phone — they need to open the latest Intra Chat Android app once` : 'Nobody here allows that screen right now');
 // Camera: the photo goes straight onto their screen
 async function funQuickPhoto(room, people, img) {
   toast('Sending…');
@@ -4602,22 +4605,34 @@ async function funQuickPhoto(room, people, img) {
     funSentToast(await api('fun/send', { room, url, target: funBestTarget(people), final: true, kind: 'photo' }), 'Your photo');
   } catch (e) { toast(e.message); }
 }
-// Video: record or pick a short clip (up to 30 s, 20 MB); it plays on their live wallpaper
-function funVideo(room, people) {
-  const f = el('input'); f.type = 'file'; f.accept = 'video/*';
-  f.onchange = async () => {
-    const file = f.files[0]; if (!file) return;
-    if (file.size > 20 * 1024 * 1024) return toast('That video is too big — keep it under 20 MB (about 30 seconds)');
-    // its length (some files never report it: don't wait forever — the 20 MB limit still applies)
-    const secs = await new Promise(r => { const v = document.createElement('video'); v.preload = 'metadata'; v.onloadedmetadata = () => r(v.duration); v.onerror = () => r(0); setTimeout(() => r(0), 3000); v.src = URL.createObjectURL(file); });
-    if (secs > 31) return toast('Keep videos to 30 seconds or less');
-    toast('Sending video…');
-    try {
-      const url = await upload(file, 'video');
-      funSentToast(await api('fun/send', { room, url, target: funBestTarget(people), final: true, kind: 'video' }), 'Your video');
-    } catch (e) { toast(e.message); }
-  };
+// Gallery: a photo or a video
+function funGallery(cb) { const f = el('input'); f.type = 'file'; f.accept = 'image/*,video/*'; f.onchange = () => f.files[0] && cb(f.files[0]); f.click(); }
+// Video: record (capture) or pick a short clip (up to 30 s, 20 MB); it plays on their live wallpaper
+function funVideo(room, people, capture) {
+  const f = el('input'); f.type = 'file'; f.accept = 'video/*'; if (capture) f.setAttribute('capture', capture);
+  f.onchange = () => f.files[0] && funVideoSend(room, people, f.files[0]);
   f.click();
+}
+async function funVideoSend(room, people, file) {
+  if (file.size > 20 * 1024 * 1024) return toast('That video is too big — keep it under 20 MB (about 30 seconds)');
+  // its length (some files never report it: don't wait forever — the 20 MB limit still applies)
+  const secs = await new Promise(r => { const v = document.createElement('video'); v.preload = 'metadata'; v.onloadedmetadata = () => r(v.duration); v.onerror = () => r(0); setTimeout(() => r(0), 3000); v.src = URL.createObjectURL(file); });
+  if (secs > 31) return toast('Keep videos to 30 seconds or less');
+  toast('Sending video…');
+  try {
+    const url = await upload(file, 'video');
+    funSentToast(await api('fun/send', { room, url, target: funBestTarget(people), final: true, kind: 'video' }), 'Your video');
+  } catch (e) { toast(e.message); }
+}
+// Preview what a fun-mode note set: a photo, or a video (with controls)
+async function funPreview(url) {
+  let type = ''; try { type = (await fetch(url, { method: 'HEAD' })).headers.get('content-type') || ''; } catch {}
+  if (!type.startsWith('video/')) return viewPhoto(url);
+  const o = document.createElement('dialog'); o.className = 'fun-video-view';
+  const v = document.createElement('video'); v.src = url; v.controls = true; v.autoplay = true; v.loop = true; v.playsInline = true;
+  const x = el('button', 'icon-btn'); x.type = 'button'; x.innerHTML = svgFor('x'); x.setAttribute('aria-label', 'Close'); x.onclick = () => o.close();
+  o.append(v, x); document.body.append(o); o.addEventListener('close', () => o.remove()); o.onclick = e => { if (e.target === o) o.close(); };
+  o.showModal();
 }
 // a picture scaled to cover the phone-shaped canvas
 function funCover(img, c = Object.assign(document.createElement('canvas'), { width: FUN_W, height: FUN_H })) {
@@ -4805,6 +4820,12 @@ function funPad(room, people, bgImg = null, photoOnly = false) {
     sizeRow.append(dot, rng, undo, clear);
     const bgs = el('div', 'fun-bgs'); bgs.append(el('small', 'muted', 'Background'));
     for (const c of ['#101418', '#ffffff', '#fde68a', '#bfdbfe', '#fbcfe8', '#bbf7d0']) { const b = el('button', 'fun-sw small'); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', 'Background ' + c); b.onclick = () => { bg = c; bgImg = null; bgUrl = null; bgChanged = true; paintBg(); dirty = true; }; bgs.append(b); }
+    const useBg = async img => {
+      bgImg = img; paintBg(); dirty = true;
+      try { const c2 = funCover(img); const blob = await new Promise(r => c2.toBlob(r, 'image/jpeg', 0.8)); bgUrl = await upload(blob); bgChanged = true; } catch {}
+    };
+    const camb = el('button', 'btn small', 'Camera'); camb.type = 'button'; camb.onclick = () => pickImage(useBg, 'environment');   // draw over a photo you take now
+    bgs.append(camb);
     const ph = el('button', 'btn small', 'Photo'); ph.type = 'button';
     ph.onclick = () => pickImage(async img => {
       bgImg = img; paintBg(); dirty = true;
@@ -4988,7 +5009,8 @@ async function callConnect(room, r, video, game) {
     await lkRoom.localParticipant.setMicrophoneEnabled(true);
     if (video) await lkRoom.localParticipant.setCameraEnabled(true, { facingMode: 'user' });
   } catch (e) {
-    toast(/permission|NotAllowed/i.test(String(e?.name || e?.message)) ? 'Allow the microphone (and camera) for Intra Chat to call' : 'Couldn’t connect the call: ' + (e?.message || e));
+    const why = String(e?.message || e);
+    toast(/permission|NotAllowed/i.test(String(e?.name) + why) ? 'Allow the microphone (and camera) for Intra Chat to call' : /invalid token|unauthorized/i.test(why) ? 'Calls aren’t working yet — the server’s LiveKit secret needs to be set' : 'Couldn’t connect the call: ' + why);
     return callEnd(true);
   }
   callRender();

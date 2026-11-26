@@ -74,13 +74,25 @@ run(async browser => {
   expect(await fc.element().evaluate(i => i.getAttribute('capture')) === 'environment', 'Camera opens the phone camera');
   await fc.setFiles(jpg); await K.waitForTimeout(2000);
   expect(sends.some(s => s.kind === 'photo' && s.final && /^\/api\/file\//.test(s.url)), 'the photo is sent to Bob’s screen right away');
+  const photoUrl = sends.find(s => s.kind === 'photo')?.url;
   // Video: uploads as a video and goes out as one
   const mp4 = require('node:path').join(OUT, 'clip.mp4');
   require('node:fs').writeFileSync(mp4, Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(3000)]));
   sends.length = 0; const ups = []; K.on('request', async r => { if (r.url().includes('/api/upload')) { const h = await r.allHeaders(); ups.push(h['x-upload-kind'] || ''); } });
-  const [fv] = await Promise.all([K.waitForEvent('filechooser'), K.click('#funSheet .btn:has-text("Video")')]);
+  const [fr] = await Promise.all([K.waitForEvent('filechooser'), K.click('#funSheet .btn:has-text("Record")')]);
+  expect(await fr.element().evaluate(i => i.getAttribute('capture') === 'environment' && i.accept === 'video/*'), 'Record opens the camera for a video');
+  await fr.setFiles([]);
+  const [fv] = await Promise.all([K.waitForEvent('filechooser'), K.click('#funSheet .btn:has-text("Gallery")')]);
+  expect(await fv.element().evaluate(i => i.accept) === 'image/*,video/*', 'Gallery takes a photo or a video');
   await fv.setFiles(mp4); await K.waitForTimeout(5000);
-  expect(ups.includes('video') && sends.some(s => s.kind === 'video' && s.final), 'a video uploads as a video and is sent');
+  expect(ups.includes('video') && sends.some(s => s.kind === 'video' && s.final), 'a video from the gallery uploads as a video and is sent');
+  // a fun note opens what was set (notes need a real phone to receive it, so preview the uploads directly)
+  const vurl = sends.find(s => s.kind === 'video').url;
+  await K.keyboard.press('Escape'); await K.evaluate(u => funPreview(u), vurl);
+  expect(await K.waitForSelector('dialog.fun-video-view[open] video', { timeout: 5000 }).then(() => true, () => false), 'a video note previews the video');
+  await K.keyboard.press('Escape'); await K.waitForTimeout(200);
+  await K.evaluate(u => funPreview(u), photoUrl);
+  expect(await K.waitForSelector('#viewer:not(.hidden) img[src*="/api/file/"]', { timeout: 5000 }).then(() => true, () => false), 'a photo note previews the photo');
   // an older Android app that doesn't answer the live-wallpaper question: Fun mode still opens and says to update
   const O = await phone(browser); await signup(O, 'Olde', 'olde'); await O.goto(URL + '/#/g/general'); await O.waitForSelector('#text'); await O.waitForTimeout(800);
   await O.evaluate(() => { window.Capacitor = { isNativePlatform: () => true, nativePromise: (plugin, m) => m === 'liveStatus' ? new Promise(() => {}) : Promise.resolve({}) }; });

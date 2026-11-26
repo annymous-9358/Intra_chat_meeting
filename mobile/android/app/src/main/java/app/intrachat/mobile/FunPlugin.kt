@@ -120,18 +120,34 @@ object FunWallpaper {
         if (!Regex("^/api/file/[a-f0-9]{24}$").matches(path)) return
         val kind = d["kind"] ?: "photo"
         if (live) { FunBus.show(ctx, kind, path, d["sid"]?.takeIf { it.isNotEmpty() }, d["room"]); return }   // instant, no wallpaper swap
-        if (kind == "video") return                // videos need the live wallpaper
         val base = prefs.base ?: AuthPrefs(ctx).baseUrl ?: return
         val at = d["at"]?.toLongOrNull() ?: System.currentTimeMillis()
         if (at < newest.get()) return
         val bytes = download("$base$path") ?: return
         if (at < newest.get()) return
         newest.set(at)
-        apply(ctx, bytes, if (lock && home) "both" else if (lock) "lock" else "home")
+        val target = if (lock && home) "both" else if (lock) "lock" else "home"
+        if (kind == "video") { videoFrame(ctx, bytes)?.let { setBitmap(ctx, it, target) }; return }   // no live wallpaper: a still from the video
+        apply(ctx, bytes, target)
+    }
+
+    /** A frame from about one second into a video (for phones without the live wallpaper). */
+    private fun videoFrame(ctx: Context, bytes: ByteArray): Bitmap? {
+        val f = java.io.File(ctx.cacheDir, "fun-video.tmp")
+        return try {
+            f.writeBytes(bytes)
+            val r = android.media.MediaMetadataRetriever()
+            try { r.setDataSource(f.absolutePath); r.getFrameAtTime(1_000_000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC) ?: r.frameAtTime }
+            finally { r.release() }
+        } catch (_: Exception) { null } finally { f.delete() }
     }
 
     fun apply(ctx: Context, bytes: ByteArray, target: String) {
         val bmp = decode(ctx, bytes) ?: return
+        setBitmap(ctx, bmp, target)
+    }
+
+    private fun setBitmap(ctx: Context, bmp: Bitmap, target: String) {
         val flags = when (target) {
             "home" -> WallpaperManager.FLAG_SYSTEM
             "both" -> WallpaperManager.FLAG_SYSTEM or WallpaperManager.FLAG_LOCK
@@ -142,8 +158,8 @@ object FunWallpaper {
 
     private fun download(url: String): ByteArray? = try {
         val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 5000; c.readTimeout = 8000
-        if (c.responseCode != 200) null else c.inputStream.use { it.readBytes() }.takeIf { it.size in 1..(8 * 1024 * 1024) }
+        c.connectTimeout = 5000; c.readTimeout = 30000
+        if (c.responseCode != 200) null else c.inputStream.use { it.readBytes() }.takeIf { it.size in 1..(21 * 1024 * 1024) }      // videos are up to 20 MB
     } catch (_: Exception) { null }
 
     // Decode at about screen size (big photos would waste memory)

@@ -1884,3 +1884,8 @@ dialog.fun-watch::backdrop { background: rgba(0, 0, 0, .55); }
 .game-voice.on { color: #16a34a; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .call-banner { background: #14532d; color: #dcfce7; } }
 :root[data-theme="dark"] .call-banner { background: #14532d; color: #dcfce7; }
+/* fun mode: video preview */
+dialog.fun-video-view { border: 0; padding: 0; background: #000; max-width: min(420px, calc(100vw - 24px)); max-height: calc(100vh - 24px); border-radius: 18px; overflow: hidden; position: relative; }
+dialog.fun-video-view::backdrop { background: rgba(0, 0, 0, .7); }
+dialog.fun-video-view video { display: block; width: 100%; max-height: calc(100vh - 24px); }
+dialog.fun-video-view .icon-btn { position: absolute; top: 8px; right: 8px; background: rgba(0, 0, 0, .5); color: #fff; border-radius: 50%; }

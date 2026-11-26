@@ -35,7 +35,7 @@ function run(fn) {
   (async () => {
     require('node:fs').mkdirSync(OUT, { recursive: true });
     const browser = await chromium.launch();
-    try { await fn(browser); } catch (e) { expect(false, 'error: ' + String(e.message).split('\n')[0]); } finally { await browser.close(); }
+    try { await fn(browser); } catch (e) { expect(false, 'error: ' + String(e.message).split('\n')[0] + (process.env.E2E_STACK ? '\n' + e.stack : '')); } finally { await browser.close(); }
   })();
 }
 module.exports = { URL, OUT, RUN, expect, phone, signup, modal, makeChallenge, playChallengeGame, run };

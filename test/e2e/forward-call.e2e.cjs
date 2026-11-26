@@ -7,7 +7,7 @@ run(async browser => {
   await B.goto(URL + `/#/g/team-${RUN}`); await B.waitForSelector('#text'); await B.waitForTimeout(800);
   await A.goto(URL + '/#/g/general'); await A.waitForSelector('#text'); await A.waitForTimeout(1200);
   await A.fill('#text', 'forward me ' + RUN); await A.click('#sendBtn'); await A.waitForSelector(`#messages >> text=forward me ${RUN}`);
-  const msg = A.locator('#messages .msg', { hasText: 'forward me ' + RUN }).last();
+  const msg = A.locator('#messages .msg[data-key]', { hasText: 'forward me ' + RUN }).last(); await msg.waitFor();   // confirmed by the server
   await msg.dispatchEvent('contextmenu'); await A.waitForSelector('#msgMenu:not(.hidden)');
   const items = await A.locator('#mmActions button').allTextContents();
   expect(items.includes('Forward') && items.includes('Share'), 'the message menu has Forward and Share');

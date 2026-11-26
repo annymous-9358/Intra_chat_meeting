@@ -33,7 +33,7 @@ pushes.length = 0;
 [s, d] = await call('fun/send', { room: 'floor', url: url1, target: 'lock', final: true, kind: 'photo' }, K);
 ok(s === 200 && d.sent.sort().join() === 'Bob,Chin' && d.skipped.join() === 'Webby', 'photo sent to Bob and Chin; Webby has no Android app');
 ok(pushes.length === 2 && pushes.every(p => p.data.type === 'fun' && p.data.url === url1 && p.data.target === 'lock' && p.data.by === 'Kunik' && !('from' in p.data) && !p.notification && p.android.priority === 'HIGH'), 'a silent high-priority data push wakes each phone with the picture');
-[, d] = await call('poll', { room: 'floor' }, B); ok(d.messages.some(x => x.sys === 'fun' && x.text === 'Kunik changed 2 people’s lock screen'), 'the chat says who changed what');
+[, d] = await call('poll', { room: 'floor' }, B); ok(d.messages.some(x => x.sys === 'fun' && x.text === 'Kunik changed 2 people’s lock screen' && x.ref === url1), 'the chat says who changed what, and the note links to the photo');
 [, d] = await call('fun/state', { room: 'floor' }, B); ok(d.last?.url === url1 && d.last.byName === 'Kunik', 'Bob can see the last picture set for him');
 // home screen only goes to people who allow it
 pushes.length = 0;
@@ -142,7 +142,8 @@ await call('fun/settings', { room: 'floor', lock: false, home: false }, B); push
   await call('fun/settings', { room: 'floor', lock: true, home: true }, W);           // Webby: no live wallpaper
   sent.length = 0;
   [, r] = await call('fun/send', { room: 'floor', url: vurl, target: 'lock', final: true, kind: 'video' }, K);
-  ok(r.sent.includes('Bob') && r.skipped.includes('Webby') && sent.every(x => x.data.kind === 'video'), 'a video goes only to people with the live wallpaper');
+  ok(r.sent.includes('Bob') && sent.every(x => x.data.kind === 'video'), 'a video goes out (plays on a live wallpaper; other phones set a still frame)');
+  [, r] = await call('poll', { room: 'floor' }, B); ok(r.messages.some(x => x.sys === 'fun' && /set a video on/.test(x.text) && x.ref === vurl), 'the note says it’s a video, and links to it for a preview');
   // a live doodle starting wakes live-wallpaper phones; they pull strokes with fun/watch
   sent.length = 0; const sid = 'lw' + Date.now().toString(36);
   [, r] = await call('fun/live', { room: 'floor', sid, target: 'lock', ops: [{ i: 0, tool: 'pen', color: '#ffffff', size: 8, from: 0, pts: [[5, 5], [50, 50]] }] }, K);
