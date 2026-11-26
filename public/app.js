@@ -112,7 +112,7 @@ const lastRead = store.json('ic-read', {});          // room -> newest message k
 let rooms = [], current = null;
 let since = '', version = '', seen = new Set(), pending = new Map(), replyTo = null;
 let receipts = [], acked = { delivered: '', read: '' }, openReceipts = new Set();
-let ctrl = null, pollTimer = null, polling = false, session = 0, failures = 0, lastTyping = 0;
+let ctrl = null, pollTimer = null, polling = false, session = 0, failures = 0, lastTyping = 0, primed = 0;   // primed: the session whose first poll has come back
 let group = null;                                    // info about the current group (null for #general)
 let lastRendered = null, unseenBelow = 0, presenceCache = [], roomsTimer = null;
 let xsince = 0, edits = {}, pushActive = false, muteChangedAt = 0, pollNow = false;
@@ -631,7 +631,9 @@ async function poll(mySession) {
   polling = true;
   ctrl = new AbortController();
   const myCtrl = ctrl;
-  const wait = version && !pollNow ? 25000 : 0;   // first request returns at once; after that, wait for changes (the server caps it: 7 s on Netlify)
+  // the first request of a room returns at once; after that, wait for changes — also in a room with no messages yet
+  // (no version), which used to re-ask nonstop. The server caps the wait: 7 s on Netlify.
+  const wait = primed === mySession && !pollNow ? 25000 : 0;
   pollNow = false;
   const pollStart = Date.now();
   const watchdog = setTimeout(() => myCtrl.abort(), wait + 15000);
@@ -647,7 +649,7 @@ async function poll(mySession) {
     if (ack.read) { acked.read = ack.read; markRead(current, ack.read); }
     failures = 0; $('netBanner').classList.add('hidden');
     const first = !since, wasNear = nearBottom();
-    version = d.version || '';
+    version = d.version || ''; primed = mySession;
     const fresh = d.messages.filter(m => !seen.has(m.key));
     for (const m of fresh) { addMessage(m); if (!first) notify(m); }
     if (fresh.length) {
