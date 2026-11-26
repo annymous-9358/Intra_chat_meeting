@@ -115,6 +115,7 @@ let receipts = [], acked = { delivered: '', read: '' }, openReceipts = new Set()
 let ctrl = null, pollTimer = null, polling = false, session = 0, failures = 0, lastTyping = 0, primed = 0;   // primed: the session whose first poll has come back
 let group = null;                                    // info about the current group (null for #general)
 let lastRendered = null, unseenBelow = 0, presenceCache = [], roomsTimer = null;
+let readMark = '', unreadDiv = null;          // what was read when the chat opened; the "N unread messages" divider
 let xsince = 0, edits = {}, pushActive = false, muteChangedAt = 0, pollNow = false;
 const mutes = store.json('ic-mutes', {});   // room -> muted until (ms)
 const isMuted = room => (mutes[room] || 0) > Date.now();
@@ -580,6 +581,7 @@ async function openRoom(room, force) {
   else if (!pendingIntent && location.hash !== `#/g/${room}`) history.replaceState(history.state, '', `#/g/${room}`);
   session++; since = ''; version = ''; seen = new Set(); pending = new Map(); receipts = [];
   acked = { delivered: '', read: '' }; openReceipts = new Set(); group = null; lastRendered = null; unseenBelow = 0; xsince = 0; edits = {};
+  readMark = lastRead[room] || ''; unreadDiv = null;
   cancelReply(); closeGifs(); updateToBottom();
   $('messages').innerHTML = '';
   text.value = drafts[room] || ''; autosize(); syncButtons();   // restore any unsent draft for this group
@@ -653,8 +655,18 @@ async function poll(mySession) {
     const fresh = d.messages.filter(m => !seen.has(m.key));
     for (const m of fresh) { addMessage(m); if (!first) notify(m); }
     if (fresh.length) {
-      if (first || wasNear) scrollDown(true);
-      else { unseenBelow += fresh.filter(m => !isMine(m)).length; updateToBottom(); }
+      const theirs = fresh.filter(m => !isMine(m) && !m.sys);
+      if (first) {
+        // opening a chat with unread messages: mark the first one and start there (like WhatsApp)
+        const firstUnread = readMark && theirs.find(m => m.key > readMark);
+        if (firstUnread) { markUnread(firstUnread.key, theirs.filter(m => m.key >= firstUnread.key).length); scrollToUnread(); }
+        else scrollDown(true);
+      } else {
+        // new messages while you're scrolled up or away from the app: mark where they start
+        if (theirs.length && (!wasNear || document.hidden)) markUnread(theirs[0].key, theirs.length);
+        if (wasNear) scrollDown(true);
+        else { unseenBelow += theirs.length; updateToBottom(); }
+      }
     }
     if (d.edits) { for (const [k, e] of Object.entries(d.edits)) { edits[k] = e; applyEdit(k); } }
     if (first && pendingIntent) setTimeout(applyIntent, 0);
@@ -831,7 +843,31 @@ function updateToBottom() {
   $('toBottomCount').textContent = unseenBelow; $('toBottomCount').classList.toggle('hidden', !unseenBelow);
 }
 $('messages').addEventListener('scroll', () => { if (nearBottom()) unseenBelow = 0; updateToBottom(); }, { passive: true });
-$('toBottom').onclick = () => { const b = $('messages'); b.scrollTo({ top: b.scrollHeight, behavior: 'smooth' }); unseenBelow = 0; updateToBottom(); };
+$('toBottom').onclick = () => {
+  const b = $('messages');
+  // new messages below: go to the first one; otherwise (or on a second tap) to the very bottom
+  if (unreadDiv?.isConnected && unreadTop() > b.scrollTop + 40) { scrollToUnread(true); return; }
+  b.scrollTo({ top: b.scrollHeight, behavior: 'smooth' }); unseenBelow = 0; updateToBottom();
+};
+// "N unread messages" divider above the first unread message; more arriving adds to the count
+function markUnread(key, n) {
+  if (unreadDiv?.isConnected) { unreadDiv._n += n; unreadDiv.firstChild.textContent = unreadText(unreadDiv._n); return; }
+  const at = $('messages').querySelector(`[data-key="${CSS.escape(key)}"]`); if (!at) return;
+  unreadDiv = el('div', 'unread-divider'); unreadDiv._n = n; unreadDiv.setAttribute('role', 'separator');
+  unreadDiv.append(el('span', null, unreadText(n)));
+  at.before(unreadDiv);
+  at.classList.remove('cont');                      // show the sender's name again on the first unread message
+}
+// the divider's position inside the scrolling message list
+const unreadTop = () => unreadDiv.getBoundingClientRect().top - $('messages').getBoundingClientRect().top + $('messages').scrollTop;
+const unreadText = n => `${n} unread message${n === 1 ? '' : 's'}`;
+function scrollToUnread(smooth) {
+  const b = $('messages'); if (!unreadDiv?.isConnected) return;
+  const top = Math.max(0, unreadTop() - 12);
+  if (smooth) b.scrollTo({ top, behavior: 'smooth' }); else b.scrollTop = top;
+  unseenBelow = 0; updateToBottom();
+}
+const dropUnread = () => { unreadDiv?.remove(); unreadDiv = null; };
 
 function quoteEl(r) {
   const q = document.createElement('div'); q.className = 'quote' + (r.story ? ' story-quote' : '');
@@ -959,6 +995,7 @@ $('composer').onsubmit = e => {
 };
 
 async function sendMessage({ text: body = '', gif, audio, upload: file, localUrl }) {
+  dropUnread();                                     // replying means you've seen them (like WhatsApp)
   if (group?.me && !group.me.canChat) { toast('You can’t send messages here right now'); return; }
   const cid = Math.random().toString(36).slice(2) + Date.now().toString(36);
   const reply = replyTo; cancelReply();
