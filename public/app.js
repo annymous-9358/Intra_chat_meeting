@@ -3580,7 +3580,7 @@ async function setupNativePush(ask = true) {
   try {
     if (!nativePush.listeners) {
       nativePush.listeners = true;
-      window.Capacitor.addListener('PushNotifications', 'registration', t => { if (t?.value) api('push/native', { room: 'general', token: t.value, platform: nativeOS() }).catch(() => {}); });
+      window.Capacitor.addListener('PushNotifications', 'registration', t => { if (t?.value) api('push/native', { room: 'general', token: t.value, platform: nativeOS(), notify: nativePush.granted }).catch(() => {}); });
       window.Capacitor.addListener('PushNotifications', 'registrationError', e => console.warn('push registration failed', e));
       // Tapping a notification opens the right chat (also when the app was closed)
       window.Capacitor.addListener('PushNotifications', 'pushNotificationActionPerformed', a => {
@@ -3592,7 +3592,8 @@ async function setupNativePush(ask = true) {
     let perm = await pushCall('checkPermissions');
     if (perm.receive !== 'granted' && ask) perm = await pushCall('requestPermissions');
     nativePush.granted = perm.receive === 'granted';
-    if (!nativePush.granted) return false;
+    // without notification permission the phone still registers for wake-ups (fun mode, walkie-talkie) — no notifications
+    if (!nativePush.granted) { await pushCall('register').catch(() => {}); return false; }
     await pushCall('createChannel', { id: 'messages', name: 'Messages', description: 'New messages, mentions and replies', importance: 4, visibility: 1, vibration: true, lights: true }).catch(() => {});
     await pushCall('register');
     return true;
@@ -4463,7 +4464,7 @@ async function openFun() {
       const r = el('button', 'al-row'); r.type = 'button'; const t = el('div'); t.append(el('b', null, label), el('small', null, st.me[key] ? 'Friends here can change it' : 'Off'));
       r.append(t, el('span', 'al-switch' + (st.me[key] ? ' on' : ''))); r.onclick = async () => {
         const next = { ...st.me, [key]: !st.me[key] };
-        try { st.me = (await api('fun/settings', { room, ...next })).me; await window.Capacitor.nativePromise('Fun', 'setAllowed', { lock: st.me.lock, home: st.me.home, baseUrl: location.origin }); }
+        try { st.me = (await api('fun/settings', { room, ...next })).me; await window.Capacitor.nativePromise('Fun', 'setAllowed', { lock: st.me.lock, home: st.me.home, baseUrl: location.origin }); setupNativePush(false); }
         catch (e) { return toast(e.message); }
         openFun();
       };
@@ -4604,7 +4605,7 @@ function funPad(room, people, bgImg = null, photoOnly = false) {
     done = true;
     let r; try { r = await frame(true); } catch (e) { toast(e.message); send.disabled = false; send.textContent = 'Try again'; done = false; return; }
     closeLayer(layer, close);
-    toast(r.sent.length ? `On ${r.sent.join(', ')}’s ${funTargetName(target)} now` : r.skipped.length ? `${r.skipped.join(', ')} need${r.skipped.length > 1 ? '' : 's'} the Android app to see it` : 'Nobody here allows that screen right now');
+    toast(r.sent.length ? `On ${r.sent.join(', ')}’s ${funTargetName(target)} now` : r.skipped.length ? `Couldn’t reach ${r.skipped.join(', ')}’s phone — they need to open the latest Intra Chat Android app once` : 'Nobody here allows that screen right now');
   };
 }
 

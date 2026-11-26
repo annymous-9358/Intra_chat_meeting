@@ -32,7 +32,7 @@ await call('fun/settings', { room: 'floor', lock: true, home: true }, W);       
 pushes.length = 0;
 [s, d] = await call('fun/send', { room: 'floor', url: url1, target: 'lock', final: true, kind: 'photo' }, K);
 ok(s === 200 && d.sent.sort().join() === 'Bob,Chin' && d.skipped.join() === 'Webby', 'photo sent to Bob and Chin; Webby has no Android app');
-ok(pushes.length === 2 && pushes.every(p => p.data.type === 'fun' && p.data.url === url1 && p.data.target === 'lock' && p.data.from === 'Kunik' && !p.notification && p.android.priority === 'HIGH'), 'a silent high-priority data push wakes each phone with the picture');
+ok(pushes.length === 2 && pushes.every(p => p.data.type === 'fun' && p.data.url === url1 && p.data.target === 'lock' && p.data.by === 'Kunik' && !('from' in p.data) && !p.notification && p.android.priority === 'HIGH'), 'a silent high-priority data push wakes each phone with the picture');
 [, d] = await call('poll', { room: 'floor' }, B); ok(d.messages.some(x => x.sys === 'fun' && x.text === 'Kunik changed 2 people’s lock screen'), 'the chat says who changed what');
 [, d] = await call('fun/state', { room: 'floor' }, B); ok(d.last?.url === url1 && d.last.byName === 'Kunik', 'Bob can see the last picture set for him');
 // home screen only goes to people who allow it
@@ -62,3 +62,24 @@ await call('fun/settings', { room: 'floor', lock: false, home: false }, B); push
 [, d] = await call('fun/send', { room: 'floor', url: url1, target: 'lock', final: true }, K); ok(s === 200 && !d.sent.includes('Chin') && pushes.length === 0, 'after a password change, people who are no longer members get nothing');
 // input checks
 [s] = await call('fun/send', { room: 'floor', url: 'https://evil.example/x.jpg', target: 'lock' }, K); ok(s === 400, 'only pictures uploaded to the app can be sent');
+// Firebase rejects messages using reserved data keys ("from", "google.*", "gcm.*", "message_type", "collapse_key")
+{ const bad = pushes.concat().flatMap(p => Object.keys(p.data)).filter(k => k === 'from' || k.startsWith('google') || k.startsWith('gcm') || k === 'message_type' || k === 'collapse_key');
+  ok(bad.length === 0, 'fun pushes use no reserved Firebase data keys'); }
+// a rejected message never makes the server forget a working phone
+{ const { _setFcmFetch: setF } = await import('../../lib/push.mjs');
+  await call('group/update', { room: 'floor', password: null }, K); await call('fun/settings', { room: 'floor', lock: true }, B);
+  setF(async (url) => url.includes('oauth2') ? new Response(JSON.stringify({ access_token: 't', expires_in: 3600 })) : new Response(JSON.stringify({ error: { status: 'INVALID_ARGUMENT', details: [{ errorCode: 'INVALID_ARGUMENT' }] } }), { status: 400 }));
+  const before = [...m.keys()].filter(k => k.startsWith(`pf/${B.uid}/`)).length;
+  { const [, dd] = await call('fun/send', { room: 'floor', url: url1, target: 'lock', to: [B.uid], final: true }, K); ok(dd.skipped.includes('Bob'), 'a rejected push counts as not delivered'); }
+  ok(before === 1 && [...m.keys()].filter(k => k.startsWith(`pf/${B.uid}/`)).length === 1, 'an "invalid argument" reply keeps the phone registered');
+  setF(async (url) => url.includes('oauth2') ? new Response(JSON.stringify({ access_token: 't', expires_in: 3600 })) : new Response(JSON.stringify({ error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } }), { status: 404 }));
+  await call('fun/send', { room: 'floor', url: url1, target: 'lock', to: [B.uid], final: true }, K);
+  ok([...m.keys()].filter(k => k.startsWith(`pf/${B.uid}/`)).length === 0, 'a dead token ("unregistered") is forgotten'); }
+// wake-only phones get fun / walkie pushes but no visible notifications
+{ const { _setFcmFetch: setF } = await import('../../lib/push.mjs'); const sent = [];
+  setF(async (url, init) => { if (url.includes('oauth2')) return new Response(JSON.stringify({ access_token: 't', expires_in: 3600 })); sent.push(JSON.parse(init.body).message); return new Response('{}'); });
+  await call('push/native', { room: 'floor', token: 'tok-wake-' + 'y'.repeat(30), platform: 'android', notify: false }, B);
+  await call('fun/send', { room: 'floor', url: url1, target: 'lock', final: true }, K);
+  ok(sent.some(x => x.data?.type === 'fun' && x.token.startsWith('tok-wake')), 'a wake-only phone still gets fun mode');
+  sent.length = 0; await call('send', { room: 'floor', text: 'hello Bob' }, K); await new Promise(r => setTimeout(r, 50));
+  ok(!sent.some(x => x.token.startsWith('tok-wake') && x.notification), 'but no message notifications'); }
