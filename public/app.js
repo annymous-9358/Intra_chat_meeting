@@ -644,7 +644,7 @@ async function poll(mySession) {
     if (since && since > acked.delivered) ack.delivered = since;
     if (since && !document.hidden && since > acked.read) ack.read = since;
     const wantCounts = Date.now() - lastCountsAt > 20000;
-    const d = await api('poll', { since, version, wait, ack, loc: geo.loc, listLoc: listLoc || undefined, xsince, walkie: walkieListening(), tsince: walkie.tsince ? walkie.tsince - 5000 : 0, ...(wantCounts ? { reads: readsPayload() } : {}) }, myCtrl.signal);
+    const d = await api('poll', { since, version, wait, ack, fsid: funView.sid || undefined, fseq: funView.sid ? funView.seq : undefined, loc: geo.loc, listLoc: listLoc || undefined, xsince, walkie: walkieListening(), tsince: walkie.tsince ? walkie.tsince - 5000 : 0, ...(wantCounts ? { reads: readsPayload() } : {}) }, myCtrl.signal);
     if (wantCounts) lastCountsAt = Date.now();
     if (mySession !== session) return;
     if (ack.delivered) acked.delivered = ack.delivered;
@@ -671,6 +671,7 @@ async function poll(mySession) {
     if (d.edits) { for (const [k, e] of Object.entries(d.edits)) { edits[k] = e; applyEdit(k); } }
     if (first && pendingIntent) setTimeout(applyIntent, 0);
     if (d.xt) xsince = d.xt;
+    if (d.fun) funLive(d.fun);
     if (d.talk) onTalk(d.talk, d.xt);
     // (ignore a mute state from a request that started before we changed it ourselves)
     if (typeof d.muteUntil === 'number' && pollStart > muteChangedAt && (mutes[current] || 0) !== d.muteUntil) { if (d.muteUntil) mutes[current] = d.muteUntil; else delete mutes[current]; store.setJson('ic-mutes', mutes); }
@@ -765,7 +766,7 @@ function render(m, isPending) {
     const s = document.createElement('button'); s.className = 'sys-msg'; s.type = 'button'; s.dataset.key = m.key; s._msg = m;
     const tx = document.createElement('span'), tm = document.createElement('small'); tx.textContent = m.text; tm.textContent = timeLabel(m.ts);
     s.append(icoEl(m.sys === 'steps' ? 'footprints' : m.sys === 'game' ? 'sparkles' : m.sys === 'fun' ? 'pencil' : 'info'), tx, tm);
-    s.onclick = () => m.sys === 'game' ? openGame() : m.sys === 'fun' ? openFun() : openSteps();
+    s.onclick = () => m.sys === 'game' ? openGame() : m.sys === 'fun' ? (m.ref ? funReplay(m.ref) : openFun()) : openSteps();
     box.append(s); lastRendered = { who: null, ts: m.ts, day };
     return s;
   }
@@ -4511,13 +4512,79 @@ function funCover(img, c = Object.assign(document.createElement('canvas'), { wid
   const x = c.getContext('2d'), s = Math.max(FUN_W / img.width, FUN_H / img.height), w = img.width * s, h = img.height * s;
   x.drawImage(img, (FUN_W - w) / 2, (FUN_H - h) / 2, w, h); return c;
 }
-// The drawing pad. Live: while you draw, a frame goes out every ~1.6 s; Done sends the final picture.
+// ---- One drawing engine for the pad, the live viewer and replays. A stroke: { tool, color, size, seed, pts } on the
+// 1080 × 2340 canvas; shapes (line, arrow, rect, circle, heart, star) use two points: where the drag started and ended.
+const FUN_SHAPES = new Set(['line', 'arrow', 'rect', 'circle', 'heart', 'star']);
+const FUN_BRUSHES = [['pen', 'Pen'], ['marker', 'Marker'], ['neon', 'Neon'], ['rainbow', 'Rainbow'], ['spray', 'Spray'], ['eraser', 'Eraser']];
+const FUN_SHAPE_ICONS = {
+  line: '<path d="M5 19L19 5"/>', arrow: '<path d="M5 19L19 5M10 5h9v9"/>', rect: '<rect x="4" y="6" width="16" height="12" rx="1"/>',
+  circle: '<circle cx="12" cy="12" r="8"/>', heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+  star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
+};
+const funPrng = seed => { let x = (seed >>> 0) || 1; return () => (x = (Math.imul(x, 1664525) + 1013904223) >>> 0) / 4294967296; };
+function funPath(c, p, m) {
+  c.beginPath(); c.moveTo(p[0][0], p[0][1]);
+  for (let i = 1; i < m; i++) { const [a, b] = p[i - 1], [x, y] = p[i]; c.quadraticCurveTo(a, b, (a + x) / 2, (b + y) / 2); }
+  if (m === 1) c.lineTo(p[0][0] + 0.1, p[0][1]);
+}
+function funShape(c, st, t) {
+  const [a, b] = [st.pts[0], st.pts[1] || st.pts[0]];
+  const x0 = Math.min(a[0], b[0]), y0 = Math.min(a[1], b[1]), w = Math.abs(b[0] - a[0]) * t, h = Math.abs(b[1] - a[1]) * t;
+  const ex = a[0] + (b[0] - a[0]) * t, ey = a[1] + (b[1] - a[1]) * t;
+  c.beginPath();
+  if (st.tool === 'line' || st.tool === 'arrow') {
+    c.moveTo(a[0], a[1]); c.lineTo(ex, ey); c.stroke();
+    if (st.tool === 'arrow' && t > 0.6) {
+      const ang = Math.atan2(ey - a[1], ex - a[0]), L = Math.max(30, st.size * 3);
+      c.beginPath(); c.moveTo(ex - L * Math.cos(ang - 0.5), ey - L * Math.sin(ang - 0.5)); c.lineTo(ex, ey); c.lineTo(ex - L * Math.cos(ang + 0.5), ey - L * Math.sin(ang + 0.5)); c.stroke();
+    }
+  } else if (st.tool === 'rect') { c.strokeRect(a[0] < b[0] ? x0 : a[0] - w, a[1] < b[1] ? y0 : a[1] - h, w, h); }
+  else if (st.tool === 'circle') { const rx = Math.abs(b[0] - a[0]) / 2, ry = Math.abs(b[1] - a[1]) / 2; c.ellipse((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.max(1, rx), Math.max(1, ry), 0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t); c.stroke(); }
+  else {                    // heart / star: filled, growing from the middle
+    const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, W = Math.max(20, Math.abs(b[0] - a[0])) * t, H = Math.max(20, Math.abs(b[1] - a[1])) * t;
+    if (st.tool === 'heart') {
+      c.moveTo(cx, cy + H * 0.42);
+      c.bezierCurveTo(cx - W * 0.62, cy, cx - W * 0.5, cy - H * 0.52, cx, cy - H * 0.2);
+      c.bezierCurveTo(cx + W * 0.5, cy - H * 0.52, cx + W * 0.62, cy, cx, cy + H * 0.42);
+    } else for (let i = 0; i < 10; i++) { const r = i % 2 ? 0.4 : 1, an = -Math.PI / 2 + i * Math.PI / 5; c[i ? 'lineTo' : 'moveTo'](cx + Math.cos(an) * W / 2 * r, cy + Math.sin(an) * H / 2 * r); }
+    c.closePath(); c.fill();
+  }
+}
+// Draw a stroke: freehand up to its first m points; shapes at progress t (0–1) — that's how drawing animates
+function funStroke(c, st, m = st.pts.length, t = 1) {
+  const p = st.pts; if (!p?.length) return;
+  m = Math.max(1, Math.min(Math.floor(m), p.length));
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round'; c.lineWidth = st.size; c.strokeStyle = c.fillStyle = st.color;
+  c.globalCompositeOperation = st.tool === 'eraser' ? 'destination-out' : 'source-over';
+  if (FUN_SHAPES.has(st.tool)) funShape(c, st, t);
+  else if (st.tool === 'spray') {
+    const r = funPrng(st.seed), rad = st.size * 1.3, k = 6 + Math.round(st.size / 4);
+    for (let i = 0; i < m; i++) for (let j = 0; j < k; j++) { const an = r() * Math.PI * 2, d = Math.sqrt(r()) * rad; c.globalAlpha = 0.5 + r() * 0.5; const dot = Math.max(2.6, st.size / 7); c.fillRect(p[i][0] + Math.cos(an) * d, p[i][1] + Math.sin(an) * d, dot, dot); }
+  } else if (st.tool === 'rainbow') {
+    const h0 = st.seed % 360;
+    for (let i = 1; i < m; i++) { c.strokeStyle = `hsl(${(h0 + i * 5) % 360} 95% 58%)`; c.beginPath(); c.moveTo(p[i - 1][0], p[i - 1][1]); c.lineTo(p[i][0], p[i][1]); c.stroke(); }
+    if (m === 1) { c.fillStyle = `hsl(${h0} 95% 58%)`; c.beginPath(); c.arc(p[0][0], p[0][1], st.size / 2, 0, 7); c.fill(); }
+  } else if (st.tool === 'neon') {
+    c.shadowBlur = st.size * 1.4; c.shadowColor = st.color; funPath(c, p, m); c.stroke(); c.stroke();
+    c.shadowBlur = 0; c.lineWidth = Math.max(2, st.size * 0.32); c.strokeStyle = '#ffffff'; funPath(c, p, m); c.stroke();
+  } else {
+    if (st.tool === 'marker') { c.globalAlpha = 0.45; c.lineWidth = st.size * 1.6; }
+    funPath(c, p, m); c.stroke();
+  }
+  c.restore();
+}
+function funBackground(c, bg, bgImg) { if (bgImg) funCover(bgImg, c.canvas); else { c.fillStyle = bg || '#101418'; c.fillRect(0, 0, FUN_W, FUN_H); } }
+const funLoadImg = url => new Promise(r => { if (!url) return r(null); const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = url; });
+
+// The drawing pad. Strokes go out live (~4 times a second) for anyone watching in the app, and a picture of the
+// canvas goes to their phone's wallpaper about every 1.6 s; Done keeps the final picture.
 function funPad(room, people, bgImg = null, photoOnly = false) {
   const o = el('div', 'fun-pad'); o.setAttribute('role', 'dialog'); o.setAttribute('aria-label', 'Doodle');
-  const sid = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => (b % 36).toString(36)).join('');
+  const sid = Array.from(crypto.getRandomValues(new Uint8Array(10)), b => (b % 36).toString(36)).join('');
   const canLock = people.some(p => p.lock), canHome = people.some(p => p.home);
-  let target = canLock ? 'lock' : 'home', to = null, bg = '#101418', color = '#ffffff', size = 14, eraser = false, dirty = false, busy = false, done = false, sentLive = false;
-  const strokes = [];
+  let target = canLock ? 'lock' : 'home', to = null, bg = '#101418', bgUrl = null, color = '#ffffff', size = 14, tool = 'pen';
+  let dirty = false, busy = false, done = false, opsBusy = false, needReset = false, bgChanged = false;
+  const strokes = [], sent = [];
   // header
   const head = el('div', 'fun-head');
   const x = el('button', 'icon-btn'); x.type = 'button'; x.innerHTML = svgFor('x'); x.setAttribute('aria-label', 'Close');
@@ -4535,78 +4602,185 @@ function funPad(room, people, bgImg = null, photoOnly = false) {
     for (const p of people) psel.append(Object.assign(document.createElement('option'), { value: p.uid, textContent: p.name }));
     psel.onchange = () => { to = psel.value ? [psel.value] : null; }; opts.append(psel);
   } else opts.append(el('span', 'muted small', 'for ' + people[0].name));
-  // canvas
+  // canvas: background + finished strokes (ink) + the stroke being drawn
   const wrap = el('div', 'fun-canvas'); const cv = document.createElement('canvas'); cv.width = FUN_W; cv.height = FUN_H; wrap.append(cv);
   const g = cv.getContext('2d');
-  // the drawing lives on its own transparent layer, so the eraser cuts back to the background (colour or photo)
   const ink = Object.assign(document.createElement('canvas'), { width: FUN_W, height: FUN_H }), k = ink.getContext('2d');
-  k.lineCap = 'round'; k.lineJoin = 'round';
-  const compose = () => {
-    if (bgImg) funCover(bgImg, cv); else { g.fillStyle = bg; g.fillRect(0, 0, FUN_W, FUN_H); }
-    g.drawImage(ink, 0, 0);
-  };
-  const stroke = (st, from = 0) => {
-    k.globalCompositeOperation = st.erase ? 'destination-out' : 'source-over';
-    k.strokeStyle = st.color; k.lineWidth = st.size; k.beginPath();
-    const p = st.pts, i0 = Math.max(0, from - 1);
-    k.moveTo(p[i0][0], p[i0][1]);
-    for (let i = i0 + 1; i < p.length; i++) { const [a, b] = p[i - 1], [c, d2] = p[i]; k.quadraticCurveTo(a, b, (a + c) / 2, (b + d2) / 2); }
-    if (p.length === 1) k.lineTo(p[0][0] + 0.1, p[0][1]);
-    k.stroke();
-  };
-  const paint = () => { k.clearRect(0, 0, FUN_W, FUN_H); for (const st of strokes) stroke(st); compose(); };   // full redraw (undo, clear, background)
-  const pos = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * FUN_W / r.width, (e.clientY - r.top) * FUN_H / r.height]; };
-  let cur = null;
+  let cur = null, raf = 0;
+  const compose = () => { raf = 0; funBackground(g, bg, bgImg); g.drawImage(ink, 0, 0); if (cur && cur.tool !== 'eraser') funStroke(g, cur); };
+  const later = () => { if (!raf) raf = requestAnimationFrame(compose); };
+  const redraw = () => { k.clearRect(0, 0, FUN_W, FUN_H); for (const st of strokes) funStroke(k, st); compose(); };
+  const pos = e => { const r = cv.getBoundingClientRect(); return [Math.round((e.clientX - r.left) * FUN_W / r.width), Math.round((e.clientY - r.top) * FUN_H / r.height)]; };
   if (!photoOnly) {
-    cv.onpointerdown = e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); cur = { color, size: size * 3, erase: eraser, pts: [pos(e)] }; strokes.push(cur); stroke(cur); compose(); dirty = true; };
-    cv.onpointermove = e => { if (!cur) return; cur.pts.push(pos(e)); stroke(cur, cur.pts.length - 2); compose(); dirty = true; };
-    cv.onpointerup = cv.onpointercancel = () => { cur = null; };
+    cv.onpointerdown = e => {
+      e.preventDefault(); cv.setPointerCapture(e.pointerId);
+      const p = pos(e);
+      cur = { tool, color, size: tool === 'eraser' ? size * 2 : size, seed: Math.floor(Math.random() * 1e9), pts: FUN_SHAPES.has(tool) ? [p, p] : [p] };
+      strokes.push(cur); sent.push(0); dirty = true;
+      if (cur.tool === 'eraser') funStroke(k, cur);
+      later();
+    };
+    cv.onpointermove = e => {
+      if (!cur) return;
+      const p = pos(e);
+      if (FUN_SHAPES.has(cur.tool)) cur.pts[1] = p;
+      else { const q = cur.pts[cur.pts.length - 1]; if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 3) return; cur.pts.push(p); if (cur.tool === 'eraser') funStroke(k, { ...cur, pts: cur.pts.slice(-2) }); }
+      dirty = true; later();
+    };
+    cv.onpointerup = cv.onpointercancel = () => {
+      if (!cur) return;
+      if (FUN_SHAPES.has(cur.tool) && Math.hypot(cur.pts[1][0] - cur.pts[0][0], cur.pts[1][1] - cur.pts[0][1]) < 12) cur.pts[1] = [cur.pts[0][0] + 220, cur.pts[0][1] + 220];   // a tap: a default-size shape
+      if (cur.tool !== 'eraser') funStroke(k, cur);
+      cur = null; dirty = true; later();
+    };
   }
   // tools
   const tools = el('div', 'fun-tools');
   if (!photoOnly) {
+    const toolRow = el('div', 'fun-toolrow');
+    const pick = (name, btn) => { tool = name; toolRow.querySelectorAll('.fun-tool').forEach(z => z.classList.toggle('on', z === btn)); };
+    for (const [name, label] of FUN_BRUSHES) { const b = el('button', 'fun-tool' + (name === tool ? ' on' : ''), label); b.type = 'button'; b.onclick = () => pick(name, b); toolRow.append(b); }
+    for (const [name, icon] of Object.entries(FUN_SHAPE_ICONS)) { const b = el('button', 'fun-tool shape'); b.type = 'button'; b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg>`; b.setAttribute('aria-label', name); b.title = name[0].toUpperCase() + name.slice(1); b.onclick = () => pick(name, b); toolRow.append(b); }
     const sw = el('div', 'fun-swatches');
-    for (const c of ['#ffffff', '#111111', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899']) {
+    for (const c of ['#ffffff', '#111111', '#ef4444', '#f97316', '#facc15', '#22c55e', '#06b6d4', '#3b82f6', '#a855f7', '#ec4899']) {
       const b = el('button', 'fun-sw' + (c === color ? ' on' : '')); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', 'Colour ' + c);
-      b.onclick = () => { color = c; eraser = false; sw.querySelectorAll('.fun-sw').forEach(z => z.classList.toggle('on', z === b)); er.classList.remove('on'); }; sw.append(b);
+      b.onclick = () => { color = c; sw.querySelectorAll('.fun-sw').forEach(z => z.classList.toggle('on', z === b)); if (tool === 'eraser') pick('pen', toolRow.firstChild); }; sw.append(b);
     }
-    const sizes = el('div', 'fun-sizes');
-    for (const n of [6, 14, 28]) { const b = el('button', 'fun-size' + (n === size ? ' on' : '')); b.type = 'button'; b.setAttribute('aria-label', 'Brush ' + n); b.append(el('i')); b.firstChild.style.width = b.firstChild.style.height = (n / 1.6 + 4) + 'px'; b.onclick = () => { size = n; sizes.querySelectorAll('.fun-size').forEach(z => z.classList.toggle('on', z === b)); }; sizes.append(b); }
-    const er = el('button', 'btn small', 'Eraser'); er.type = 'button'; er.onclick = () => { eraser = !eraser; er.classList.toggle('on', eraser); };
-    const undo = el('button', 'btn small', 'Undo'); undo.type = 'button'; undo.onclick = () => { strokes.pop(); paint(); dirty = true; };
-    const clear = el('button', 'btn small', 'Clear'); clear.type = 'button'; clear.onclick = () => { strokes.length = 0; paint(); dirty = true; };
+    const sizeRow = el('div', 'fun-row');
+    const dot = el('span', 'fun-dot'); const rng = el('input'); rng.type = 'range'; rng.min = 2; rng.max = 80; rng.value = size; rng.setAttribute('aria-label', 'Brush size');
+    const paintDot = () => { const d = Math.max(4, Math.min(34, size / 2.2)); dot.style.width = dot.style.height = d + 'px'; dot.style.background = color; };
+    rng.oninput = () => { size = +rng.value; paintDot(); }; sw.addEventListener('click', paintDot); paintDot();
+    const undo = el('button', 'btn small', 'Undo'); undo.type = 'button'; undo.onclick = () => { strokes.pop(); sent.pop(); redraw(); dirty = true; needReset = true; };
+    const clear = el('button', 'btn small', 'Clear'); clear.type = 'button'; clear.onclick = () => { strokes.length = 0; sent.length = 0; redraw(); dirty = true; needReset = true; };
+    sizeRow.append(dot, rng, undo, clear);
     const bgs = el('div', 'fun-bgs'); bgs.append(el('small', 'muted', 'Background'));
-    for (const c of ['#101418', '#ffffff', '#fde68a', '#bfdbfe', '#fbcfe8']) { const b = el('button', 'fun-sw small'); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', 'Background ' + c); b.onclick = () => { bg = c; bgImg = null; compose(); dirty = true; }; bgs.append(b); }
-    const ph = el('button', 'btn small', 'Photo'); ph.type = 'button'; ph.onclick = () => pickImage(img => { bgImg = img; compose(); dirty = true; }); bgs.append(ph);
-    const row = el('div', 'fun-row'); row.append(er, undo, clear);
-    tools.append(sw, sizes, row, bgs);
+    for (const c of ['#101418', '#ffffff', '#fde68a', '#bfdbfe', '#fbcfe8', '#bbf7d0']) { const b = el('button', 'fun-sw small'); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', 'Background ' + c); b.onclick = () => { bg = c; bgImg = null; bgUrl = null; bgChanged = true; compose(); dirty = true; }; bgs.append(b); }
+    const ph = el('button', 'btn small', 'Photo'); ph.type = 'button';
+    ph.onclick = () => pickImage(async img => {
+      bgImg = img; compose(); dirty = true;
+      try { const c2 = funCover(img); const blob = await new Promise(r => c2.toBlob(r, 'image/jpeg', 0.8)); bgUrl = await upload(blob); bgChanged = true; } catch {}
+    });
+    bgs.append(ph);
+    tools.append(toolRow, sw, sizeRow, bgs);
   }
   const send = el('button', 'btn primary block', photoOnly ? 'Set as their wallpaper' : 'Done — keep it on their screen'); send.type = 'button';
   tools.append(send);
   o.append(head, opts, wrap, tools); document.body.append(o);
   const layer = pushLayer(() => close());
-  const close = () => { done = true; clearInterval(tick); o.remove(); };
+  const close = () => { done = true; clearInterval(tick); clearInterval(opsTick); cancelAnimationFrame(raf); o.remove(); };
   x.onclick = () => closeLayer(layer, close);
-  paint();
-  // frames
+  compose();
+  // live strokes for people watching in the app: only what's new since the last send
+  const pushOps = async () => {
+    if (photoOnly || opsBusy || done) return;
+    const ops = []; const reset = needReset;
+    // sent[i]: freehand — how many points went out; shapes — the position last sent (resent whenever it moves)
+    strokes.forEach((st, i) => {
+      const base = { i, tool: st.tool, color: st.color, size: st.size, seed: st.seed };
+      if (FUN_SHAPES.has(st.tool)) { const sig = st.pts.join(); if (!reset && sent[i] === sig) return; ops.push({ ...base, from: 0, pts: st.pts }); sent[i] = sig; }
+      else { const from = reset ? 0 : sent[i]; if (from >= st.pts.length) return; ops.push({ ...base, from, pts: st.pts.slice(from) }); sent[i] = st.pts.length; }
+    });
+    if (!ops.length && !reset && !bgChanged) return;
+    const body = { room, sid, target, to, ops, reset };
+    if (bgChanged) { if (bgUrl) body.bgUrl = bgUrl; else body.bg = bg; }
+    needReset = false; bgChanged = false; opsBusy = true;
+    try { const r = await api('fun/live', body); if (r.watchers) live.classList.remove('hidden'); } catch { needReset = true; } finally { opsBusy = false; }
+  };
+  const opsTick = setInterval(pushOps, 250);
+  // pictures for their phone's wallpaper
   const frame = async (final) => {
-    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.82));
+    if (cur) compose();
+    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.84));
     const url = await upload(blob);
     return api('fun/send', { room, url, target, to, sid, live: !photoOnly, final, kind: photoOnly ? 'photo' : 'doodle' });
   };
   const tick = setInterval(async () => {
     if (photoOnly || !dirty || busy || done) return;
     busy = true; dirty = false;
-    try { const r = await frame(false); sentLive = true; live.classList.toggle('hidden', !r.sent.length); } catch {} finally { busy = false; }
+    try { const r = await frame(false); if (r.sent.length) live.classList.remove('hidden'); } catch {} finally { busy = false; }
   }, 1600);
   send.onclick = async () => {
     send.disabled = true; send.textContent = 'Sending…';
-    while (busy) await new Promise(r => setTimeout(r, 100));
+    while (busy || opsBusy) await new Promise(r => setTimeout(r, 80));
+    await pushOps(); while (opsBusy) await new Promise(r => setTimeout(r, 80));
     done = true;
     let r; try { r = await frame(true); } catch (e) { toast(e.message); send.disabled = false; send.textContent = 'Try again'; done = false; return; }
     closeLayer(layer, close);
     toast(r.sent.length ? `On ${r.sent.join(', ')}’s ${funTargetName(target)} now` : r.skipped.length ? `Couldn’t reach ${r.skipped.join(', ')}’s phone — they need to open the latest Intra Chat Android app once` : 'Nobody here allows that screen right now');
   };
+}
+
+// Watching a doodle: live while a friend draws on your screen (strokes animate in as they arrive), or a replay from the chat
+const funView = { sid: '', seq: -1, o: null, strokes: [], shown: [], prog: [], raf: 0, closed: new Set() };
+function funViewer(title) {
+  if (funView.o?.isConnected) { funView.o.querySelector('.fun-watch-title').textContent = title; return funView.o; }
+  // a modal dialog, so it shows above any open sheet (and Back closes it like other dialogs)
+  const o = document.createElement('dialog'); o.className = 'fun-watch'; o.setAttribute('aria-label', title);
+  const card = el('div', 'fun-watch-card');
+  const head = el('div', 'fun-head'); const t = el('b', 'fun-watch-title', title); const badge = el('span', 'fun-live', 'LIVE');
+  const x = el('button', 'icon-btn'); x.type = 'button'; x.innerHTML = svgFor('x'); x.setAttribute('aria-label', 'Close');
+  head.append(t, badge, x);
+  const cv = document.createElement('canvas'); cv.width = FUN_W; cv.height = FUN_H; cv.className = 'fun-watch-canvas';
+  const foot = el('div', 'fun-watch-foot');
+  card.append(head, cv, foot); o.append(card); document.body.append(o);
+  o.addEventListener('close', () => { if (funView.sid) funView.closed.add(funView.sid); cancelAnimationFrame(funView.raf); funView.raf = 0; o.remove(); funView.o = null; });
+  x.onclick = () => o.close();
+  o.onclick = e => { if (e.target === o) o.close(); };
+  o.showModal();
+  funView.o = o; funView.ctx = cv.getContext('2d');
+  return o;
+}
+function funAnimate() {
+  const v = funView; if (!v.o) return;
+  let busy = false;
+  const finished = i => { const st = v.strokes[i]; return !st || (FUN_SHAPES.has(st.tool) ? v.prog[i] >= 1 : v.shown[i] >= st.pts.length); };
+  for (let i = 0; i < v.strokes.length; i++) {
+    const st = v.strokes[i]; if (!st) continue;
+    if (v.replay && i > 0 && !finished(i - 1)) break;          // replay: one stroke after another
+    if (FUN_SHAPES.has(st.tool)) { if (v.prog[i] < 1) { v.prog[i] = Math.min(1, v.prog[i] + (v.replay ? 0.06 : 0.09)); busy = true; } }
+    else if (v.shown[i] < st.pts.length) { v.shown[i] = Math.min(st.pts.length, v.shown[i] + Math.max(v.replay ? 1.2 : 1, (st.pts.length - v.shown[i]) / (v.replay ? 40 : 14))); busy = true; }
+  }
+  const c = v.ctx; funBackground(c, v.bg, v.bgImg);
+  const layer = v.layer || (v.layer = Object.assign(document.createElement('canvas'), { width: FUN_W, height: FUN_H })); const k = layer.getContext('2d');
+  k.clearRect(0, 0, FUN_W, FUN_H);
+  v.strokes.forEach((st, i) => { if (st && (v.shown[i] > 0 || v.prog[i] > 0)) funStroke(k, st, v.shown[i] || 1, v.prog[i] || 0); });
+  c.drawImage(layer, 0, 0);
+  if (busy) v.raf = requestAnimationFrame(funAnimate);
+  else { v.raf = 0; if (v.replay || v.done) funViewDone(); }
+}
+const funKick = () => { if (!funView.raf) funView.raf = requestAnimationFrame(funAnimate); };
+function funViewDone() {
+  const f = funView.o?.querySelector('.fun-watch-foot'); if (!f || f.childElementCount) return;
+  funView.o.querySelector('.fun-live')?.classList.add('hidden');
+  const again = el('button', 'btn', 'Watch again'); again.type = 'button';
+  again.onclick = () => { funView.shown = funView.strokes.map(() => 0); funView.prog = funView.strokes.map(() => 0); funView.replay = true; f.innerHTML = ''; funKick(); };
+  f.append(again);
+}
+async function funApplyBg(d) { if (d.bgUrl && d.bgUrl !== funView.bgUrl) { funView.bgUrl = d.bgUrl; funView.bgImg = await funLoadImg(d.bgUrl); } else if (!d.bgUrl && d.bg) { funView.bg = d.bg; funView.bgImg = null; funView.bgUrl = null; } }
+// live doodle data from a poll
+async function funLive(d) {
+  if (!d?.sid || funView.closed.has(d.sid)) { if (d?.sid) { funView.sid = d.sid; funView.seq = d.seq; } return; }
+  if (funView.sid !== d.sid) Object.assign(funView, { sid: d.sid, seq: -1, strokes: [], shown: [], prog: [], replay: false, done: false, bgImg: null, bgUrl: null, bg: '#101418' });
+  funView.seq = d.seq; funView.done = d.done;
+  if (d.reset) { funView.strokes = []; funView.shown = []; funView.prog = []; }
+  for (const [i, st] of d.strokes) {
+    const old = funView.strokes[i];
+    funView.strokes[i] = st;
+    if (!old || old.tool !== st.tool || FUN_SHAPES.has(st.tool)) { funView.shown[i] = FUN_SHAPES.has(st.tool) ? st.pts.length : 0; funView.prog[i] = FUN_SHAPES.has(st.tool) && old && FUN_SHAPES.has(old.tool) ? Math.max(0.6, funView.prog[i] || 0) : 0; }
+  }
+  await funApplyBg(d);
+  funViewer(`${d.byName} is drawing on your ${funTargetName(d.target)}`);
+  if (d.done) funView.o.querySelector('.fun-watch-title').textContent = `${d.byName} drew on your ${funTargetName(d.target)}`;
+  funKick();
+}
+async function funReplay(sid) {
+  let r; try { r = await api('fun/replay', { room: current, sid }); } catch (e) { return toast(e.message); }
+  const d = r.doodle;
+  Object.assign(funView, { sid: '', seq: -1, strokes: d.strokes.map(([, st]) => st), replay: true, done: true, bgImg: null, bgUrl: null, bg: '#101418' });
+  funView.shown = funView.strokes.map(() => 0); funView.prog = funView.strokes.map(() => 0);
+  await funApplyBg(d);
+  funViewer(`${d.byName}’s doodle`); funView.o.querySelector('.fun-live')?.classList.add('hidden');
+  funKick();
 }
 
 /* ---------------- Hidden chats & privacy mode ---------------- */

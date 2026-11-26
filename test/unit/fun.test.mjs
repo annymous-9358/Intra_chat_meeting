@@ -83,3 +83,43 @@ await call('fun/settings', { room: 'floor', lock: false, home: false }, B); push
   ok(sent.some(x => x.data?.type === 'fun' && x.token.startsWith('tok-wake')), 'a wake-only phone still gets fun mode');
   sent.length = 0; await call('send', { room: 'floor', text: 'hello Bob' }, K); await new Promise(r => setTimeout(r, 50));
   ok(!sent.some(x => x.token.startsWith('tok-wake') && x.notification), 'but no message notifications'); }
+// ---- live strokes: watching a doodle in the app while it's drawn, and replaying it
+{ const { _setFcmFetch: setF } = await import('../../lib/push.mjs');
+  setF(async (url) => url.includes('oauth2') ? new Response(JSON.stringify({ access_token: 't', expires_in: 3600 })) : new Response('{}'));
+  const D = await signup('dee', 'Dee'); await call('poll', { room: 'floor' }, D);                  // in the chat, fun mode off
+  const sid = 'live' + Date.now().toString(36);
+  let [st, r] = await call('fun/live', { room: 'floor', sid, target: 'lock', ops: [{ i: 0, tool: 'pen', color: '#FF0000', size: 9, seed: 5, from: 0, pts: [[10, 10], [20, 25], [99999, -5]] }] }, K);
+  ok(st === 200 && r.watchers >= 1, 'Kunik starts a live doodle; Bob is watching');
+  let [, p] = await call('poll', { room: 'floor' }, B);
+  ok(p.fun?.sid === sid && p.fun.reset && p.fun.strokes.length === 1 && p.fun.strokes[0][1].color === '#ff0000' && JSON.stringify(p.fun.strokes[0][1].pts) === '[[10,10],[20,25],[1080,0]]', 'Bob’s poll brings the strokes (cleaned: colour, points kept on the canvas)');
+  [, p] = await call('poll', { room: 'floor' }, D); ok(!p.fun, 'someone who didn’t turn on fun mode doesn’t get it');
+  [, p] = await call('poll', { room: 'floor', fsid: sid, fseq: r.seq }, B); ok(!p.fun, 'nothing new → nothing sent');
+  const seen = r.seq;
+  [, r] = await call('fun/live', { room: 'floor', sid, ops: [{ i: 0, tool: 'pen', color: '#ff0000', size: 9, seed: 5, from: 3, pts: [[30, 40]] }, { i: 1, tool: 'heart', color: '#ec4899', size: 10, from: 0, pts: [[100, 100], [300, 300], [9, 9]] }] }, K);
+  [, p] = await call('poll', { room: 'floor', fsid: sid, fseq: seen }, B);
+  ok(!p.fun.reset && p.fun.strokes.length === 2 && p.fun.strokes[0][1].pts.length === 4 && p.fun.strokes[1][1].pts.length === 2, 'only new strokes go out: the pen line grew, a heart appeared (shapes keep 2 points)');
+  [s] = await call('fun/live', { room: 'floor', sid, ops: [] }, B); ok(s === 403, 'nobody else can write into Kunik’s doodle');
+  [, r] = await call('fun/live', { room: 'floor', sid, ops: [{ i: 0, tool: 'laser', color: '#fff', size: 9, from: 0, pts: [[1, 1]] }] }, K);
+  ok(m.get(`fv/floor/${sid}`).strokes[0].tool === 'pen', 'unknown tools are ignored');
+  [, r] = await call('fun/live', { room: 'floor', sid, reset: true, ops: [{ i: 0, tool: 'star', color: '#facc15', size: 10, from: 0, pts: [[50, 50], [150, 150]] }], bg: '#FDE68A' }, K);
+  [, p] = await call('poll', { room: 'floor', fsid: sid, fseq: seen }, B);
+  ok(p.fun.reset && p.fun.n === 1 && p.fun.strokes[0][1].tool === 'star' && p.fun.bg === '#fde68a', 'undo / clear: watchers start over; background colour changes too');
+  const big = Array.from({ length: 4000 }, (_, i) => [i % 1000, i % 2000]);
+  for (let n = 0; n < 5; n++) [s] = await call('fun/live', { room: 'floor', sid, ops: [{ i: n + 1, tool: 'pen', color: '#ffffff', size: 4, from: 0, pts: big }] }, K);
+  ok(s === 413, 'a huge doodle is refused instead of filling the database');
+  // finish → note with a replay link; replay; finished doodles don't pop up for people opening the chat later
+  const final = await upload(K);
+  [, r] = await call('fun/send', { room: 'floor', url: final, target: 'lock', to: [B.uid], sid, live: true, final: true, kind: 'doodle' }, K);
+  [, p] = await call('poll', { room: 'floor', fsid: sid, fseq: seen }, B);
+  ok(p.fun?.done && p.messages.some(x => x.sys === 'fun' && x.ref === sid), 'Bob sees it finish; the chat note links to the doodle');
+  [, p] = await call('poll', { room: 'floor' }, B); ok(!p.fun, 'a finished doodle doesn’t pop up again when you open the chat later');
+  [st, r] = await call('fun/replay', { room: 'floor', sid }, D); ok(st === 200 && r.doodle.strokes.length >= 1 && r.doodle.byName === 'Kunik', 'anyone in the chat can replay it from the note');
+  [st] = await call('fun/replay', { room: 'floor', sid: 'nosuchdoodle1' }, D); ok(st === 404, 'unknown doodle → not found'); }
+// the final picture is never held back by the live-frame limit
+{ const sid2 = 'last' + Date.now().toString(36); pushes.length = 0;
+  const { _setFcmFetch: setF } = await import('../../lib/push.mjs');
+  setF(async (url, init) => { if (url.includes('oauth2')) return new Response(JSON.stringify({ access_token: 't', expires_in: 3600 })); pushes.push(JSON.parse(init.body).message); return new Response('{}'); });
+  await call('fun/send', { room: 'floor', url: await upload(K), target: 'lock', to: [B.uid], sid: sid2, live: true }, K);
+  const fin = await upload(K);
+  [, d] = await call('fun/send', { room: 'floor', url: fin, target: 'lock', to: [B.uid], sid: sid2, live: true, final: true, kind: 'doodle' }, K);
+  ok(d.sent.includes('Bob') && pushes.at(-1)?.data.url === fin, 'Done right after a live frame still delivers the final picture'); }

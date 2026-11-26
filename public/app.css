@@ -1824,3 +1824,18 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .fun-size { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface-2); display: grid; place-items: center; padding: 0; }
 .fun-size i { display: block; border-radius: 50%; background: var(--text); } .fun-size.on { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
 .fun-row .btn.on { background: var(--brand-soft); color: var(--brand-strong); }
+/* Fun mode: tools, live viewer */
+.fun-toolrow { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.fun-toolrow::-webkit-scrollbar { display: none; }
+.fun-tool { flex: none; height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font-size: 13px; font-weight: 600; }
+.fun-tool.shape { width: 36px; padding: 0; display: grid; place-items: center; }
+.fun-tool.shape svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.fun-tool.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.fun-row input[type=range] { flex: 1; min-width: 80px; accent-color: var(--brand); }
+.fun-dot { flex: none; border-radius: 50%; border: 1px solid var(--line); box-shadow: 0 0 0 2px var(--surface); }
+dialog.fun-watch { border: 0; padding: 0; background: transparent; max-width: none; max-height: none; width: min(360px, calc(100vw - 32px)); overflow: visible; animation: alIn .2s ease-out; }
+dialog.fun-watch::backdrop { background: rgba(0, 0, 0, .55); }
+.fun-watch-card { width: 100%; max-height: calc(100vh - 32px); display: flex; flex-direction: column; gap: 10px; background: var(--surface); color: var(--text); border-radius: 22px; padding: 12px; box-shadow: var(--shadow); }
+.fun-watch-card .fun-head b { font-size: 15px; }
+.fun-watch-canvas { width: 100%; height: auto; max-height: 68vh; aspect-ratio: 1080 / 2340; object-fit: contain; border-radius: 16px; background: #101418; }
+.fun-watch-foot { display: flex; justify-content: center; } .fun-watch-foot:empty { display: none; }
