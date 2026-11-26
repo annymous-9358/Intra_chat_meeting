@@ -4573,6 +4573,32 @@ function funStroke(c, st, m = st.pts.length, t = 1) {
   }
   c.restore();
 }
+// Add only the newest part of a freehand stroke (points from `from` on) — what the pad draws on every pen move.
+// Same look as funStroke; spray keeps its random generator on the stroke so the dots match a full redraw.
+function funSegment(c, st, from) {
+  const p = st.pts, m = p.length; if (from >= m) return;
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round'; c.lineWidth = st.size; c.strokeStyle = c.fillStyle = st.color;
+  c.globalCompositeOperation = st.tool === 'eraser' ? 'destination-out' : 'source-over';
+  const mid = i => [(p[i - 1][0] + p[i][0]) / 2, (p[i - 1][1] + p[i][1]) / 2];
+  const seg = () => {
+    c.beginPath();
+    if (m === 1) { c.moveTo(p[0][0], p[0][1]); c.lineTo(p[0][0] + 0.1, p[0][1]); return; }
+    for (let i = Math.max(1, from); i < m; i++) { const a = i === 1 ? p[0] : mid(i - 1), b = mid(i); c.moveTo(a[0], a[1]); c.quadraticCurveTo(p[i - 1][0], p[i - 1][1], b[0], b[1]); }
+  };
+  if (st.tool === 'spray') {
+    const r = st._r || (st._r = funPrng(st.seed)), rad = st.size * 1.3, k = 6 + Math.round(st.size / 4), dot = Math.max(2.6, st.size / 7);
+    for (let i = from; i < m; i++) for (let j = 0; j < k; j++) { const an = r() * Math.PI * 2, d = Math.sqrt(r()) * rad; c.globalAlpha = 0.5 + r() * 0.5; c.fillRect(p[i][0] + Math.cos(an) * d, p[i][1] + Math.sin(an) * d, dot, dot); }
+  } else if (st.tool === 'rainbow') {
+    const h0 = st.seed % 360;
+    if (m === 1) { c.fillStyle = `hsl(${h0} 95% 58%)`; c.beginPath(); c.arc(p[0][0], p[0][1], st.size / 2, 0, 7); c.fill(); }
+    for (let i = Math.max(1, from); i < m; i++) { c.strokeStyle = `hsl(${(h0 + i * 5) % 360} 95% 58%)`; c.beginPath(); c.moveTo(p[i - 1][0], p[i - 1][1]); c.lineTo(p[i][0], p[i][1]); c.stroke(); }
+  } else if (st.tool === 'neon') {
+    c.shadowBlur = st.size * 1.4; c.shadowColor = st.color; seg(); c.stroke();
+    c.shadowBlur = 0; c.lineWidth = Math.max(2, st.size * 0.32); c.strokeStyle = '#ffffff'; seg(); c.stroke();
+  } else { seg(); c.stroke(); }
+  c.restore();
+}
+const FUN_INCREMENTAL = new Set(['pen', 'neon', 'rainbow', 'spray', 'eraser']);     // marker (see-through) and shapes are previewed whole
 function funBackground(c, bg, bgImg) { if (bgImg) funCover(bgImg, c.canvas); else { c.fillStyle = bg || '#101418'; c.fillRect(0, 0, FUN_W, FUN_H); } }
 const funLoadImg = url => new Promise(r => { if (!url) return r(null); const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = url; });
 
@@ -4603,35 +4629,47 @@ function funPad(room, people, bgImg = null, photoOnly = false) {
     psel.onchange = () => { to = psel.value ? [psel.value] : null; }; opts.append(psel);
   } else opts.append(el('span', 'muted small', 'for ' + people[0].name));
   // canvas: background + finished strokes (ink) + the stroke being drawn
-  const wrap = el('div', 'fun-canvas'); const cv = document.createElement('canvas'); cv.width = FUN_W; cv.height = FUN_H; wrap.append(cv);
-  const g = cv.getContext('2d');
-  const ink = Object.assign(document.createElement('canvas'), { width: FUN_W, height: FUN_H }), k = ink.getContext('2d');
-  let cur = null, raf = 0;
-  const compose = () => { raf = 0; funBackground(g, bg, bgImg); g.drawImage(ink, 0, 0); if (cur && cur.tool !== 'eraser') funStroke(g, cur); };
-  const later = () => { if (!raf) raf = requestAnimationFrame(compose); };
-  const redraw = () => { k.clearRect(0, 0, FUN_W, FUN_H); for (const st of strokes) funStroke(k, st); compose(); };
+  // three stacked layers: background, ink (finished strokes; freehand pen moves are added here bit by bit) and a
+  // preview for shapes / marker while you drag. Nothing is redrawn whole while you draw; the full picture is only put
+  // together when a frame goes to their phone.
+  const wrap = el('div', 'fun-canvas'); const stack = el('div', 'fun-stack');
+  const mk = cls => { const c = document.createElement('canvas'); c.width = FUN_W; c.height = FUN_H; c.className = cls; stack.append(c); return c; };
+  const bgc = mk('bg'), inkc = mk('ink'), prev = mk('prev'); wrap.append(stack);
+  const b2 = bgc.getContext('2d'), k = inkc.getContext('2d'), pv = prev.getContext('2d');
+  const cv = prev;                               // pointer events land on the top layer
+  let cur = null, raf = 0, drawnTo = 0;
+  const paintBg = () => funBackground(b2, bg, bgImg);
+  const frameDraw = () => {
+    raf = 0; if (!cur) return;
+    if (FUN_INCREMENTAL.has(cur.tool)) { funSegment(k, cur, drawnTo); drawnTo = cur.pts.length; }
+    else { pv.clearRect(0, 0, FUN_W, FUN_H); funStroke(pv, cur); }
+  };
+  const later = () => { if (!raf) raf = requestAnimationFrame(frameDraw); };
+  const redraw = () => { k.clearRect(0, 0, FUN_W, FUN_H); pv.clearRect(0, 0, FUN_W, FUN_H); for (const st of strokes) funStroke(k, st); };
+  // the whole picture at a given size, for their wallpaper
+  const picture = (w, h) => { const c = Object.assign(document.createElement('canvas'), { width: w, height: h }), x = c.getContext('2d'); x.drawImage(bgc, 0, 0, w, h); x.drawImage(inkc, 0, 0, w, h); return c; };
   const pos = e => { const r = cv.getBoundingClientRect(); return [Math.round((e.clientX - r.left) * FUN_W / r.width), Math.round((e.clientY - r.top) * FUN_H / r.height)]; };
   if (!photoOnly) {
     cv.onpointerdown = e => {
       e.preventDefault(); cv.setPointerCapture(e.pointerId);
       const p = pos(e);
       cur = { tool, color, size: tool === 'eraser' ? size * 2 : size, seed: Math.floor(Math.random() * 1e9), pts: FUN_SHAPES.has(tool) ? [p, p] : [p] };
-      strokes.push(cur); sent.push(0); dirty = true;
-      if (cur.tool === 'eraser') funStroke(k, cur);
+      strokes.push(cur); sent.push(0); dirty = true; drawnTo = 0;
       later();
     };
     cv.onpointermove = e => {
       if (!cur) return;
       const p = pos(e);
       if (FUN_SHAPES.has(cur.tool)) cur.pts[1] = p;
-      else { const q = cur.pts[cur.pts.length - 1]; if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 3) return; cur.pts.push(p); if (cur.tool === 'eraser') funStroke(k, { ...cur, pts: cur.pts.slice(-2) }); }
+      else { const q = cur.pts[cur.pts.length - 1]; if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 3) return; cur.pts.push(p); }
       dirty = true; later();
     };
     cv.onpointerup = cv.onpointercancel = () => {
       if (!cur) return;
       if (FUN_SHAPES.has(cur.tool) && Math.hypot(cur.pts[1][0] - cur.pts[0][0], cur.pts[1][1] - cur.pts[0][1]) < 12) cur.pts[1] = [cur.pts[0][0] + 220, cur.pts[0][1] + 220];   // a tap: a default-size shape
-      if (cur.tool !== 'eraser') funStroke(k, cur);
-      cur = null; dirty = true; later();
+      cancelAnimationFrame(raf); raf = 0;
+      if (FUN_INCREMENTAL.has(cur.tool)) funSegment(k, cur, drawnTo); else { pv.clearRect(0, 0, FUN_W, FUN_H); funStroke(k, cur); }
+      cur = null; dirty = true;
     };
   }
   // tools
@@ -4654,10 +4692,10 @@ function funPad(room, people, bgImg = null, photoOnly = false) {
     const clear = el('button', 'btn small', 'Clear'); clear.type = 'button'; clear.onclick = () => { strokes.length = 0; sent.length = 0; redraw(); dirty = true; needReset = true; };
     sizeRow.append(dot, rng, undo, clear);
     const bgs = el('div', 'fun-bgs'); bgs.append(el('small', 'muted', 'Background'));
-    for (const c of ['#101418', '#ffffff', '#fde68a', '#bfdbfe', '#fbcfe8', '#bbf7d0']) { const b = el('button', 'fun-sw small'); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', 'Background ' + c); b.onclick = () => { bg = c; bgImg = null; bgUrl = null; bgChanged = true; compose(); dirty = true; }; bgs.append(b); }
+    for (const c of ['#101418', '#ffffff', '#fde68a', '#bfdbfe', '#fbcfe8', '#bbf7d0']) { const b = el('button', 'fun-sw small'); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', 'Background ' + c); b.onclick = () => { bg = c; bgImg = null; bgUrl = null; bgChanged = true; paintBg(); dirty = true; }; bgs.append(b); }
     const ph = el('button', 'btn small', 'Photo'); ph.type = 'button';
     ph.onclick = () => pickImage(async img => {
-      bgImg = img; compose(); dirty = true;
+      bgImg = img; paintBg(); dirty = true;
       try { const c2 = funCover(img); const blob = await new Promise(r => c2.toBlob(r, 'image/jpeg', 0.8)); bgUrl = await upload(blob); bgChanged = true; } catch {}
     });
     bgs.append(ph);
@@ -4669,7 +4707,7 @@ function funPad(room, people, bgImg = null, photoOnly = false) {
   const layer = pushLayer(() => close());
   const close = () => { done = true; clearInterval(tick); clearInterval(opsTick); cancelAnimationFrame(raf); o.remove(); };
   x.onclick = () => closeLayer(layer, close);
-  compose();
+  paintBg();
   // live strokes for people watching in the app: only what's new since the last send
   const pushOps = async () => {
     if (photoOnly || opsBusy || done) return;
@@ -4688,9 +4726,13 @@ function funPad(room, people, bgImg = null, photoOnly = false) {
   };
   const opsTick = setInterval(pushOps, 250);
   // pictures for their phone's wallpaper
+  const encode = async (c, final) => {
+    if (!final) { const w = await new Promise(r => c.toBlob(r, 'image/webp', 0.8)); if (w?.type === 'image/webp') return w; }
+    return new Promise(r => c.toBlob(r, 'image/jpeg', final ? 0.88 : 0.75));
+  };
   const frame = async (final) => {
-    if (cur) compose();
-    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.84));
+    // while drawing: half size (≈50 KB WebP) so it reaches their phone quickly; the final picture is full size
+    const blob = await encode(final ? picture(FUN_W, FUN_H) : picture(FUN_W / 2, FUN_H / 2), final);
     const url = await upload(blob);
     return api('fun/send', { room, url, target, to, sid, live: !photoOnly, final, kind: photoOnly ? 'photo' : 'doodle' });
   };
@@ -4698,7 +4740,7 @@ function funPad(room, people, bgImg = null, photoOnly = false) {
     if (photoOnly || !dirty || busy || done) return;
     busy = true; dirty = false;
     try { const r = await frame(false); if (r.sent.length) live.classList.remove('hidden'); } catch {} finally { busy = false; }
-  }, 1600);
+  }, 1200);
   send.onclick = async () => {
     send.disabled = true; send.textContent = 'Sending…';
     while (busy || opsBusy) await new Promise(r => setTimeout(r, 80));
@@ -4740,31 +4782,41 @@ function funAnimate() {
     if (FUN_SHAPES.has(st.tool)) { if (v.prog[i] < 1) { v.prog[i] = Math.min(1, v.prog[i] + (v.replay ? 0.06 : 0.09)); busy = true; } }
     else if (v.shown[i] < st.pts.length) { v.shown[i] = Math.min(st.pts.length, v.shown[i] + Math.max(v.replay ? 1.2 : 1, (st.pts.length - v.shown[i]) / (v.replay ? 40 : 14))); busy = true; }
   }
-  const c = v.ctx; funBackground(c, v.bg, v.bgImg);
-  const layer = v.layer || (v.layer = Object.assign(document.createElement('canvas'), { width: FUN_W, height: FUN_H })); const k = layer.getContext('2d');
-  k.clearRect(0, 0, FUN_W, FUN_H);
-  v.strokes.forEach((st, i) => { if (st && (v.shown[i] > 0 || v.prog[i] > 0)) funStroke(k, st, v.shown[i] || 1, v.prog[i] || 0); });
-  c.drawImage(layer, 0, 0);
+  // finished strokes are drawn once into a base layer; only the ones still arriving are drawn each frame
+  const mkc = () => Object.assign(document.createElement('canvas'), { width: FUN_W, height: FUN_H });
+  const base = v.base || (v.base = mkc()), bk = base.getContext('2d');
+  const layer = v.layer || (v.layer = mkc()), k = layer.getContext('2d');
+  if (!v.committed) v.committed = [];
+  const last = v.strokes.length - 1;
+  v.strokes.forEach((st, i) => {         // a stroke is final once it's fully shown and a later one exists (or the doodle is done)
+    if (!st || v.committed[i] || !finished(i) || (i === last && !v.done && !v.replay)) return;
+    funStroke(bk, st); v.committed[i] = true;
+  });
+  k.clearRect(0, 0, FUN_W, FUN_H); k.drawImage(base, 0, 0);
+  v.strokes.forEach((st, i) => { if (st && !v.committed[i] && (v.shown[i] > 0 || v.prog[i] > 0)) funStroke(k, st, v.shown[i] || 1, v.prog[i] || 0); });
+  const c = v.ctx; funBackground(c, v.bg, v.bgImg); c.drawImage(layer, 0, 0);
   if (busy) v.raf = requestAnimationFrame(funAnimate);
   else { v.raf = 0; if (v.replay || v.done) funViewDone(); }
 }
+const funClearBase = () => { funView.committed = []; funView.base?.getContext('2d').clearRect(0, 0, FUN_W, FUN_H); };
 const funKick = () => { if (!funView.raf) funView.raf = requestAnimationFrame(funAnimate); };
 function funViewDone() {
   const f = funView.o?.querySelector('.fun-watch-foot'); if (!f || f.childElementCount) return;
   funView.o.querySelector('.fun-live')?.classList.add('hidden');
   const again = el('button', 'btn', 'Watch again'); again.type = 'button';
-  again.onclick = () => { funView.shown = funView.strokes.map(() => 0); funView.prog = funView.strokes.map(() => 0); funView.replay = true; f.innerHTML = ''; funKick(); };
+  again.onclick = () => { funView.shown = funView.strokes.map(() => 0); funView.prog = funView.strokes.map(() => 0); funView.replay = true; funClearBase(); f.innerHTML = ''; funKick(); };
   f.append(again);
 }
 async function funApplyBg(d) { if (d.bgUrl && d.bgUrl !== funView.bgUrl) { funView.bgUrl = d.bgUrl; funView.bgImg = await funLoadImg(d.bgUrl); } else if (!d.bgUrl && d.bg) { funView.bg = d.bg; funView.bgImg = null; funView.bgUrl = null; } }
 // live doodle data from a poll
 async function funLive(d) {
   if (!d?.sid || funView.closed.has(d.sid)) { if (d?.sid) { funView.sid = d.sid; funView.seq = d.seq; } return; }
-  if (funView.sid !== d.sid) Object.assign(funView, { sid: d.sid, seq: -1, strokes: [], shown: [], prog: [], replay: false, done: false, bgImg: null, bgUrl: null, bg: '#101418' });
+  if (funView.sid !== d.sid) { Object.assign(funView, { sid: d.sid, seq: -1, strokes: [], shown: [], prog: [], replay: false, done: false, bgImg: null, bgUrl: null, bg: '#101418' }); funClearBase(); }
   funView.seq = d.seq; funView.done = d.done;
-  if (d.reset) { funView.strokes = []; funView.shown = []; funView.prog = []; }
+  if (d.reset) { funView.strokes = []; funView.shown = []; funView.prog = []; funClearBase(); }
   for (const [i, st] of d.strokes) {
     const old = funView.strokes[i];
+    if (funView.committed?.[i]) funClearBase();          // a finished stroke changed: rebuild the base layer
     funView.strokes[i] = st;
     if (!old || old.tool !== st.tool || FUN_SHAPES.has(st.tool)) { funView.shown[i] = FUN_SHAPES.has(st.tool) ? st.pts.length : 0; funView.prog[i] = FUN_SHAPES.has(st.tool) && old && FUN_SHAPES.has(old.tool) ? Math.max(0.6, funView.prog[i] || 0) : 0; }
   }
@@ -4777,7 +4829,7 @@ async function funReplay(sid) {
   let r; try { r = await api('fun/replay', { room: current, sid }); } catch (e) { return toast(e.message); }
   const d = r.doodle;
   Object.assign(funView, { sid: '', seq: -1, strokes: d.strokes.map(([, st]) => st), replay: true, done: true, bgImg: null, bgUrl: null, bg: '#101418' });
-  funView.shown = funView.strokes.map(() => 0); funView.prog = funView.strokes.map(() => 0);
+  funView.shown = funView.strokes.map(() => 0); funView.prog = funView.strokes.map(() => 0); funClearBase();
   await funApplyBg(d);
   funViewer(`${d.byName}’s doodle`); funView.o.querySelector('.fun-live')?.classList.add('hidden');
   funKick();

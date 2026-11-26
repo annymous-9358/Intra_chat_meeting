@@ -1816,7 +1816,9 @@ dialog[open].sheet { animation: sheet-in .2s ease; }
 .fun-opts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .fun-opts select { height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); padding: 0 8px; }
 .fun-canvas { flex: 1; min-height: 0; display: flex; justify-content: center; }
-.fun-canvas canvas { height: 100%; max-width: 100%; aspect-ratio: 1080 / 2340; object-fit: contain; border-radius: 16px; box-shadow: var(--shadow); touch-action: none; background: #101418; }
+.fun-stack { position: relative; height: 100%; max-width: 100%; aspect-ratio: 1080 / 2340; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); background: #101418; }
+.fun-stack canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.fun-stack canvas.prev { touch-action: none; }
 .fun-tools { display: grid; gap: 8px; }
 .fun-swatches, .fun-sizes, .fun-row, .fun-bgs { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .fun-sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line); padding: 0; }

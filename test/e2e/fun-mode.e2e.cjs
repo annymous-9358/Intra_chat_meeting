@@ -19,7 +19,9 @@ run(async browser => {
   await K.evaluate(() => openFun()); await K.waitForSelector('#funSheet .fun-people');
   expect((await K.textContent('#funSheet .fun-people')).includes('Bob · lock'), 'Kunik sees he can draw on Bob’s lock screen');
   await K.click('#funSheet .btn:has-text("Doodle live")'); await K.waitForSelector('.fun-pad canvas');
-  const box = await K.locator('.fun-pad canvas').boundingBox();
+  await K.evaluate(() => { window.__up = []; const orig = upload; upload = f => { __up.push({ type: f.type, size: f.size }); return orig(f); }; });
+  await K.evaluate(() => { window.__long = 0; try { new PerformanceObserver(l => { window.__long += l.getEntries().length; }).observe({ type: 'longtask' }); } catch {} });
+  const box = await K.locator('.fun-pad canvas.prev').boundingBox();
   const line = async (x1, y1, x2, y2) => { await K.mouse.move(box.x + box.width * x1, box.y + box.height * y1); await K.mouse.down(); for (let i = 1; i <= 12; i++) await K.mouse.move(box.x + box.width * (x1 + (x2 - x1) * i / 12), box.y + box.height * (y1 + (y2 - y1) * i / 12)); await K.mouse.up(); };
   const tool = async name => K.click(`.fun-toolrow .fun-tool:has-text("${name}")`).catch(() => K.click(`.fun-toolrow .fun-tool[aria-label="${name}"]`));
   await line(0.2, 0.3, 0.8, 0.3); await K.waitForTimeout(700);
@@ -40,10 +42,15 @@ run(async browser => {
   await B.waitForTimeout(1200); const lit2 = await lit(B);
   expect(lit2 > lit1 * 2, `Bob sees the new brushes and shapes arrive live (${lit1} → ${lit2} lit samples)`);
   await K.screenshot({ path: OUT + '/fun-pad.png' }); await B.screenshot({ path: OUT + '/fun-watch.png' });
+  const live = (await K.evaluate(() => __up)).filter(u => u.type === 'image/webp');
+  expect(live.length >= 1 && live.every(u => u.size < 150_000), `live wallpaper frames are small WebP (${live.map(u => Math.round(u.size / 1024) + ' KB').join(', ')})`);
+  expect(await K.evaluate(() => window.__long) <= 3, `drawing stays smooth (${await K.evaluate(() => window.__long)} long tasks while drawing)`);
   expect(sends.filter(s => s.live && !s.final).length >= 1 && sends.every(s => /^\/api\/file\/[a-f0-9]{24}$/.test(s.url) && s.target === 'lock'), `wallpaper frames went out while drawing (${sends.length})`);
+  const inkCount = () => K.evaluate(() => { const c = document.querySelector('.fun-pad canvas.ink'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4 * 97) if (d[i] > 60) n++; return n; });
+  const inked = await inkCount();
   await K.click('.fun-row .btn:has-text("Undo")'); await K.click('.fun-row .btn:has-text("Clear")');
-  const empty = await K.evaluate(() => { const c = document.querySelector('.fun-pad canvas'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4 * 97) if (d[i] > 60) n++; return n; });
-  expect(empty === 0, 'undo and clear work');
+  const empty = await inkCount();
+  expect(inked > 20 && empty === 0, `undo and clear work (ink: ${inked} → ${empty})`);
   await B.waitForTimeout(1200);
   expect(await lit(B) < 5, 'Bob’s view clears too');
   await tool('Pen'); await line(0.3, 0.4, 0.7, 0.45);
