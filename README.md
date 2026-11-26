@@ -12,7 +12,10 @@ A quick group chat app. Run it three ways with the same code. **Live: https://ap
 - **Fun mode** (chat menu → Fun mode, 1:1 chats and groups): friends can set your phone’s **lock screen** or **home
   screen** — a photo, or a **doodle that appears live** while they draw: brushes (pen, marker, neon, rainbow, spray,
   eraser) with a size slider, shapes (line, arrow, rectangle, circle, heart, star), colour or photo background. With the chat
-  open you watch the strokes animate in as they're drawn, and the chat note replays the doodle. Strictly opt-in, per chat and per screen, off by default; turn it off or put your lock screen back anytime.
+  open you watch the strokes animate in as they're drawn, and the chat note replays the doodle.
+  Also **Camera** (snap a photo → straight onto their screen), **Photo** and **Video** (up to 30 s / 20 MB). With the optional
+  **live wallpaper** (Android, set once), doodles appear and animate on their home and lock screen while they're drawn,
+  videos play muted on a loop, and photos show instantly; with nothing sent it shows their own photo. Strictly opt-in, per chat and per screen, off by default; turn it off or put your lock screen back anytime.
   Changing wallpapers needs the Android app (it gets a silent push and sets the picture); anyone can draw and send.
 - **App lock** (Settings → App lock): Intra Chat asks for your **fingerprint / face** (or the phone's PIN/pattern on
   Android) or a 4–8 digit **app code** when you open it — immediately, after 1 minute or after 30 minutes away. Checked on the

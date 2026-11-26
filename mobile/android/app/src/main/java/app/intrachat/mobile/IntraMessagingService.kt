@@ -27,7 +27,7 @@ class IntraMessagingService : MessagingService() {
             try { ContextCompat.startForegroundService(this, i) } catch (_: Exception) { /* not allowed right now */ }
             return
         }
-        if (d["type"] == "fun") {          // fun mode: a friend set this phone's lock / home screen
+        if (d["type"] == "fun" || d["type"] == "fun-live") {          // fun mode: a friend set this phone's lock / home screen
             try { FunWallpaper.fromPush(this, d) } catch (_: Exception) { }
             return
         }

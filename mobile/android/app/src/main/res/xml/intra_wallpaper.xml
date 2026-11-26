@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fun mode's live wallpaper (IntraWallpaperService) -->
+<wallpaper xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/fun_wallpaper_desc"
+    android:thumbnail="@mipmap/ic_launcher" />

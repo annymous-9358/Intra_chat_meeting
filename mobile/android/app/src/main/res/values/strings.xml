@@ -5,4 +5,6 @@
     <string name="package_name">app.intrachat.mobile</string>
     <string name="custom_url_scheme">app.intrachat.mobile</string>
     <string name="health_connect_privacy_policy_url">https://app.intrachat.workers.dev/privacy.html</string>
+    <string name="fun_wallpaper_name">Intra Chat fun mode</string>
+    <string name="fun_wallpaper_desc">Friends you allow in fun mode can put photos, videos and live doodles on your screen. With nothing sent, it shows your own photo.</string>
 </resources>

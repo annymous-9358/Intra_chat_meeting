@@ -19,7 +19,7 @@ run(async browser => {
   await K.evaluate(() => openFun()); await K.waitForSelector('#funSheet .fun-people');
   expect((await K.textContent('#funSheet .fun-people')).includes('Bob · lock'), 'Kunik sees he can draw on Bob’s lock screen');
   await K.click('#funSheet .btn:has-text("Doodle live")'); await K.waitForSelector('.fun-pad canvas');
-  await K.evaluate(() => { window.__up = []; const orig = upload; upload = f => { __up.push({ type: f.type, size: f.size }); return orig(f); }; });
+  await K.evaluate(() => { window.__up = []; const orig = upload; upload = (f, ...rest) => { __up.push({ type: f.type, size: f.size }); return orig(f, ...rest); }; });
   await K.evaluate(() => { window.__long = 0; try { new PerformanceObserver(l => { window.__long += l.getEntries().length; }).observe({ type: 'longtask' }); } catch {} });
   const box = await K.locator('.fun-pad canvas.prev').boundingBox();
   const line = async (x1, y1, x2, y2) => { await K.mouse.move(box.x + box.width * x1, box.y + box.height * y1); await K.mouse.down(); for (let i = 1; i <= 12; i++) await K.mouse.move(box.x + box.width * (x1 + (x2 - x1) * i / 12), box.y + box.height * (y1 + (y2 - y1) * i / 12)); await K.mouse.up(); };
@@ -54,11 +54,31 @@ run(async browser => {
   await B.waitForTimeout(1200);
   expect(await lit(B) < 5, 'Bob’s view clears too');
   await tool('Pen'); await line(0.3, 0.4, 0.7, 0.45);
-  await K.click('.fun-pad .btn.primary'); await K.waitForTimeout(1500);
+  await K.click('.fun-pad .btn.primary');
+  // Done freezes the pad straight away: a stroke drawn while it's sending doesn't happen (so nothing is lost)
+  const before = await inkCount(); await line(0.1, 0.8, 0.9, 0.85).catch(() => {}); const after = await inkCount().catch(() => before);
+  expect(after === before, 'after Done the pad is frozen — the final picture is exactly what was on screen');
+  await K.waitForTimeout(1500);
   const final = sends.find(s => s.final);
   expect(!!final && final.kind === 'doodle' && !(await K.locator('.fun-pad').count()), 'Done sends the final doodle and closes the pad');
   await B.waitForSelector('.fun-watch-foot .btn', { timeout: 10000 });
   expect((await B.textContent('.fun-watch-title')).includes('Kunik drew on your lock screen'), 'Bob’s viewer says it’s finished');
   await B.click('.fun-watch-foot .btn'); await B.waitForTimeout(150); const early = await lit(B); await B.waitForTimeout(2500); const late = await lit(B);
   expect(late > early, `"Watch again" replays the drawing (${early} → ${late})`);
+  // Camera: a snapped photo goes straight to Bob (no editor in between)
+  const jpg = require('node:path').join(OUT, 'snap.jpg');
+  require('node:fs').writeFileSync(jpg, Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==', 'base64'));
+  sends.length = 0;
+  await K.evaluate(() => openFun()); await K.waitForSelector('#funSheet .fun-btns .btn:has-text("Camera")');
+  const [fc] = await Promise.all([K.waitForEvent('filechooser'), K.click('#funSheet .btn:has-text("Camera")')]);
+  expect(await fc.element().evaluate(i => i.getAttribute('capture')) === 'environment', 'Camera opens the phone camera');
+  await fc.setFiles(jpg); await K.waitForTimeout(2000);
+  expect(sends.some(s => s.kind === 'photo' && s.final && /^\/api\/file\//.test(s.url)), 'the photo is sent to Bob’s screen right away');
+  // Video: uploads as a video and goes out as one
+  const mp4 = require('node:path').join(OUT, 'clip.mp4');
+  require('node:fs').writeFileSync(mp4, Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), Buffer.alloc(3000)]));
+  sends.length = 0; const ups = []; K.on('request', async r => { if (r.url().includes('/api/upload')) { const h = await r.allHeaders(); ups.push(h['x-upload-kind'] || ''); } });
+  const [fv] = await Promise.all([K.waitForEvent('filechooser'), K.click('#funSheet .btn:has-text("Video")')]);
+  await fv.setFiles(mp4); await K.waitForTimeout(5000);
+  expect(ups.includes('video') && sends.some(s => s.kind === 'video' && s.final), 'a video uploads as a video and is sent');
 });

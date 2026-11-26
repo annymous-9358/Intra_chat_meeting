@@ -54,6 +54,17 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+        <!-- Fun mode's live wallpaper: friends' photos, videos and live doodles on the home and lock screen -->
+        <service
+            android:name=".IntraWallpaperService"
+            android:label="@string/fun_wallpaper_name"
+            android:permission="android.permission.BIND_WALLPAPER"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data android:name="android.service.wallpaper" android:resource="@xml/intra_wallpaper" />
+        </service>
     </application>
 
     <!-- Permissions -->

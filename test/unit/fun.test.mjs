@@ -86,7 +86,7 @@ await call('fun/settings', { room: 'floor', lock: false, home: false }, B); push
 // ---- live strokes: watching a doodle in the app while it's drawn, and replaying it
 { const { _setFcmFetch: setF } = await import('../../lib/push.mjs');
   setF(async (url) => url.includes('oauth2') ? new Response(JSON.stringify({ access_token: 't', expires_in: 3600 })) : new Response('{}'));
-  const D = await signup('dee', 'Dee'); await call('poll', { room: 'floor' }, D);                  // in the chat, fun mode off
+  var D = await signup('dee', 'Dee'); await call('poll', { room: 'floor' }, D);                  // in the chat, fun mode off
   const sid = 'live' + Date.now().toString(36);
   let [st, r] = await call('fun/live', { room: 'floor', sid, target: 'lock', ops: [{ i: 0, tool: 'pen', color: '#FF0000', size: 9, seed: 5, from: 0, pts: [[10, 10], [20, 25], [99999, -5]] }] }, K);
   ok(st === 200 && r.watchers >= 1, 'Kunik starts a live doodle; Bob is watching');
@@ -123,3 +123,34 @@ await call('fun/settings', { room: 'floor', lock: false, home: false }, B); push
   const fin = await upload(K);
   [, d] = await call('fun/send', { room: 'floor', url: fin, target: 'lock', to: [B.uid], sid: sid2, live: true, final: true, kind: 'doodle' }, K);
   ok(d.sent.includes('Bob') && pushes.at(-1)?.data.url === fin, 'Done right after a live frame still delivers the final picture'); }
+// ---- videos and the live wallpaper
+{ const { _setFcmFetch: setF } = await import('../../lib/push.mjs'); const sent = [];
+  setF(async (url, init) => { if (url.includes('oauth2')) return new Response(JSON.stringify({ access_token: 't', expires_in: 3600 })); sent.push(JSON.parse(init.body).message); return new Response('{}'); });
+  const up = async (bytes, kind) => { const r = await handle(new Request('https://x/api/upload', { method: 'POST', headers: { ...hdr(K), 'x-chat-room': 'floor', ...(kind ? { 'x-upload-kind': kind } : {}) }, body: bytes }), store, {}); return [r.status, await r.json()]; };
+  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypisom'), crypto.randomBytes(5000)]);
+  let [st, r] = await up(mp4, 'video'); ok(st === 200 && files.get('f/' + r.url.split('/').pop()).type === 'video/mp4', 'an MP4 video uploads as video/mp4');
+  const vurl = r.url;
+  [st] = await up(Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypqt  '), crypto.randomBytes(100)]), 'video'); ok(st === 200, 'an iPhone MOV is accepted');
+  [st] = await up(Buffer.alloc(21 * 1024 * 1024), 'video'); ok(st === 413, 'videos over 20 MB are refused');
+  [st] = await up(Buffer.alloc(5 * 1024 * 1024)); ok(st === 413, 'non-video uploads keep the 4 MB limit');
+  [st] = await up(Buffer.from('not a video at all'), 'video'); ok(st === 415, 'something that isn’t a video is refused');
+  // Bob: live wallpaper on; Chin rejoined without it
+  await call('fun/settings', { room: 'floor', lock: true, home: true, live: true }, B);
+  [, r] = await call('fun/state', { room: 'floor' }, K); ok(r.people.find(p => p.name === 'Bob')?.live === true, 'others can see Bob uses the live wallpaper');
+  await call('fun/settings', { room: 'floor', lock: true, home: false }, B);
+  [, r] = await call('fun/state', { room: 'floor' }, B); ok(r.me.live === true, 'changing lock/home keeps the live-wallpaper setting');
+  await call('fun/settings', { room: 'floor', lock: true, home: true }, W);           // Webby: no live wallpaper
+  sent.length = 0;
+  [, r] = await call('fun/send', { room: 'floor', url: vurl, target: 'lock', final: true, kind: 'video' }, K);
+  ok(r.sent.includes('Bob') && r.skipped.includes('Webby') && sent.every(x => x.data.kind === 'video'), 'a video goes only to people with the live wallpaper');
+  // a live doodle starting wakes live-wallpaper phones; they pull strokes with fun/watch
+  sent.length = 0; const sid = 'lw' + Date.now().toString(36);
+  [, r] = await call('fun/live', { room: 'floor', sid, target: 'lock', ops: [{ i: 0, tool: 'pen', color: '#ffffff', size: 8, from: 0, pts: [[5, 5], [50, 50]] }] }, K);
+  ok(sent.some(x => x.data.type === 'fun-live' && x.data.sid === sid && x.token.includes('wake')), 'starting a live doodle wakes Bob’s live wallpaper');
+  ok(!sent.some(x => x.data.type === 'fun-live' && x.token.includes('Webby')), 'phones without the live wallpaper aren’t woken for it');
+  let [st2, w] = await call('fun/watch', { room: 'floor', sid, seq: -1 }, B); ok(st2 === 200 && w.doodle.strokes.length === 1 && !w.done, 'the live wallpaper pulls the strokes');
+  [, w] = await call('fun/watch', { room: 'floor', sid, seq: w.seq }, B); ok(w.doodle === null, '…and gets nothing when nothing changed');
+  [st2] = await call('fun/watch', { room: 'floor', sid, seq: -1 }, D); ok(st2 === 403, 'someone it isn’t for can’t pull it');
+  [, r] = await call('fun/send', { room: 'floor', url: await upload(K), target: 'lock', to: [B.uid], sid, live: true, final: true, kind: 'doodle' }, K);
+  ok(sent.some(x => x.data.type === 'fun' && x.data.sid === sid && x.data.kind === 'doodle'), 'the final picture tells the phone which doodle it belongs to');
+  [, w] = await call('fun/watch', { room: 'floor', sid, seq: 0 }, B); ok(w.done, 'the live wallpaper sees the doodle finish'); }

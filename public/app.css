@@ -1841,3 +1841,9 @@ dialog.fun-watch::backdrop { background: rgba(0, 0, 0, .55); }
 .fun-watch-card .fun-head b { font-size: 15px; }
 .fun-watch-canvas { width: 100%; height: auto; max-height: 68vh; aspect-ratio: 1080 / 2340; object-fit: contain; border-radius: 16px; background: #101418; }
 .fun-watch-foot { display: flex; justify-content: center; } .fun-watch-foot:empty { display: none; }
+/* Fun mode: live wallpaper card, frozen pad while sending */
+.fun-livecard { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; padding: 10px 12px; border-radius: 14px; background: var(--surface-2); font-size: 13.5px; line-height: 1.35; }
+.fun-livecard > svg { flex: none; width: 22px; height: 22px; color: var(--brand); }
+.fun-livecard > div { flex: 1; }
+.fun-livecard.on { background: var(--brand-soft); color: var(--brand-strong); }
+.fun-pad.sending .fun-stack { opacity: .85; } .fun-pad.sending .fun-tools > :not(.btn.primary) { pointer-events: none; opacity: .5; }

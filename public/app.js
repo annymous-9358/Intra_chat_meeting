@@ -136,9 +136,9 @@ async function api(route, body = {}, signal) {
   }
   return data;
 }
-async function upload(file) {
+async function upload(file, kind) {
   const r = await fetch('/api/upload', { method: 'POST', body: file, headers: {
-    'Content-Type': file.type || 'application/octet-stream', 'X-Chat-Device': me.device, 'X-Chat-Room': current,
+    'Content-Type': file.type || 'application/octet-stream', 'X-Chat-Device': me.device, 'X-Chat-Room': current, ...(kind ? { 'X-Upload-Kind': kind } : {}),
     Authorization: 'Bearer ' + me.token } });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || 'Upload failed');
@@ -4465,20 +4465,36 @@ async function openFun() {
       const r = el('button', 'al-row'); r.type = 'button'; const t = el('div'); t.append(el('b', null, label), el('small', null, st.me[key] ? 'Friends here can change it' : 'Off'));
       r.append(t, el('span', 'al-switch' + (st.me[key] ? ' on' : ''))); r.onclick = async () => {
         const next = { ...st.me, [key]: !st.me[key] };
-        try { st.me = (await api('fun/settings', { room, ...next })).me; await window.Capacitor.nativePromise('Fun', 'setAllowed', { lock: st.me.lock, home: st.me.home, baseUrl: location.origin }); setupNativePush(false); }
+        try { st.me = (await api('fun/settings', { room, ...next })).me; await funNative(st.me); setupNativePush(false); }
         catch (e) { return toast(e.message); }
         openFun();
       };
       return r;
     };
     mine.append(sw('Lock screen', 'lock'), sw('Home screen', 'home'));
+    // the live wallpaper: instant photos, videos, and doodles that draw themselves on your screen
+    let liveOn = false; try { liveOn = !!(await window.Capacitor.nativePromise('Fun', 'liveStatus')).active; } catch {}
+    if (liveOn !== !!st.me.live) { try { st.me = (await api('fun/settings', { room, ...st.me, live: liveOn })).me; } catch {} }
+    const lw = el('div', 'fun-livecard' + (liveOn ? ' on' : ''));
+    lw.append(icoEl('sparkles'), el('div', null, liveOn ? 'Live wallpaper is on — doodles appear as they’re drawn, videos play, photos show instantly.' : 'Turn on the live wallpaper to see doodles appear as they’re drawn, get videos, and get photos instantly. You confirm it once in Android’s wallpaper screen.'));
+    if (!liveOn) {
+      const on = el('button', 'btn primary small', 'Turn on'); on.type = 'button';
+      on.onclick = async () => {
+        let r; try { r = await window.Capacitor.nativePromise('Fun', 'setLive'); } catch (e) { return toast(e.message); }
+        if (!r?.active) return toast('Live wallpaper wasn’t set');
+        try { st.me = (await api('fun/settings', { room, ...st.me, live: true })).me; await funNative(st.me); } catch {}
+        toast('Live wallpaper is on'); openFun();
+      };
+      lw.append(on);
+    }
+    mine.append(lw);
     if (st.last) mine.append(el('p', 'muted small', `Last change: ${st.last.byName}, ${funTargetName(st.last.target)} · ${timeLabel(st.last.at)}`));
     const row = el('div', 'fun-btns');
-    const back = el('button', 'btn', 'Lock screen back to normal'); back.type = 'button';
-    back.onclick = async () => { try { await window.Capacitor.nativePromise('Fun', 'restore', { target: 'lock' }); toast('Lock screen is back to your home wallpaper'); } catch (e) { toast(e.message); } };
+    const back = el('button', 'btn', liveOn ? 'Back to my photo' : 'Lock screen back to normal'); back.type = 'button';
+    back.onclick = async () => { try { await window.Capacitor.nativePromise('Fun', 'restore', { target: 'lock' }); toast(liveOn ? 'Showing your own photo again' : 'Lock screen is back to your home wallpaper'); } catch (e) { toast(e.message); } };
     const own = el('button', 'btn', 'Use my own photo'); own.type = 'button';
     own.onclick = () => pickImage(async img => {
-      const target = await popup({ icon: 'image', title: 'Use it as…', ok: '', cancel: 'Cancel', choices: [{ label: 'Lock screen', value: 'lock' }, { label: 'Home screen', value: 'home' }, { label: 'Both', value: 'both' }] });
+      const target = liveOn ? 'both' : await popup({ icon: 'image', title: 'Use it as…', ok: '', cancel: 'Cancel', choices: [{ label: 'Lock screen', value: 'lock' }, { label: 'Home screen', value: 'home' }, { label: 'Both', value: 'both' }] });
       if (!target) return;
       try { await window.Capacitor.nativePromise('Fun', 'setOwn', { data: funCover(img).toDataURL('image/jpeg', 0.9), target }); toast('Wallpaper set'); } catch (e) { toast(e.message); }
     });
@@ -4490,21 +4506,56 @@ async function openFun() {
   if (!st.people.length) theirs.append(el('p', 'muted small', group?.dm ? 'They haven’t turned on fun mode in this chat yet.' : 'Nobody here has turned on fun mode yet.'));
   else {
     const list = el('div', 'fun-people');
-    for (const p of st.people) { const c = el('span', 'chip brand'); c.append(p.name + ' · ' + [p.lock && 'lock', p.home && 'home'].filter(Boolean).join(' + ')); list.append(c); }
+    for (const p of st.people) { const c = el('span', 'chip brand'); c.append(p.name + ' · ' + [p.lock && 'lock', p.home && 'home'].filter(Boolean).join(' + ') + (p.live ? ' · live' : '')); list.append(c); }
     theirs.append(list);
     const row = el('div', 'fun-btns');
     const dood = el('button', 'btn primary', 'Doodle live'); dood.type = 'button'; dood.prepend(icoEl('pencil'));
     dood.onclick = () => { d.close(); funPad(room, st.people); };
-    const photo = el('button', 'btn', 'Send a photo'); photo.type = 'button'; photo.prepend(icoEl('image'));
+    const cam = el('button', 'btn', 'Camera'); cam.type = 'button'; cam.prepend(icoEl('camera'));
+    cam.onclick = () => pickImage(img => funQuickPhoto(room, st.people, img), 'environment');     // snap → on their screen right away
+    const photo = el('button', 'btn', 'Photo'); photo.type = 'button'; photo.prepend(icoEl('image'));
     photo.onclick = () => pickImage(img => { d.close(); funPad(room, st.people, img, true); });
-    row.append(dood, photo); theirs.append(row);
+    const vid = el('button', 'btn', 'Video'); vid.type = 'button'; vid.prepend(icoEl('play'));
+    vid.onclick = () => funVideo(room, st.people);
+    row.append(dood, cam, photo, vid); theirs.append(row);
+    if (!st.people.some(p => p.live)) theirs.append(el('p', 'muted small', 'Videos only play for people who turned on the live wallpaper.'));
   }
   inner.append(theirs);
   if (!d.open) d.showModal();
 }
-function pickImage(cb) {
-  const f = el('input'); f.type = 'file'; f.accept = 'image/*';
+function pickImage(cb, capture) {
+  const f = el('input'); f.type = 'file'; f.accept = 'image/*'; if (capture) f.setAttribute('capture', capture);
   f.onchange = () => { const file = f.files[0]; if (!file) return; const img = new Image(); img.onload = () => cb(img); img.onerror = () => toast('That picture couldn’t be opened'); img.src = URL.createObjectURL(file); };
+  f.click();
+}
+// tell the phone what you allow here (and how its live wallpaper can fetch doodles)
+const funNative = m => window.Capacitor.nativePromise('Fun', 'setAllowed', { lock: m.lock, home: m.home, baseUrl: location.origin, token: me.token, device: me.device });
+const funBestTarget = people => people.some(p => p.lock) ? 'lock' : 'home';
+const funSentToast = (r, what) => toast(r.sent.length ? `${what} is on ${r.sent.join(', ')}’s screen now` : r.skipped.length ? `Couldn’t reach ${r.skipped.join(', ')}’s phone${what === 'Your video' ? ' — videos need their live wallpaper' : ' — they need to open the latest Intra Chat Android app once'}` : 'Nobody here allows that screen right now');
+// Camera: the photo goes straight onto their screen
+async function funQuickPhoto(room, people, img) {
+  toast('Sending…');
+  try {
+    const blob = await new Promise(r => funCover(img).toBlob(r, 'image/jpeg', 0.86));
+    const url = await upload(blob);
+    funSentToast(await api('fun/send', { room, url, target: funBestTarget(people), final: true, kind: 'photo' }), 'Your photo');
+  } catch (e) { toast(e.message); }
+}
+// Video: record or pick a short clip (up to 30 s, 20 MB); it plays on their live wallpaper
+function funVideo(room, people) {
+  const f = el('input'); f.type = 'file'; f.accept = 'video/*';
+  f.onchange = async () => {
+    const file = f.files[0]; if (!file) return;
+    if (file.size > 20 * 1024 * 1024) return toast('That video is too big — keep it under 20 MB (about 30 seconds)');
+    // its length (some files never report it: don't wait forever — the 20 MB limit still applies)
+    const secs = await new Promise(r => { const v = document.createElement('video'); v.preload = 'metadata'; v.onloadedmetadata = () => r(v.duration); v.onerror = () => r(0); setTimeout(() => r(0), 3000); v.src = URL.createObjectURL(file); });
+    if (secs > 31) return toast('Keep videos to 30 seconds or less');
+    toast('Sending video…');
+    try {
+      const url = await upload(file, 'video');
+      funSentToast(await api('fun/send', { room, url, target: funBestTarget(people), final: true, kind: 'video' }), 'Your video');
+    } catch (e) { toast(e.message); }
+  };
   f.click();
 }
 // a picture scaled to cover the phone-shaped canvas
@@ -4742,11 +4793,13 @@ function funPad(room, people, bgImg = null, photoOnly = false) {
     try { const r = await frame(false); if (r.sent.length) live.classList.remove('hidden'); } catch {} finally { busy = false; }
   }, 1200);
   send.onclick = async () => {
+    // freeze the pad: the final picture is exactly what's on screen now (nothing drawn after Done gets lost)
+    if (cur) cv.onpointerup(); cv.onpointerdown = cv.onpointermove = null; o.classList.add('sending');
     send.disabled = true; send.textContent = 'Sending…';
     while (busy || opsBusy) await new Promise(r => setTimeout(r, 80));
     await pushOps(); while (opsBusy) await new Promise(r => setTimeout(r, 80));
     done = true;
-    let r; try { r = await frame(true); } catch (e) { toast(e.message); send.disabled = false; send.textContent = 'Try again'; done = false; return; }
+    let r; try { r = await frame(true); } catch (e) { toast(e.message); send.disabled = false; send.textContent = 'Try again'; done = false; return; }   // (the pad stays frozen: Try again sends the same picture)
     closeLayer(layer, close);
     toast(r.sent.length ? `On ${r.sent.join(', ')}’s ${funTargetName(target)} now` : r.skipped.length ? `Couldn’t reach ${r.skipped.join(', ')}’s phone — they need to open the latest Intra Chat Android app once` : 'Nobody here allows that screen right now');
   };
