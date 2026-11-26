@@ -57,6 +57,15 @@ const IC = {
   "smile": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M8.5 14.5s1.3 2 3.5 2 3.5-2 3.5-2M9 9.5h.01M15 9.5h.01\"/>",
   "ban": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M5.6 5.6l12.8 12.8\"/>",
   "mic": "<rect x=\"9\" y=\"3\" width=\"6\" height=\"11\" rx=\"3\"/><path d=\"M5 11a7 7 0 0 0 14 0M12 18v3\"/>",
+  "phone": "<path d=\"M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2\"/>",
+  "phoneOff": "<path d=\"M10.7 13.3a11 11 0 0 1-2.2-3.8L11 8 9 3H5a2 2 0 0 0-2 2 16 16 0 0 0 4.3 11.7M13 15.5 15 13l5 2v4a2 2 0 0 1-2 2 16 16 0 0 1-7.6-2.7M3 3l18 18\"/>",
+  "video": "<rect x=\"2\" y=\"6\" width=\"14\" height=\"12\" rx=\"2\"/><path d=\"M16 10l6-3v10l-6-3z\"/>",
+  "videoOff": "<path d=\"M10 6h4a2 2 0 0 1 2 2v4l6-3v10l-6-3M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2M2 2l20 20\"/>",
+  "micOff": "<path d=\"M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V5a3 3 0 0 0-5.9-.7M19 11a7 7 0 0 1-1.1 3.8M5 11a7 7 0 0 0 11.3 5.5M12 18v3M3 3l18 18\"/>",
+  "flip": "<path d=\"M4 9a8 8 0 0 1 14-3l2 2M20 15a8 8 0 0 1-14 3l-2-2M20 4v4h-4M4 20v-4h4\"/>",
+  "minimize": "<path d=\"M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7\"/>",
+  "forward": "<path d=\"M14 5l7 7-7 7M21 12H9a6 6 0 0 0-6 6v1\"/>",
+  "share": "<circle cx=\"18\" cy=\"5\" r=\"2.5\"/><circle cx=\"6\" cy=\"12\" r=\"2.5\"/><circle cx=\"18\" cy=\"19\" r=\"2.5\"/><path d=\"M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4\"/>",
   "fingerprint": "<path d=\"M12 11v3a8 8 0 0 1-1.5 4.7M8.5 13.5V11a3.5 3.5 0 0 1 7 0v1M18.8 15.5A13 13 0 0 0 19 13v-2a7 7 0 0 0-11.5-5.4M5 15v-4a7 7 0 0 1 .9-3.4M15.4 15.6a12 12 0 0 1-1.5 4.6M5.7 18.6A10.6 10.6 0 0 0 8.5 13.5\"/>",
   "volumeOff": "<path d=\"M4 9h4l5-4v14l-5-4H4z\"/><path d=\"M16 9l6 6M22 9l-6 6\"/>",
   "volume": "<path d=\"M4 9h4l5-4v14l-5-4H4z\"/><path d=\"M16.5 9a4 4 0 0 1 0 6M19.5 6a8 8 0 0 1 0 12\"/>",
@@ -590,7 +599,7 @@ async function openRoom(room, force) {
   $('chatTitle').textContent = roomTitle(room); $('chatSub').textContent = info.dm ? lastSeenText(info.peer?.lastSeen) : 'tap here for info';
   $('messages').classList.toggle('dm', !!info.dm); applyWallpaper(room); closeEmoji();
   paintAvatar($('chatAvatar'), info.title || room, { ...info, photo: info.dm ? info.peer?.photo : info.photo });
-  setPins([]); closeMention(); setGame(null); gameDraft = {};
+  setPins([]); closeMention(); setGame(null); gameDraft = {}; callBannerUpdate(null);
   renderRooms(); updateComposerLock(); renderAdminBanner();
   if (info.geo) startLocation();
   tellSW(); swPost({ type: 'read', room });
@@ -672,6 +681,7 @@ async function poll(mySession) {
     if (first && pendingIntent) setTimeout(applyIntent, 0);
     if (d.xt) xsince = d.xt;
     if (d.fun) funLive(d.fun);
+    callBannerUpdate(d.call);
     if (d.talk) onTalk(d.talk, d.xt);
     // (ignore a mute state from a request that started before we changed it ourselves)
     if (typeof d.muteUntil === 'number' && pollStart > muteChangedAt && (mutes[current] || 0) !== d.muteUntil) { if (d.muteUntil) mutes[current] = d.muteUntil; else delete mutes[current]; store.setJson('ic-mutes', mutes); }
@@ -765,8 +775,8 @@ function render(m, isPending) {
   if (m.sys) {          // celebration / challenge notes: a centred pill, tap to open the step challenge
     const s = document.createElement('button'); s.className = 'sys-msg'; s.type = 'button'; s.dataset.key = m.key; s._msg = m;
     const tx = document.createElement('span'), tm = document.createElement('small'); tx.textContent = m.text; tm.textContent = timeLabel(m.ts);
-    s.append(icoEl(m.sys === 'steps' ? 'footprints' : m.sys === 'game' ? 'sparkles' : m.sys === 'fun' ? 'pencil' : 'info'), tx, tm);
-    s.onclick = () => m.sys === 'game' ? openGame() : m.sys === 'fun' ? (m.ref ? funReplay(m.ref) : openFun()) : openSteps();
+    s.append(icoEl(m.sys === 'steps' ? 'footprints' : m.sys === 'game' ? 'sparkles' : m.sys === 'fun' ? 'pencil' : m.sys === 'call' ? 'phone' : 'info'), tx, tm);
+    s.onclick = () => m.sys === 'game' ? openGame() : m.sys === 'fun' ? (m.ref ? funReplay(m.ref) : openFun()) : m.sys === 'call' ? (callS.info ? callJoin(callS.info) : toast('This call has ended')) : openSteps();
     box.append(s); lastRendered = { who: null, ts: m.ts, day };
     return s;
   }
@@ -782,6 +792,7 @@ function render(m, isPending) {
     const nm = document.createElement('span'); nm.className = 'who'; nm.textContent = m.name; nm.style.color = nameColor(m.name); el.append(av, nm);
     if (m.uid) { av.onclick = nm.onclick = e => { e.stopPropagation(); showProfile(m.uid); }; }
   }
+  if (m.fwd) { const f = document.createElement('span'); f.className = 'fwd-label'; f.append(icoEl('forward'), 'Forwarded'); el.append(f); }
   if (m.replyTo) {
     const q = quoteEl(m.replyTo); q.title = 'Go to message';
     q.onclick = e => { e.stopPropagation(); m.replyTo.story ? openStoryById(m.replyTo.uid, String(m.replyTo.key).slice(6)) : jumpTo(m.replyTo.key); };
@@ -1765,6 +1776,8 @@ function openMsgMenu(el) {
   if (!deleted && mine && canChat && (m.text || !m.audio)) add('Edit', '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m14 6 4 4"/></svg>', () => editMsg(el));
   if (!deleted && canChat) { const pinned = pins.some(p => p.key === el.dataset.key); add(pinned ? 'Unpin' : 'Pin', '<svg viewBox="0 0 24 24"><path d="M9 4h6l-1 6 4 4H6l4-4-1-6zM12 14v7"/></svg>', () => pinMsg(el, !pinned)); }
   if (!deleted) add('Remind me', '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M5 3 2 6M19 3l3 3"/></svg>', () => remindMsg(el));
+  if (!deleted && (m.text || m.gif || m.audio)) add('Forward', svgFor('forward'), () => forwardMsg(m));
+  if (!deleted && (m.text || m.gif || m.audio)) add('Share', svgFor('share'), () => shareMsg(m));
   if (!deleted && m.text) add('Copy text', ICON.copy, async () => { try { await navigator.clipboard.writeText(m.text); toast('Copied'); } catch { toast('Couldn’t copy'); } });
   if (mine) add('Message info', ICON.info, () => messageInfo(el));
   if (!deleted && (mine || group?.isAdmin)) add(mine ? 'Delete for everyone' : 'Delete (admin)', ICON.trash, () => deleteMsg(el), 'danger');
@@ -1775,6 +1788,46 @@ function openMsgMenu(el) {
   let top = r.bottom + 8; if (top + ch > innerHeight - 12) top = Math.max(12, r.top - ch - 8);
   card.style.left = left + 'px'; card.style.top = top + 'px';
   (reacts.querySelector('button') || acts.querySelector('button'))?.focus();
+}
+// Forward a message to up to 5 chats (the server copies any photo / voice note, and marks it "Forwarded")
+function forwardMsg(m) {
+  const { d, inner } = sheet('fwdSheet', 'Forward to…');
+  const q = el('input', 'fwd-search'); q.type = 'search'; q.placeholder = 'Search chats'; q.setAttribute('aria-label', 'Search chats');
+  const list = el('div', 'fwd-list'), picked = new Set();
+  const go = el('button', 'btn primary block', 'Forward'); go.type = 'button'; go.disabled = true;
+  const paint = () => {
+    list.innerHTML = '';
+    const f = q.value.trim().toLowerCase();
+    for (const r of rooms.filter(r => !r.hidden && (!f || roomTitle(r.room).toLowerCase().includes(f)))) {
+      const row = el('label', 'fwd-row'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = picked.has(r.room);
+      cb.onchange = () => { if (cb.checked && picked.size >= 5) { cb.checked = false; return toast('Up to 5 chats at a time'); } cb.checked ? picked.add(r.room) : picked.delete(r.room); go.disabled = !picked.size; go.textContent = picked.size ? `Forward to ${picked.size} chat${picked.size > 1 ? 's' : ''}` : 'Forward'; };
+      const av = el('div', 'avatar'); paintAvatar(av, r.title || r.room, { ...r, photo: r.dm ? r.peer?.photo : r.photo });
+      row.append(cb, av, el('span', null, roomTitle(r.room))); list.append(row);
+    }
+    if (!list.childElementCount) list.append(el('p', 'muted small', 'No chats found'));
+  };
+  q.oninput = paint; paint();
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = 'Forwarding…'; let ok = 0;
+    for (const room of picked) { try { await api('send', { room, text: m.text || '', gif: m.gif || undefined, audio: m.audio || undefined, forwarded: true }); ok++; } catch (e) { toast(`${roomTitle(room)}: ${e.message}`); } }
+    d.close(); if (ok) toast(`Forwarded to ${ok} chat${ok > 1 ? 's' : ''}`);
+    if (picked.has(current)) repoll();
+  };
+  inner.append(q, list, go); d.showModal(); setTimeout(() => q.focus(), 50);
+}
+// Share a message to other apps (Android share sheet in the app; the browser's own share, or a copied link)
+async function shareMsg(m) {
+  const fileUrl = (m.gif?.url || m.audio?.url || '').startsWith('/api/file/') ? location.origin + (m.gif?.url || m.audio?.url) : (m.gif?.url || '');
+  const text = m.text || (m.audio ? 'Voice message' : '');
+  try {
+    if (nativeApp()) {
+      const isLocal = fileUrl.startsWith(location.origin);
+      const mime = m.audio ? 'audio/*' : 'image/*', name = m.audio ? 'voice-message.webm' : 'photo.jpg';
+      return await window.Capacitor.nativePromise('IntraShare', 'share', isLocal ? { text: m.text || '', fileUrl, mime, name } : { text: [text, fileUrl].filter(Boolean).join('\n') });
+    }
+    if (navigator.share) return await navigator.share({ text: text || undefined, url: fileUrl || undefined });
+    await navigator.clipboard.writeText([text, fileUrl].filter(Boolean).join('\n')); toast('Copied — paste it anywhere');
+  } catch (e) { if (e?.name !== 'AbortError') toast(e.message || 'Couldn’t share'); }
 }
 let menuLayer = null;
 function closeMsgMenu() { $('msgMenu').classList.add('hidden'); menuFor = null; dropLayer(menuLayer); }
@@ -4267,6 +4320,11 @@ function renderGame() {
   [...inner.children].slice(1).forEach(n => n.remove());
   inner.querySelector('.sheet-head h2').textContent = game ? game.name : 'Games';
   { const hd = inner.querySelector('.sheet-head'); if (hd && !hd.querySelector('.sfx-mute')) hd.lastElementChild.before(sfxMuteBtn()); }
+  // voice chat for every game: joins this chat's voice (quietly — no ringing); tap again to leave
+  { const hd = inner.querySelector('.sheet-head');
+    let vb = hd?.querySelector('.game-voice');
+    if (hd && !vb) { vb = el('button', 'icon-btn game-voice'); vb.type = 'button'; vb.onclick = () => (inCall() && callS.room === current) ? callEnd(true) : inCall() ? toast('You’re already in another call') : callS.info ? callJoin(callS.info) : callStart(false, true); hd.querySelector('.sfx-mute').before(vb); }
+    if (vb) { const on = inCall() && callS.room === current; vb.innerHTML = svgFor(on ? 'mic' : 'micOff'); vb.classList.toggle('on', on); vb.title = on ? 'Leave voice chat' : 'Join voice chat'; vb.setAttribute('aria-label', vb.title); } }
   if (!game) { inner.append(el('p', 'empty-note', 'No game running.')); return; }
   const g = game, host = g.host === me.uid, canEnd = host || group?.isAdmin;
   if (g.data?.say && g.phase !== 'lobby') narrate(g.data.say);
@@ -4886,6 +4944,148 @@ async function funReplay(sid) {
   await funApplyBg(d);
   funViewer(`${d.byName}’s doodle`); funView.o.querySelector('.fun-live')?.classList.add('hidden');
   funKick();
+}
+
+/* ---------------- Calls: voice / video over LiveKit (1:1 and groups); games join the chat's voice quietly ---------------- */
+const callS = { lk: null, room: null, id: null, video: false, game: false, mic: true, cam: false, front: true, ping: 0, timer: 0, at: 0, o: null, mini: null, minimized: false, info: null };
+const inCall = () => !!callS.lk;
+// header button: voice or video call (or join the one going on)
+{
+  const b = document.createElement('button'); b.className = 'icon-btn'; b.id = 'callBtn'; b.type = 'button'; b.setAttribute('aria-label', 'Call'); b.title = 'Call'; b.innerHTML = svgFor('phone');
+  b.onclick = async () => {
+    if (!current) return;
+    if (inCall()) return callS.room === current ? callOpen() : toast('You’re already in a call — hang up first');
+    if (callS.info?.id) return callJoin(callS.info);
+    const v = await popup({ icon: 'phone', title: group?.dm ? `Call ${roomTitle(current)}` : 'Call this group', ok: '', cancel: 'Cancel', choices: [{ label: 'Voice call', value: 'voice', icon: 'phone' }, { label: 'Video call', value: 'video', icon: 'video' }] });
+    if (v) callStart(v === 'video');
+  };
+  $('walkieBtn').before(b);
+}
+async function callStart(video, game = false) {
+  let r; try { r = await api('call/start', { room: current, video, game }); } catch (e) { return toast(e.code === 'no_calls' ? 'Calls aren’t set up on this server yet' : e.message); }
+  callConnect(current, r, video, game);
+}
+async function callJoin(info) {
+  let r; try { r = await api('call/join', { room: current }); } catch (e) { return toast(e.message); }
+  callConnect(current, r, !!info.video, !!info.game);
+}
+async function callConnect(room, r, video, game) {
+  if (inCall()) return;
+  const L = await loadLiveKit().catch(() => null); if (!L) return toast('Couldn’t load calling');
+  const lkRoom = new L.Room({ adaptiveStream: true, dynacast: true });
+  Object.assign(callS, { lk: lkRoom, room, id: r.call.id, video, game, mic: true, cam: video, at: r.call.at || Date.now(), minimized: game });
+  const re = () => callRender();
+  lkRoom.on(L.RoomEvent.TrackSubscribed, (track, pub, part) => { if (track.kind === 'audio') { const a = track.attach(); a.dataset.call = part.identity; a.style.display = 'none'; document.body.append(a); a.play?.().catch(() => {}); } re(); });
+  lkRoom.on(L.RoomEvent.TrackUnsubscribed, (track) => { track.detach().forEach(e => { if (e.dataset.call) e.remove(); }); re(); });
+  for (const ev of ['ParticipantConnected', 'ParticipantDisconnected', 'TrackMuted', 'TrackUnmuted', 'LocalTrackPublished', 'LocalTrackUnpublished', 'ActiveSpeakersChanged']) lkRoom.on(L.RoomEvent[ev], re);
+  lkRoom.on(L.RoomEvent.Disconnected, () => { if (callS.lk === lkRoom) callEnd(false); });
+  callOpen(); callRender();
+  try {
+    await lkRoom.connect(r.url, r.token);
+    await lkRoom.localParticipant.setMicrophoneEnabled(true);
+    if (video) await lkRoom.localParticipant.setCameraEnabled(true, { facingMode: 'user' });
+  } catch (e) {
+    toast(/permission|NotAllowed/i.test(String(e?.name || e?.message)) ? 'Allow the microphone (and camera) for Intra Chat to call' : 'Couldn’t connect the call: ' + (e?.message || e));
+    return callEnd(true);
+  }
+  callRender();
+  callS.ping = setInterval(async () => { try { const p = await api('call/ping', { room, id: callS.id }); if (p.ended && !callS.lk?.remoteParticipants?.size) callEnd(true); } catch {} }, 20_000);
+  callS.timer = setInterval(callTick, 1000);
+}
+async function callEnd(tellServer = true) {
+  const { lk, room, id } = callS; if (!lk && !callS.o) return;
+  clearInterval(callS.ping); clearInterval(callS.timer);
+  Object.assign(callS, { lk: null, id: null });
+  document.querySelectorAll('audio[data-call]').forEach(a => a.remove());
+  try { await lk?.disconnect(); } catch {}
+  if (tellServer && room && id) api('call/leave', { room, id }).catch(() => {});
+  callS.o?.remove(); callS.o = null; callS.mini?.remove(); callS.mini = null;
+  if (callS.layer) { dropLayer(callS.layer); callS.layer = null; }
+  if ($('gameSheet')?.open) renderGame();
+  repoll?.();
+}
+const callDur = () => { const s = Math.max(0, Math.floor((Date.now() - callS.at) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+function callTick() { const t = callS.o?.querySelector('.call-time'); if (t) t.textContent = callDur(); const mt = callS.mini?.querySelector('.call-time'); if (mt) mt.textContent = callDur(); }
+// the full call screen
+function callOpen() {
+  callS.minimized = false; callS.mini?.remove(); callS.mini = null;
+  if (callS.o) return callRender();
+  const o = el('div', 'call-screen'); o.setAttribute('role', 'dialog'); o.setAttribute('aria-label', 'Call');
+  const top = el('div', 'call-top'); top.append(el('b', 'call-title', roomTitle(callS.room)), el('span', 'call-time', callDur()));
+  const grid = el('div', 'call-grid');
+  const ctl = el('div', 'call-ctl');
+  const btn = (cls, icon, label, fn) => { const b = el('button', 'call-b ' + cls); b.type = 'button'; b.innerHTML = svgFor(icon); b.setAttribute('aria-label', label); b.title = label; b.onclick = fn; ctl.append(b); return b; };
+  btn('mic', 'mic', 'Mute', async () => { callS.mic = !callS.mic; await callS.lk?.localParticipant.setMicrophoneEnabled(callS.mic); callRender(); });
+  btn('cam', 'video', 'Camera', async () => { callS.cam = !callS.cam; try { await callS.lk?.localParticipant.setCameraEnabled(callS.cam, { facingMode: callS.front ? 'user' : 'environment' }); } catch (e) { callS.cam = false; toast('Couldn’t start the camera'); } callRender(); });
+  btn('flip', 'flip', 'Switch camera', async () => {
+    if (!callS.cam) return; callS.front = !callS.front;
+    const pub = callS.lk?.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.Camera);
+    try { await pub?.track?.restartTrack({ facingMode: callS.front ? 'user' : 'environment' }); } catch { toast('Only one camera here'); }
+  });
+  btn('min', 'minimize', 'Minimise', () => callMinimize());
+  btn('end', 'phoneOff', 'Hang up', () => callEnd(true));
+  o.append(top, grid, ctl); document.body.append(o); callS.o = o;
+  callS.layer = pushLayer(() => { callS.layer = null; callMinimize(true); });
+  callRender();
+}
+// minimised (and games): a small bar on top of everything
+function callMinimize(fromBack = false) {
+  if (!inCall()) return;
+  callS.minimized = true; callS.o?.remove(); callS.o = null;
+  if (!fromBack && callS.layer) { const l = callS.layer; callS.layer = null; dropLayer(l); }
+  callRender();
+}
+function callRender() {
+  const L = window.LivekitClient, lk = callS.lk; if (!lk || !L) return;
+  const parts = [lk.localParticipant, ...lk.remoteParticipants.values()];
+  // minimised bar
+  if (callS.minimized) {
+    let m = callS.mini;
+    if (!m) {
+      m = el('div', 'call-mini'); m.setAttribute('role', 'status');
+      const open = el('button', 'call-mini-open'); open.type = 'button'; open.onclick = () => { if (current !== callS.room) navTo?.(`/#/g/${callS.room}`); callOpen(); };
+      const mic = el('button', 'call-b mic small'); mic.type = 'button'; mic.onclick = async () => { callS.mic = !callS.mic; await callS.lk?.localParticipant.setMicrophoneEnabled(callS.mic); callRender(); };
+      const end = el('button', 'call-b end small'); end.type = 'button'; end.innerHTML = svgFor('phoneOff'); end.setAttribute('aria-label', 'Leave'); end.onclick = () => callEnd(true);
+      m.append(open, mic, end); document.body.append(m); callS.mini = m;
+    }
+    const open = m.querySelector('.call-mini-open'); open.innerHTML = '';
+    open.append(icoEl(callS.video ? 'video' : 'phone'), el('b', null, callS.game ? 'Voice chat' : `${callS.video ? 'Video' : 'Voice'} call`), el('span', null, `${parts.length} in · `), el('span', 'call-time', callDur()));
+    const mic = m.querySelector('.mic'); mic.innerHTML = svgFor(callS.mic ? 'mic' : 'micOff'); mic.classList.toggle('off', !callS.mic); mic.setAttribute('aria-label', callS.mic ? 'Mute' : 'Unmute');
+    return;
+  }
+  const o = callS.o; if (!o) return;
+  const grid = o.querySelector('.call-grid');
+  grid.dataset.n = Math.min(parts.length, 6);
+  const speaking = new Set(lk.activeSpeakers.map(p => p.identity));
+  const seen = new Set();
+  for (const p of parts) {
+    seen.add(p.identity);
+    let t = grid.querySelector(`[data-id="${CSS.escape(p.identity)}"]`);
+    if (!t) { t = el('div', 'call-tile'); t.dataset.id = p.identity; const av = el('div', 'avatar call-av'); paintAvatar(av, p.name || 'Someone'); t.append(av, el('span', 'call-name', p === lk.localParticipant ? 'You' : (p.name || 'Someone'))); grid.append(t); }
+    const pub = p.getTrackPublication(L.Track.Source.Camera), track = pub?.track && !pub.isMuted ? pub.track : null;
+    let v = t.querySelector('video');
+    if (track) { if (!v || v._track !== track) { v?.remove(); v = track.attach(); v._track = track; v.muted = true; v.playsInline = true; if (p === lk.localParticipant && callS.front) v.classList.add('mirror'); t.prepend(v); } }
+    else if (v) { v._track?.detach(v); v.remove(); }
+    t.classList.toggle('has-video', !!track);
+    t.classList.toggle('speaking', speaking.has(p.identity));
+    t.classList.toggle('muted', !p.isMicrophoneEnabled);
+  }
+  grid.querySelectorAll('.call-tile').forEach(t => { if (!seen.has(t.dataset.id)) t.remove(); });
+  const mic = o.querySelector('.call-b.mic'); mic.innerHTML = svgFor(callS.mic ? 'mic' : 'micOff'); mic.classList.toggle('off', !callS.mic);
+  const cam = o.querySelector('.call-b.cam'); cam.innerHTML = svgFor(callS.cam ? 'video' : 'videoOff'); cam.classList.toggle('off', !callS.cam);
+  o.querySelector('.call-b.flip').classList.toggle('hidden', !callS.cam);
+  o.querySelector('.call-time').textContent = parts.length > 1 ? callDur() : 'Calling…';
+}
+// the call going on in the open chat (from each poll): a "Join" banner, and the header button joins it
+function callBannerUpdate(info) {
+  callS.info = info || null;
+  let b = $('callBanner');
+  const show = info && !(inCall() && callS.room === current);
+  if (!show) { b?.classList.add('hidden'); return; }
+  if (!b) { b = el('button', 'call-banner'); b.id = 'callBanner'; b.type = 'button'; ($('adminBanner') || $('netBanner')).after(b); }
+  b.classList.remove('hidden'); b.innerHTML = '';
+  b.append(icoEl(info.video ? 'video' : 'phone'), el('b', null, info.game ? 'Voice chat in the game' : `${info.video ? 'Video' : 'Voice'} call`), el('span', null, info.people.map(p => p.name).join(', ') || info.byName), el('em', null, 'Join'));
+  b.onclick = () => inCall() ? toast('You’re already in a call — hang up first') : callJoin(info);
 }
 
 /* ---------------- Hidden chats & privacy mode ---------------- */

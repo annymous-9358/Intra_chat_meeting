@@ -9,6 +9,10 @@ A quick group chat app. Run it three ways with the same code. **Live: https://ap
 | **Netlify** (old) | Netlify Functions + Netlify Blobs | Anyone with the link |
 
 ## Features
+- **Calls** (phone button in a chat): **voice or video calls** in 1:1 chats and groups over LiveKit — mute, camera on/off,
+  flip camera, minimise to a small bar, hang up; others get a notification and a **Join** banner; the chat notes how long it
+  lasted. **Voice chat in every game** (mic button in the game screen) joins the chat's voice quietly.
+- **Forward** a message to up to 5 chats (marked "Forwarded"; photos / voice notes are copied) and **Share** it to other apps.
 - **Fun mode** (chat menu → Fun mode, 1:1 chats and groups): friends can set your phone’s **lock screen** or **home
   screen** — a photo, or a **doodle that appears live** while they draw: brushes (pen, marker, neon, rainbow, spray,
   eraser) with a size slider, shapes (line, arrow, rectangle, circle, heart, star), colour or photo background. With the chat
