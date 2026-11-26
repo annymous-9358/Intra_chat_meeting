@@ -4531,11 +4531,11 @@ async function openFun() {
     };
     mine.append(sw('Lock screen', 'lock'), sw('Home screen', 'home'));
     // the live wallpaper: instant photos, videos, and doodles that draw themselves on your screen
-    let liveOn = false; try { liveOn = !!(await window.Capacitor.nativePromise('Fun', 'liveStatus')).active; } catch {}
-    if (liveOn !== !!st.me.live) { try { st.me = (await api('fun/settings', { room, ...st.me, live: liveOn })).me; } catch {} }
+    let liveOn = false, oldApp = false; try { liveOn = !!(await nativeAsk('Fun', 'liveStatus')).active; } catch (e) { oldApp = true; }
+    if (!oldApp && liveOn !== !!st.me.live) { try { st.me = (await api('fun/settings', { room, ...st.me, live: liveOn })).me; } catch {} }
     const lw = el('div', 'fun-livecard' + (liveOn ? ' on' : ''));
-    lw.append(icoEl('sparkles'), el('div', null, liveOn ? 'Live wallpaper is on — doodles appear as they’re drawn, videos play, photos show instantly.' : 'Turn on the live wallpaper to see doodles appear as they’re drawn, get videos, and get photos instantly. You confirm it once in Android’s wallpaper screen.'));
-    if (!liveOn) {
+    lw.append(icoEl('sparkles'), el('div', null, oldApp ? 'Update Intra Chat to the latest Android app to use the live wallpaper (doodles that draw themselves, videos, instant photos).' : liveOn ? 'Live wallpaper is on — doodles appear as they’re drawn, videos play, photos show instantly.' : 'Turn on the live wallpaper to see doodles appear as they’re drawn, get videos, and get photos instantly. You confirm it once in Android’s wallpaper screen.'));
+    if (!liveOn && !oldApp) {
       const on = el('button', 'btn primary small', 'Turn on'); on.type = 'button';
       on.onclick = async () => {
         let r; try { r = await window.Capacitor.nativePromise('Fun', 'setLive'); } catch (e) { return toast(e.message); }
@@ -4549,12 +4549,12 @@ async function openFun() {
     if (st.last) mine.append(el('p', 'muted small', `Last change: ${st.last.byName}, ${funTargetName(st.last.target)} · ${timeLabel(st.last.at)}`));
     const row = el('div', 'fun-btns');
     const back = el('button', 'btn', liveOn ? 'Back to my photo' : 'Lock screen back to normal'); back.type = 'button';
-    back.onclick = async () => { try { await window.Capacitor.nativePromise('Fun', 'restore', { target: 'lock' }); toast(liveOn ? 'Showing your own photo again' : 'Lock screen is back to your home wallpaper'); } catch (e) { toast(e.message); } };
+    back.onclick = async () => { try { await nativeAsk('Fun', 'restore', { target: 'lock' }, 5000); toast(liveOn ? 'Showing your own photo again' : 'Lock screen is back to your home wallpaper'); } catch (e) { toast(e.message); } };
     const own = el('button', 'btn', 'Use my own photo'); own.type = 'button';
     own.onclick = () => pickImage(async img => {
       const target = liveOn ? 'both' : await popup({ icon: 'image', title: 'Use it as…', ok: '', cancel: 'Cancel', choices: [{ label: 'Lock screen', value: 'lock' }, { label: 'Home screen', value: 'home' }, { label: 'Both', value: 'both' }] });
       if (!target) return;
-      try { await window.Capacitor.nativePromise('Fun', 'setOwn', { data: funCover(img).toDataURL('image/jpeg', 0.9), target }); toast('Wallpaper set'); } catch (e) { toast(e.message); }
+      try { await nativeAsk('Fun', 'setOwn', { data: funCover(img).toDataURL('image/jpeg', 0.9), target }, 15000); toast('Wallpaper set'); } catch (e) { toast(e.message); }
     });
     row.append(back, own); mine.append(row);
   } else mine.append(el('p', 'muted small', 'To let friends change your screen, open this chat in the Intra Chat Android app. You can still draw on theirs from here.'));
@@ -4586,8 +4586,11 @@ function pickImage(cb, capture) {
   f.onchange = () => { const file = f.files[0]; if (!file) return; const img = new Image(); img.onload = () => cb(img); img.onerror = () => toast('That picture couldn’t be opened'); img.src = URL.createObjectURL(file); };
   f.click();
 }
+// Ask the Android app something, but never wait forever: an older app that doesn't know the question may not answer
+const nativeAsk = (plugin, method, args = {}, ms = 2000) => Promise.race([window.Capacitor.nativePromise(plugin, method, args),
+  new Promise((_, no) => setTimeout(() => no(Object.assign(new Error('Update Intra Chat to the latest app for this'), { code: 'OLD_APP' })), ms))]);
 // tell the phone what you allow here (and how its live wallpaper can fetch doodles)
-const funNative = m => window.Capacitor.nativePromise('Fun', 'setAllowed', { lock: m.lock, home: m.home, baseUrl: location.origin, token: me.token, device: me.device });
+const funNative = m => nativeAsk('Fun', 'setAllowed', { lock: m.lock, home: m.home, baseUrl: location.origin, token: me.token, device: me.device });
 const funBestTarget = people => people.some(p => p.lock) ? 'lock' : 'home';
 const funSentToast = (r, what) => toast(r.sent.length ? `${what} is on ${r.sent.join(', ')}’s screen now` : r.skipped.length ? `Couldn’t reach ${r.skipped.join(', ')}’s phone${what === 'Your video' ? ' — videos need their live wallpaper' : ' — they need to open the latest Intra Chat Android app once'}` : 'Nobody here allows that screen right now');
 // Camera: the photo goes straight onto their screen

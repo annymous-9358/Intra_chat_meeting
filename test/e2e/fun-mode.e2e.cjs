@@ -81,4 +81,11 @@ run(async browser => {
   const [fv] = await Promise.all([K.waitForEvent('filechooser'), K.click('#funSheet .btn:has-text("Video")')]);
   await fv.setFiles(mp4); await K.waitForTimeout(5000);
   expect(ups.includes('video') && sends.some(s => s.kind === 'video' && s.final), 'a video uploads as a video and is sent');
+  // an older Android app that doesn't answer the live-wallpaper question: Fun mode still opens and says to update
+  const O = await phone(browser); await signup(O, 'Olde', 'olde'); await O.goto(URL + '/#/g/general'); await O.waitForSelector('#text'); await O.waitForTimeout(800);
+  await O.evaluate(() => { window.Capacitor = { isNativePlatform: () => true, nativePromise: (plugin, m) => m === 'liveStatus' ? new Promise(() => {}) : Promise.resolve({}) }; });
+  await O.evaluate(() => openFun());
+  const opened = await O.waitForSelector('#funSheet[open]', { timeout: 6000 }).then(() => true, () => false);
+  expect(opened && (await O.textContent('#funSheet .fun-livecard')).includes('Update Intra Chat'), 'with an older app, Fun mode still opens (and suggests updating for the live wallpaper)');
 });
+
