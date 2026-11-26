@@ -59,6 +59,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Fun mode: friends can set the lock / home screen (only when you allow it, per chat) -->
+
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Walkie-talkie keeps listening in the background (foreground service) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

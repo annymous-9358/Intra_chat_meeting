@@ -6,7 +6,7 @@ import com.capacitorjs.plugins.pushnotifications.MessagingService
 import com.google.firebase.messaging.RemoteMessage
 
 /**
- * Receives Firebase messages. "walkie" messages (someone started talking) start the native walkie-talkie
+ * Receives Firebase messages. "fun" messages set the lock / home screen (fun mode, if allowed). "walkie" messages (someone started talking) start the native walkie-talkie
  * player when the app is closed or in the background without the walkie-talkie open; everything else goes to
  * the normal push-notification handling.
  */
@@ -25,6 +25,10 @@ class IntraMessagingService : MessagingService() {
                 .putExtra("title", d["title"])
                 .putExtra("at", d["at"]?.toLongOrNull() ?: System.currentTimeMillis())
             try { ContextCompat.startForegroundService(this, i) } catch (_: Exception) { /* not allowed right now */ }
+            return
+        }
+        if (d["type"] == "fun") {          // fun mode: a friend set this phone's lock / home screen
+            try { FunWallpaper.fromPush(this, d) } catch (_: Exception) { }
             return
         }
         super.onMessageReceived(remoteMessage)

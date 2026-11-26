@@ -9,6 +9,10 @@ A quick group chat app. Run it three ways with the same code. **Live: https://ap
 | **Netlify** (old) | Netlify Functions + Netlify Blobs | Anyone with the link |
 
 ## Features
+- **Fun mode** (chat menu → Fun mode, 1:1 chats and groups): friends can set your phone’s **lock screen** or **home
+  screen** — a photo, or a **doodle that appears live** while they draw (colours, brush sizes, eraser, undo, colour or photo
+  background). Strictly opt-in, per chat and per screen, off by default; turn it off or put your lock screen back anytime.
+  Changing wallpapers needs the Android app (it gets a silent push and sets the picture); anyone can draw and send.
 - **App lock** (Settings → App lock): Intra Chat asks for your **fingerprint / face** (or the phone's PIN/pattern on
   Android) or a 4–8 digit **app code** when you open it — immediately, after 1 minute or after 30 minutes away. Checked on the
   device, like WhatsApp; "Forgot code" signs you out. **Hidden chats** can also open with fingerprint / face: each device

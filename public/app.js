@@ -764,8 +764,8 @@ function render(m, isPending) {
   if (m.sys) {          // celebration / challenge notes: a centred pill, tap to open the step challenge
     const s = document.createElement('button'); s.className = 'sys-msg'; s.type = 'button'; s.dataset.key = m.key; s._msg = m;
     const tx = document.createElement('span'), tm = document.createElement('small'); tx.textContent = m.text; tm.textContent = timeLabel(m.ts);
-    s.append(icoEl(m.sys === 'steps' ? 'footprints' : m.sys === 'game' ? 'sparkles' : 'info'), tx, tm);
-    s.onclick = () => m.sys === 'game' ? openGame() : openSteps();
+    s.append(icoEl(m.sys === 'steps' ? 'footprints' : m.sys === 'game' ? 'sparkles' : m.sys === 'fun' ? 'pencil' : 'info'), tx, tm);
+    s.onclick = () => m.sys === 'game' ? openGame() : m.sys === 'fun' ? openFun() : openSteps();
     box.append(s); lastRendered = { who: null, ts: m.ts, day };
     return s;
   }
@@ -2392,6 +2392,7 @@ function openChatMenu(anchor) {
   items.push({ icon: '⏰', label: 'Scheduled messages', onClick: showScheduled });
   items.push({ icon: 'sparkles', label: game && game.phase !== 'over' ? `Game: ${game.name}` : 'Games', onClick: () => game && game.phase !== 'over' ? openGame() : openGamePicker() });
   items.push({ icon: 'footprints', label: group?.dm ? 'Step duel' : 'Step challenge', onClick: openSteps });
+  items.push({ icon: 'pencil', label: 'Fun mode', onClick: openFun });
   items.push({ icon: '🎨', label: 'Wallpaper', onClick: () => openWallpaper(current) });
   items.push({ icon: isMuted(current) ? '🔔' : '🔕', label: isMuted(current) ? 'Unmute notifications' : 'Mute notifications', onClick: () => pushActive || isMuted(current) ? muteGroup() : enableNotifications() });
   items.push({ icon: '📻', label: walkie.on ? 'Close walkie-talkie' : 'Walkie-talkie', onClick: () => $('walkieBtn').click() });
@@ -4444,6 +4445,168 @@ function renderGame() {
   if (keepFocus) { const i = inner.querySelector(`[data-gk="${keepFocus}"]`); if (i) { i.focus(); i.value = gameDraft[keepFocus] ?? ''; } }   // the draft is the source of truth (cleared on a new round)
 }
 
+
+/* ---------------- Fun mode: friends set your lock / home screen (photo or live doodle) ----------------
+   Opt-in per chat. Only the Android app can change wallpapers; anyone can draw and send. */
+const FUN_W = 1080, FUN_H = 2340;                    // a tall phone screen; Android crops it to fit
+const funTargetName = t => t === 'both' ? 'lock & home screen' : t === 'home' ? 'home screen' : 'lock screen';
+async function openFun() {
+  if (!current) return;
+  const room = current;
+  let st; try { st = await api('fun/state', { room }); } catch (e) { return toast(e.message); }
+  const { d, inner } = sheet('funSheet', 'Fun mode');
+  inner.append(el('p', 'muted small', 'Friends here can set your phone’s lock screen or home screen — a photo, or a doodle you watch appear live. Only if you turn it on, and you can turn it off anytime.'));
+  // your screen
+  const mine = el('div', 'fun-sec'); mine.append(el('h3', null, 'Your screen'));
+  if (nativeApp()) {
+    const sw = (label, key) => {
+      const r = el('button', 'al-row'); r.type = 'button'; const t = el('div'); t.append(el('b', null, label), el('small', null, st.me[key] ? 'Friends here can change it' : 'Off'));
+      r.append(t, el('span', 'al-switch' + (st.me[key] ? ' on' : ''))); r.onclick = async () => {
+        const next = { ...st.me, [key]: !st.me[key] };
+        try { st.me = (await api('fun/settings', { room, ...next })).me; await window.Capacitor.nativePromise('Fun', 'setAllowed', { lock: st.me.lock, home: st.me.home, baseUrl: location.origin }); }
+        catch (e) { return toast(e.message); }
+        openFun();
+      };
+      return r;
+    };
+    mine.append(sw('Lock screen', 'lock'), sw('Home screen', 'home'));
+    if (st.last) mine.append(el('p', 'muted small', `Last change: ${st.last.byName}, ${funTargetName(st.last.target)} · ${timeLabel(st.last.at)}`));
+    const row = el('div', 'fun-btns');
+    const back = el('button', 'btn', 'Lock screen back to normal'); back.type = 'button';
+    back.onclick = async () => { try { await window.Capacitor.nativePromise('Fun', 'restore', { target: 'lock' }); toast('Lock screen is back to your home wallpaper'); } catch (e) { toast(e.message); } };
+    const own = el('button', 'btn', 'Use my own photo'); own.type = 'button';
+    own.onclick = () => pickImage(async img => {
+      const target = await popup({ icon: 'image', title: 'Use it as…', ok: '', cancel: 'Cancel', choices: [{ label: 'Lock screen', value: 'lock' }, { label: 'Home screen', value: 'home' }, { label: 'Both', value: 'both' }] });
+      if (!target) return;
+      try { await window.Capacitor.nativePromise('Fun', 'setOwn', { data: funCover(img).toDataURL('image/jpeg', 0.9), target }); toast('Wallpaper set'); } catch (e) { toast(e.message); }
+    });
+    row.append(back, own); mine.append(row);
+  } else mine.append(el('p', 'muted small', 'To let friends change your screen, open this chat in the Intra Chat Android app. You can still draw on theirs from here.'));
+  inner.append(mine);
+  // their screens
+  const theirs = el('div', 'fun-sec'); theirs.append(el('h3', null, 'Draw on their screen'));
+  if (!st.people.length) theirs.append(el('p', 'muted small', group?.dm ? 'They haven’t turned on fun mode in this chat yet.' : 'Nobody here has turned on fun mode yet.'));
+  else {
+    const list = el('div', 'fun-people');
+    for (const p of st.people) { const c = el('span', 'chip brand'); c.append(p.name + ' · ' + [p.lock && 'lock', p.home && 'home'].filter(Boolean).join(' + ')); list.append(c); }
+    theirs.append(list);
+    const row = el('div', 'fun-btns');
+    const dood = el('button', 'btn primary', 'Doodle live'); dood.type = 'button'; dood.prepend(icoEl('pencil'));
+    dood.onclick = () => { d.close(); funPad(room, st.people); };
+    const photo = el('button', 'btn', 'Send a photo'); photo.type = 'button'; photo.prepend(icoEl('image'));
+    photo.onclick = () => pickImage(img => { d.close(); funPad(room, st.people, img, true); });
+    row.append(dood, photo); theirs.append(row);
+  }
+  inner.append(theirs);
+  if (!d.open) d.showModal();
+}
+function pickImage(cb) {
+  const f = el('input'); f.type = 'file'; f.accept = 'image/*';
+  f.onchange = () => { const file = f.files[0]; if (!file) return; const img = new Image(); img.onload = () => cb(img); img.onerror = () => toast('That picture couldn’t be opened'); img.src = URL.createObjectURL(file); };
+  f.click();
+}
+// a picture scaled to cover the phone-shaped canvas
+function funCover(img, c = Object.assign(document.createElement('canvas'), { width: FUN_W, height: FUN_H })) {
+  const x = c.getContext('2d'), s = Math.max(FUN_W / img.width, FUN_H / img.height), w = img.width * s, h = img.height * s;
+  x.drawImage(img, (FUN_W - w) / 2, (FUN_H - h) / 2, w, h); return c;
+}
+// The drawing pad. Live: while you draw, a frame goes out every ~1.6 s; Done sends the final picture.
+function funPad(room, people, bgImg = null, photoOnly = false) {
+  const o = el('div', 'fun-pad'); o.setAttribute('role', 'dialog'); o.setAttribute('aria-label', 'Doodle');
+  const sid = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => (b % 36).toString(36)).join('');
+  const canLock = people.some(p => p.lock), canHome = people.some(p => p.home);
+  let target = canLock ? 'lock' : 'home', to = null, bg = '#101418', color = '#ffffff', size = 14, eraser = false, dirty = false, busy = false, done = false, sentLive = false;
+  const strokes = [];
+  // header
+  const head = el('div', 'fun-head');
+  const x = el('button', 'icon-btn'); x.type = 'button'; x.innerHTML = svgFor('x'); x.setAttribute('aria-label', 'Close');
+  const title = el('b', null, photoOnly ? 'Send a photo' : 'Doodle');
+  const live = el('span', 'fun-live hidden', 'LIVE');
+  head.append(x, title, live);
+  const opts = el('div', 'fun-opts');
+  const tsel = el('select'); tsel.setAttribute('aria-label', 'Which screen');
+  for (const [v, n] of [['lock', 'Lock screen'], ['home', 'Home screen'], ['both', 'Both']]) if ((v !== 'home' || canHome) && (v !== 'lock' || canLock) && (v !== 'both' || (canLock && canHome))) tsel.append(Object.assign(document.createElement('option'), { value: v, textContent: n }));
+  tsel.value = target; tsel.onchange = () => { target = tsel.value; };
+  opts.append(tsel);
+  if (people.length > 1) {
+    const psel = el('select'); psel.setAttribute('aria-label', 'Who');
+    psel.append(Object.assign(document.createElement('option'), { value: '', textContent: `Everyone (${people.length})` }));
+    for (const p of people) psel.append(Object.assign(document.createElement('option'), { value: p.uid, textContent: p.name }));
+    psel.onchange = () => { to = psel.value ? [psel.value] : null; }; opts.append(psel);
+  } else opts.append(el('span', 'muted small', 'for ' + people[0].name));
+  // canvas
+  const wrap = el('div', 'fun-canvas'); const cv = document.createElement('canvas'); cv.width = FUN_W; cv.height = FUN_H; wrap.append(cv);
+  const g = cv.getContext('2d');
+  // the drawing lives on its own transparent layer, so the eraser cuts back to the background (colour or photo)
+  const ink = Object.assign(document.createElement('canvas'), { width: FUN_W, height: FUN_H }), k = ink.getContext('2d');
+  k.lineCap = 'round'; k.lineJoin = 'round';
+  const compose = () => {
+    if (bgImg) funCover(bgImg, cv); else { g.fillStyle = bg; g.fillRect(0, 0, FUN_W, FUN_H); }
+    g.drawImage(ink, 0, 0);
+  };
+  const stroke = (st, from = 0) => {
+    k.globalCompositeOperation = st.erase ? 'destination-out' : 'source-over';
+    k.strokeStyle = st.color; k.lineWidth = st.size; k.beginPath();
+    const p = st.pts, i0 = Math.max(0, from - 1);
+    k.moveTo(p[i0][0], p[i0][1]);
+    for (let i = i0 + 1; i < p.length; i++) { const [a, b] = p[i - 1], [c, d2] = p[i]; k.quadraticCurveTo(a, b, (a + c) / 2, (b + d2) / 2); }
+    if (p.length === 1) k.lineTo(p[0][0] + 0.1, p[0][1]);
+    k.stroke();
+  };
+  const paint = () => { k.clearRect(0, 0, FUN_W, FUN_H); for (const st of strokes) stroke(st); compose(); };   // full redraw (undo, clear, background)
+  const pos = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * FUN_W / r.width, (e.clientY - r.top) * FUN_H / r.height]; };
+  let cur = null;
+  if (!photoOnly) {
+    cv.onpointerdown = e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); cur = { color, size: size * 3, erase: eraser, pts: [pos(e)] }; strokes.push(cur); stroke(cur); compose(); dirty = true; };
+    cv.onpointermove = e => { if (!cur) return; cur.pts.push(pos(e)); stroke(cur, cur.pts.length - 2); compose(); dirty = true; };
+    cv.onpointerup = cv.onpointercancel = () => { cur = null; };
+  }
+  // tools
+  const tools = el('div', 'fun-tools');
+  if (!photoOnly) {
+    const sw = el('div', 'fun-swatches');
+    for (const c of ['#ffffff', '#111111', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899']) {
+      const b = el('button', 'fun-sw' + (c === color ? ' on' : '')); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', 'Colour ' + c);
+      b.onclick = () => { color = c; eraser = false; sw.querySelectorAll('.fun-sw').forEach(z => z.classList.toggle('on', z === b)); er.classList.remove('on'); }; sw.append(b);
+    }
+    const sizes = el('div', 'fun-sizes');
+    for (const n of [6, 14, 28]) { const b = el('button', 'fun-size' + (n === size ? ' on' : '')); b.type = 'button'; b.setAttribute('aria-label', 'Brush ' + n); b.append(el('i')); b.firstChild.style.width = b.firstChild.style.height = (n / 1.6 + 4) + 'px'; b.onclick = () => { size = n; sizes.querySelectorAll('.fun-size').forEach(z => z.classList.toggle('on', z === b)); }; sizes.append(b); }
+    const er = el('button', 'btn small', 'Eraser'); er.type = 'button'; er.onclick = () => { eraser = !eraser; er.classList.toggle('on', eraser); };
+    const undo = el('button', 'btn small', 'Undo'); undo.type = 'button'; undo.onclick = () => { strokes.pop(); paint(); dirty = true; };
+    const clear = el('button', 'btn small', 'Clear'); clear.type = 'button'; clear.onclick = () => { strokes.length = 0; paint(); dirty = true; };
+    const bgs = el('div', 'fun-bgs'); bgs.append(el('small', 'muted', 'Background'));
+    for (const c of ['#101418', '#ffffff', '#fde68a', '#bfdbfe', '#fbcfe8']) { const b = el('button', 'fun-sw small'); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', 'Background ' + c); b.onclick = () => { bg = c; bgImg = null; compose(); dirty = true; }; bgs.append(b); }
+    const ph = el('button', 'btn small', 'Photo'); ph.type = 'button'; ph.onclick = () => pickImage(img => { bgImg = img; compose(); dirty = true; }); bgs.append(ph);
+    const row = el('div', 'fun-row'); row.append(er, undo, clear);
+    tools.append(sw, sizes, row, bgs);
+  }
+  const send = el('button', 'btn primary block', photoOnly ? 'Set as their wallpaper' : 'Done — keep it on their screen'); send.type = 'button';
+  tools.append(send);
+  o.append(head, opts, wrap, tools); document.body.append(o);
+  const layer = pushLayer(() => close());
+  const close = () => { done = true; clearInterval(tick); o.remove(); };
+  x.onclick = () => closeLayer(layer, close);
+  paint();
+  // frames
+  const frame = async (final) => {
+    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.82));
+    const url = await upload(blob);
+    return api('fun/send', { room, url, target, to, sid, live: !photoOnly, final, kind: photoOnly ? 'photo' : 'doodle' });
+  };
+  const tick = setInterval(async () => {
+    if (photoOnly || !dirty || busy || done) return;
+    busy = true; dirty = false;
+    try { const r = await frame(false); sentLive = true; live.classList.toggle('hidden', !r.sent.length); } catch {} finally { busy = false; }
+  }, 1600);
+  send.onclick = async () => {
+    send.disabled = true; send.textContent = 'Sending…';
+    while (busy) await new Promise(r => setTimeout(r, 100));
+    done = true;
+    let r; try { r = await frame(true); } catch (e) { toast(e.message); send.disabled = false; send.textContent = 'Try again'; done = false; return; }
+    closeLayer(layer, close);
+    toast(r.sent.length ? `On ${r.sent.join(', ')}’s ${funTargetName(target)} now` : r.skipped.length ? `${r.skipped.join(', ')} need${r.skipped.length > 1 ? '' : 's'} the Android app to see it` : 'Nobody here allows that screen right now');
+  };
+}
 
 /* ---------------- Hidden chats & privacy mode ---------------- */
 let privacyState = { hasPin: false }, hiddenOpen = false, leftAt = 0;
